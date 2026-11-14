@@ -47,6 +47,7 @@ def demo_form() -> List[dict]:
     """The demo crew as Mission Control's form fills it (the 'fill with demo crew' button)."""
     pins = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
     return [{"seat": c["id"], "name": c["name"], "role": c["role"], "home": c["home"], "pin": pins[c["id"]],
+             "prior_dose_msv": None,  # empty: the form shows the estimate from days in space
              **DEMO_RECORDS[c["id"]]} for c in DEMO_CREW]
 
 

@@ -920,7 +920,8 @@ def control_overview():
 @app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
 def control_demo():
     """What the 'fill with the demo crew' button puts in the form."""
-    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
+    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
+            "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"]}
 
 
 BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]
@@ -992,6 +993,7 @@ class MissionRegIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     preset: str
+    rover: Optional[bool] = None  # a pressurized rover leg; left out, the profile's own default (on for Moon and Mars)
 
     @field_validator("launch_date")
     @classmethod
@@ -1015,6 +1017,8 @@ def _check_registration(body: RegisterIn) -> None:
     errs: List[dict] = []
     if body.mission.preset not in plan.PRESETS:
         errs.append({"field": "mission.preset", "message": "Mission profile must be one of: " + ", ".join(plan.PRESETS)})
+    elif body.mission.rover and not plan.has_rover(body.mission.preset):
+        errs.append({"field": "mission.rover", "message": f"{plan.PRESETS[body.mission.preset]['name']} has no rover leg; the rover is for the Moon and Mars profiles"})
     launch = date.fromisoformat(body.mission.launch_date)
     seen: dict = {}
     for i, p in enumerate(body.crew):
@@ -1035,13 +1039,14 @@ def control_register(body: RegisterIn):
     """Register the four crew seats and the mission, then start the mission clock from the beginning."""
     _check_registration(body)
     crew = [s.model_dump() for s in body.crew]
+    rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
     try:
-        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], body.mission.model_dump())
+        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], {**body.mission.model_dump(), "rover": rover})
     except ValueError as e:
         raise HTTPException(400, str(e))
     for p in crew:
         auth.set_pin(p["seat"], p["pin"])
-    plan.use_preset(body.mission.preset)
+    plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
     mission.set_step(0)
     return control_overview()
