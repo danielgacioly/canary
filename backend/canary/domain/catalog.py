@@ -42,19 +42,19 @@ def day_label(day: int, location: str, leg_start: int = 0) -> str:
 # ---------------------------------------------------------------- crew (fictional)
 CREW: List[dict] = [
     {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
-     "cbc_subject": "C001", "age": 46,
+     "cbc_subject": "C001", "age": 46, "sex": "F",
      "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
               "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40}},
     {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
-     "cbc_subject": "C002", "age": 41,
+     "cbc_subject": "C002", "age": 41, "sex": "M",
      "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
               "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45}},
     {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
-     "cbc_subject": "C003", "age": 38,
+     "cbc_subject": "C003", "age": 38, "sex": "F",
      "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
               "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38}},
     {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
-     "cbc_subject": "C004", "age": 44,
+     "cbc_subject": "C004", "age": 44, "sex": "M",
      "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
               "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48}},
 ]
