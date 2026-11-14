@@ -378,6 +378,91 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
 
 
+def _register(c, **mission):
+    demo = client.get("/api/control/demo", headers=c).json()
+    return client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": {**demo["mission"], **mission}})
+
+
+def _legs():
+    return client.get("/api/plan").json()["legs"]
+
+
+def test_the_demo_form_carries_eva_role_and_the_rover_presets():
+    demo = client.get("/api/control/demo", headers=_ctl()).json()
+    assert [p["eva"] for p in demo["crew"]] == ["surface", "none", "surface", "surface"]
+    assert all("prior_dose_msv" in p for p in demo["crew"])  # empty in the demo: the form shows the estimate
+    assert demo["rover_presets"] == ["mars", "moon"] and demo["iss_dose_msv_per_day"] == catalog.LOCATIONS["iss"]["dose_rate"]
+
+
+@pytest.mark.parametrize("preset,rover_place,body", [("moon", "moon_rover", "moon"), ("mars", "mars_rover", "mars")])
+def test_registering_moon_or_mars_with_or_without_the_rover_leg(preset, rover_place, body):
+    c = _ctl()
+    assert _register(c, preset=preset).status_code == 200  # left out: the profile's default, with the rover
+    with_rover = _legs()
+    assert rover_place in [l["location"] for l in with_rover]
+    assert _register(c, preset=preset, rover=True).status_code == 200 and _legs() == with_rover
+
+    assert _register(c, preset=preset, rover=False).status_code == 200
+    without = _legs()
+    assert rover_place not in [l["location"] for l in without]
+    # the traverse days stay on the surface: same first and last day, no gap, no overlap, no two neighbours alike
+    assert (without[0]["start"], without[-1]["end"]) == (with_rover[0]["start"], with_rover[-1]["end"])
+    assert all(b["start"] == a["end"] + 1 and a["location"] != b["location"] for a, b in zip(without, without[1:]))
+    assert client.get("/api/mission/overview").json()["legs"] == without
+    assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 200
+
+
+def test_the_rover_is_refused_for_profiles_without_one_and_nothing_is_saved():
+    c = _ctl()
+    assert "mission.rover" in _fields(_register(c, preset="iss", rover=True))
+    assert client.get("/api/plan").json()["preset"] == "mars" and "mars_rover" in [l["location"] for l in _legs()]  # the demo is still in force
+    assert _register(c, preset="iss", rover=False).status_code == 200
+    assert _register(c, preset="iss").status_code == 200  # left out: no rover, no error
+    assert not any(l["location"].endswith("_rover") for l in _legs())
+    assert "mission.rover" in _fields(_register(c, preset="mars", rover="maybe"))
+
+
+def test_eva_role_and_prior_dose_reach_my_information_and_the_medical_team():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    crew = [dict(p) for p in demo["crew"]]
+    crew[0].update(eva="microgravity", prior_dose_msv=120.5)
+    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
+    r = client.get("/api/crew/h/record", headers=as_("h")).json()
+    assert r["eva"] == "microgravity" and r["prior_dose_msv"] == 120.5
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    assert d["standard_profile"]["eva"] == "microgravity" and d["dose"]["prior_msv"] == 120.5 and not d["dose"]["prior_estimate"]
+
+
+def _rows(x):
+    """Every dict that describes one person (it has initials), at any depth. A place has an id and a name too, and its own `eva`."""
+    if isinstance(x, dict):
+        if "id" in x and "initials" in x:
+            yield x
+        for v in x.values():
+            yield from _rows(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _rows(v)
+
+
+def test_mission_and_control_overviews_carry_no_eva_role_or_prior_dose_per_person():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    crew = [dict(p) for p in demo["crew"]]
+    crew[0].update(eva="microgravity", prior_dose_msv=120.5)  # a marker that would show if it leaked
+    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
+    mission_ov, control_ov = client.get("/api/mission/overview"), client.get("/api/control/overview", headers=c)
+    for name, body in {"mission overview": mission_ov.json(), "control overview": control_ov.json(),
+                       "crew overview": client.get("/api/crew/overview").json()}.items():
+        rows = list(_rows(body))
+        assert rows, name
+        for row in rows:
+            assert not {"eva", "prior_dose_msv", "prior_dose", "prior_msv", "prior_estimate"} & set(row), (name, row)
+    assert not {"eva", "prior_dose_msv", "prior_msv"} & set(_keys(client.get("/api/leaderboard").json()))
+    assert "120.5" not in mission_ov.text and "120.5" not in control_ov.text
+
+
 def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
     at(2)  # transit: 10 minutes each way, 20x faster in the demo = 15 s
     client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Confirm the crew is in the shelter."})
