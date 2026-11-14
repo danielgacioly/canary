@@ -2,10 +2,11 @@
 
 # The virtualenv keeps its programs in .venv/bin on macOS and Linux and in .venv/Scripts on Windows.
 VENV_BIN := .venv/$(if $(filter Windows_NT,$(OS)),Scripts,bin)
-PYTHON ?= python3
+# Pinned deps (pydantic-core) ship wheels up to Python 3.13; prefer a supported interpreter.
+PYTHON ?= $(shell for p in python3.13 python3.12 python3.11 python3 python; do command -v $$p >/dev/null 2>&1 && echo $$p && break; done)
 
-setup:            ## install backend and frontend dependencies
-	cd backend && $(PYTHON) -m venv .venv && $(VENV_BIN)/pip install -r requirements.txt
+setup:            ## install backend and frontend dependencies (recreates backend/.venv)
+	cd backend && rm -rf .venv && $(PYTHON) -m venv .venv && $(VENV_BIN)/pip install -r requirements.txt
 	cd frontend && npm install
 
 api:              ## API on http://localhost:8000 (docs at /docs)
