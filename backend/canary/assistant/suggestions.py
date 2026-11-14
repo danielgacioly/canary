@@ -11,7 +11,7 @@ from typing import Dict, List
 
 
 from .. import db
-from ..domain import goals, health, mission, telemetry
+from ..domain import goals, health, mission, risk, telemetry
 from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS
 from . import guard
 from .providers import ProviderRequest, get_provider
@@ -43,6 +43,7 @@ def facts(crew_id: str) -> dict:
     ms = mission.state()
     snap = health.snapshot(crew_id, ms)
     ind = snap["indicators"]
+    fat = risk.get(snap["risks"], "fatigue")
     place = LOCATIONS[ms["location"]]
     leg = ms["leg"]
     nxt = leg.get("next")
@@ -51,6 +52,8 @@ def facts(crew_id: str) -> dict:
         "location": ms["location"], "gravity_key": place["gravity_key"], "reply": place["reply"],
         "ind": {k: {"value": _r(v["value"], v["dp"]), "normal": _r(v["baseline"], v["dp"]), "unit": v["unit"],
                     "level": v["level"], "source": v["source"]} for k, v in ind.items()},
+        "risk": {"fatigue": {"level": fat["level"], "trend": fat["trend"], "since_day": fat["since_day"],
+                             "signals": [e.get("indicator") or e["checkin"] for e in fat["evidence"]]}},
         "week": _week_counts(crew_id, ms["day"]),
         "exercise_target": EXERCISE_BY_PLACE[ms["location"]][1],
         "next_leg": {"location": nxt["location"], "label": nxt.get("label") or LOCATIONS[nxt["location"]]["name"],
@@ -67,6 +70,7 @@ def _pick(options: List[str], crew_id: str, day: int) -> str:
 
 def candidates(f: dict) -> List[dict]:
     i, w, out = f["ind"], f["week"], []
+    fat = f["risk"]["fatigue"]  # the same layer the alerts use: no limits of our own in this file
     src = lambda *ks: [i[k]["source"] for k in ks if k in i]  # noqa: E731
 
     def add(sid, area, priority, title, why, steps, goal, sources):
@@ -74,35 +78,36 @@ def candidates(f: dict) -> List[dict]:
                     "goal": goal, "sources": sources})
 
     wb = f["wellbeing"]
-    if wb and max(wb.get("phq2", 0), wb.get("gad2", 0)) >= 3:
+    if wb and "wellbeing" in fat["signals"]:
         add("talk", "mental", 95, "Talk to someone this week",
             "Your wellbeing answers showed low mood or worry on more than half the days of the last two weeks.",
             ["Book 15 minutes with the medical officer", "Record a private message for the mission psychologist", "Tell one crewmate how you really are"],
             "Book 15 minutes with the medical officer", [f"checkin:{f['crew_id']}:wellbeing:day{wb['day']}"])
 
     s = i["sleep"]
-    if s["level"] or s["value"] < s["normal"] - 0.4:
+    if s["level"] or "sleep" in fat["signals"]:
         add("sleep", "mental", 90, "Protect your sleep window",
             f"You are sleeping {s['value']} h against your normal {s['normal']} h.",
             ["Same lights-out time every night, within 30 minutes", "Amber light only, 2 hours before bed", "No screens after 21:00"],
             "Lights out at the same time tonight", src("sleep"))
 
     k = f["kss"]
-    if k and int(k.get("level", 0)) >= 7:
+    if k and i["kss"]["level"]:
         add("nap", "mental", 85, "Take a short nap before precise work",
             f"You rated your sleepiness {k['level']} of 9 today.",
             ["20 minutes, no longer, with an alarm", "Retake the reaction test after it", "Hand over precise tasks until then"],
             "A 20-minute nap before your next precise task", [f"checkin:{f['crew_id']}:kss:day{k['day']}"])
 
     soc = i["social"]
-    if soc["level"] or soc["value"] < soc["normal"] * 0.9 or w.get("social", 0) <= 3:
+    if soc["level"] or w.get("social", 0) <= 3:
         add("social", "mental", 80, "More time with the crew, off duty",
-            f"Time with the crew is {soc['value']} min a day against your normal {soc['normal']} min, and you met the crew-time goal on {w.get('social', 0)} of the last 7 days.",
+            (f"Time with the crew is {soc['value']} min a day against your normal {soc['normal']} min, and " if soc["level"] else "")
+            + f"you met the crew-time goal on {w.get('social', 0)} of the last 7 days.",
             ["Ask someone to share a meal today", "Suggest a film or game night this week", "Ten minutes of talk that is not about work"],
             "Share one meal with someone today", src("social"))
 
     ex = i["exer"]
-    if not f["learning"] and ex["value"] < f["exercise_target"] * 0.85:
+    if not f["learning"] and ex["level"]:
         add("exercise", "physical", 78, "Win back your exercise minutes",
             f"You average {ex['value']} min a day; the target here is {f['exercise_target']} min.",
             ["Book your exercise slot first thing in the day", "Split it in two blocks if the schedule is tight", "Resistance first, cardio second"],
@@ -116,14 +121,14 @@ def candidates(f: dict) -> List[dict]:
             "Resistance session with squats and deadlifts", src("bone"))
 
     st, md = i["stress"], i["mood"]
-    if st["value"] > st["normal"] + 0.4 or md["value"] < md["normal"] - 0.4:
+    if st["level"] or md["level"]:
         add("breathe", "mental", 70, "Ten minutes of slow breathing after shift",
             f"Stress is {st['value']} of 5 against your normal {st['normal']}, mood {md['value']} against {md['normal']}.",
             ["Breathe in for 4, out for 6, for 10 minutes", "Same time and place each day", "Log your mood afterwards"],
             "10 minutes of slow breathing after shift", src("stress", "mood"))
 
     wa = i["water"]
-    if wa["value"] < wa["normal"] - 0.3:
+    if wa["level"]:
         add("water", "physical", 65, "Drink before you are thirsty",
             f"You drink {wa['value']} L a day against your normal {wa['normal']} L. Thirst fades in space.",
             ["A full bag with every meal", "One more between meals, at a set time", "Watch urine colour"],
@@ -146,7 +151,7 @@ def candidates(f: dict) -> List[dict]:
              if to_weight else ["Practise moving slowly with head still", "Pack motion-sickness medication you know works", "Hydrate well the day before"]),
             "Leg and balance work today", [])
 
-    if w.get("leisure", 0) <= 3 or md["value"] < md["normal"]:
+    if w.get("leisure", 0) <= 3 or md["level"]:
         others = [c for c in CREW if c["id"] != f["crew_id"]]
         mate = others[int(telemetry.h01(f"mate:{f['crew_id']}:{f['day'] // 7}") * len(others)) % len(others)]
         hobby = _pick(HOBBIES[f["gravity_key"]] + [f"Learn ten words of {LANGUAGE[mate['id']]} a day with {mate['name'].split(' ')[0]}"], f["crew_id"], f["day"])
