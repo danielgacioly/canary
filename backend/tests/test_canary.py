@@ -578,7 +578,8 @@ def test_vitals_outside_what_can_be_typed_are_refused():
     _day(100)
     for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"bp": 0}, {"hr": "fast"}):
         r = _checkin("a", "vitals", bad)
-        assert r.status_code == 400, bad
+        assert r.status_code == 422, bad  # was 400 before every bad input answered with the same {field, message} shape
+        assert r.json()["detail"][0]["field"] in ("hr", "bp", "temp", "spo2")
     assert _checkin("a", "vitals", {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
     latest = {t["id"]: t["latest"] for t in client.get("/api/checkins/a", headers=as_("a")).json()["tests"]}
     assert latest["vitals"]["payload"]["hr"] == 62
@@ -1498,3 +1499,142 @@ def test_the_indicator_guide_maps_to_ids_canary_has():
     readme = (d / "README.md").read_text(encoding="utf-8")
     for ind in set(catalog.INDICATORS) - covered:  # the README names every indicator the guide leaves without text
         assert f"`{ind}`" in readme.split("does not cover")[1], ind
+
+
+# ---------------------------------------------------------------- input checks: every form refuses bad input with {field, message}
+def _fields(r):
+    assert r.status_code == 422, r.text
+    d = r.json()["detail"]
+    assert isinstance(d, list) and all(set(e) == {"field", "message"} for e in d)
+    return {e["field"]: e["message"] for e in d}
+
+
+def _ctl():
+    return {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+
+
+def _tests_count(cid, kind):
+    t = {x["id"]: x for x in client.get(f"/api/checkins/{cid}", headers=as_(cid)).json()["tests"]}
+    return t[kind].get("count", 1 if t[kind]["latest"] else 0)
+
+
+@pytest.mark.parametrize("kind,payload,field,text", [
+    ("vitals", {"hr": 10}, "hr", "Pulse must be between 25 and 250 bpm"),
+    ("vitals", {"bp": 300}, "bp", "between 60 and 260 mmHg"),
+    ("vitals", {"temp": 36.55}, "temp", "decimal place"),
+    ("vitals", {"spo2": 97.5}, "spo2", "whole number"),
+    ("vitals", {"hr": None, "bp": None}, "form", "Type at least one value"),
+    ("vitals", {"hr": "abc"}, "hr", "must be a number"),
+    ("sleep", {"bed": "23:00", "wake": "23:30", "quality": 3}, "wake", "between 1 and 16 h"),
+    ("sleep", {"bed": "", "wake": "07:00"}, "bed", "required"),
+    ("reading", {"title": "  ", "minutes": 20}, "title", "required"),
+    ("reading", {"title": "Dune", "minutes": 601}, "minutes", "between 1 and 600"),
+    ("reading", {"title": "Dune", "minutes": 20, "pages": 2001}, "pages", "between 0 and 2000"),
+    ("journal", {"lines": 0}, "lines", "between 1 and 3"),
+    ("wellbeing", {"answers": [1, 1, -1, 1]}, "answers.2", "needs an answer"),
+    ("symptoms", {"items": ["Headache"], "severity": 0}, "severity", "how strong"),
+    ("symptoms", {"items": ["Toothache"], "severity": 1}, "items", "from the list"),
+    ("mood", {"mood": 5}, "stress", "required"),
+    ("dsst", {"correct": "many"}, "correct", "must be a number"),
+    ("span", {"span": None}, "span", "required"),
+])
+def test_a_bad_check_in_is_refused_with_the_field_and_nothing_is_saved(kind, payload, field, text):
+    _day(100)
+    before = db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"]
+    f = _fields(_checkin("a", kind, payload))
+    assert field in f and text in f[field], f
+    assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before
+
+
+def test_a_valid_check_in_of_each_kind_still_saves():
+    _day(100)
+    ok = {"vitals": {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}, "sleep": {"bed": "23:00", "wake": "07:00", "quality": 4},
+          "reading": {"title": "Dune", "minutes": 25, "pages": None, "absorbing": 4}, "journal": {"lines": 2},
+          "wellbeing": {"answers": [0, 1, 2, 3]}, "symptoms": {"items": [], "severity": 0, "note": ""},
+          "tlx": {"scores": {"mental": 50, "physical": 20}}, "kss": {"level": 3}, "pvt": {"ms": 320}, "amsler": {"distortion": False},
+          "dsst": {"correct": 40, "errors": 2}, "span": {"span": 6}, "mood": {"mood": 4, "stress": 2}}
+    for kind, payload in ok.items():
+        assert _checkin("a", kind, payload).status_code == 200, kind
+
+
+def test_medical_goal_messages_thresholds_and_questions_refuse_bad_input_and_write_nothing():
+    med = _med()
+    goals_before = len(client.get("/api/medical/goals", headers=med).json())
+    base = {"who": "all", "area": "physical", "title": "Walk 30 minutes", "why": "Keeps the legs working.", "days": 7}
+    for patch, field in (({"title": "ab"}, "title"), ({"title": "   "}, "title"), ({"why": "x" * 201}, "why"), ({"days": 0}, "days"),
+                         ({"days": 61}, "days"), ({"days": 2.5}, "days"), ({"who": "zz"}, "who")):
+        assert field in _fields(client.post("/api/medical/goals", json={**base, **patch}, headers=med)), patch
+    assert len(client.get("/api/medical/goals", headers=med).json()) == goals_before
+    assert client.post("/api/medical/goals", json=base, headers=med).status_code == 200
+
+    n = len(client.get("/api/messages").json())
+    for text in ("", "   ", "x" * 1001):
+        assert "text" in _fields(client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": text}))
+    assert len(client.get("/api/messages").json()) == n
+    assert client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Hello"}).status_code == 200
+
+    before = db.get_setting("thresholds")
+    assert "act" in _fields(client.put("/api/medical/thresholds", json={"watch": 2.0, "act": 1.5}, headers=med))
+    assert "watch" in _fields(client.put("/api/medical/thresholds", json={"watch": 9, "act": 3}, headers=med))
+    assert db.get_setting("thresholds") == before  # the refused values were not stored
+    assert client.put("/api/medical/thresholds", json={"watch": 1.0, "act": 2.0}, headers=med).status_code == 200
+    assert db.get_setting("thresholds") == {"watch": 1.0, "act": 2.0} != before
+
+    h = as_("h")
+    asked = len(client.get("/api/assistant/history/h", headers=h).json())
+    for q in ("", "   ", "x" * 501):
+        assert "question" in _fields(client.post("/api/assistant/ask", json={"crew_id": "h", "question": q}, headers=h))
+    assert len(client.get("/api/assistant/history/h", headers=h).json()) == asked
+
+
+def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    names = [p["name"] for p in client.get("/api/catalog").json()["crew"]]
+    good = {"crew": demo["crew"], "mission": demo["mission"]}
+
+    def bad(seat, **patch):
+        crew = [dict(p) for p in good["crew"]]
+        crew[seat].update(patch)
+        return _fields(client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c))
+
+    assert "crew.1.name" in bad(1, name="K")
+    assert "crew.0.role" in bad(0, role="")
+    assert "crew.2.pin" in bad(2, pin="12a4")
+    assert "already used by seat 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
+    assert "crew.0.dob" in bad(0, dob="2030-01-01") and "crew.0.dob" in bad(0, dob="1900-01-01") and "crew.0.dob" in bad(0, dob="1990-02-31")
+    assert "at least 140" in bad(1, height_cm=100)["crew.1.height_cm"]
+    assert "crew.1.weight_kg" in bad(1, weight_kg=200)
+    assert "crew.2.blood_type" in bad(2, blood_type="Z+") and "crew.2.skin_type" in bad(2, skin_type="VII")
+    assert "crew.0.flights" in bad(0, flights=21) and "crew.0.days_in_space" in bad(0, days_in_space=1001)
+    assert "crew.0.prior_dose_msv" in bad(0, prior_dose_msv=601) and "crew.0.eva" in bad(0, eva="moon")
+    assert set(bad(0, name="", pin="1")) == {"crew.0.name", "crew.0.pin"}  # all at once, not one by one
+    assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names  # nothing was registered
+
+    def bad_mission(**patch):
+        return _fields(client.post("/api/control/register", json={"crew": good["crew"], "mission": {**good["mission"], **patch}}, headers=c))
+
+    assert "mission.callsign" in bad_mission(callsign="K") and "mission.callsign" in bad_mission(callsign="x" * 25)
+    assert "mission.name" in bad_mission(name="  ") and "mission.launch_date" in bad_mission(launch_date="2035-13-40")
+    assert "mission.preset" in bad_mission(preset="venus")
+    assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names
+
+    crew = [dict(p) for p in good["crew"]]
+    crew[0]["name"] = "Ana Lima"
+    assert client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c).status_code == 200
+
+
+def test_auth_errors_keep_their_plain_shape():
+    assert client.get("/api/control/overview").status_code == 401 and isinstance(client.get("/api/control/overview").json()["detail"], str)
+    assert client.get("/api/crew/h/record", headers=as_("k")).status_code == 403
+
+
+def test_nan_and_null_numbers_in_the_raw_json_are_refused_not_saved():
+    _day(100)
+    before = db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"]
+    h = {**as_("a"), "Content-Type": "application/json"}
+    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":NaN}}', headers=h)
+    assert "hr" in _fields(r)
+    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":null,"bp":null,"temp":null,"spo2":null}}', headers=h)
+    assert "form" in _fields(r)
+    assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before

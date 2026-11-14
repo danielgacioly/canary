@@ -13,16 +13,17 @@ from datetime import date, timedelta
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry
+from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 def _warm_story() -> None:
@@ -51,6 +52,64 @@ async def lifespan(_app):
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
               description="Crew health monitoring for space missions. NASA Space Apps Challenge 2026.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+# ---------------------------------------------------------------- one error shape for every bad input
+# 422 with `detail: [{"field": "crew.1.dob", "message": "Date of birth is required"}]`. The web form maps each
+# item onto its field. Auth errors (401, 403, 429) and the other HTTPExceptions keep their plain-string detail.
+_LABELS = {
+    "pin": "PIN", "dob": "Date of birth", "name": "Name", "role": "Role", "height_cm": "Height", "weight_kg": "Weight",
+    "blood_type": "Blood type", "skin_type": "Skin type", "flights": "Previous flights", "days_in_space": "Days in space",
+    "callsign": "Callsign", "launch_date": "Launch date", "text": "Message", "question": "Question", "title": "Goal",
+    "why": "Why", "days": "Days", "watch": "Watch threshold", "act": "Act threshold", "prior_dose_msv": "Earlier dose",
+    "eva": "EVA role", "home": "Home city", "sex": "Sex", "agency": "Agency", "nationality": "Nationality", "preset": "Mission profile",
+    "diet": "Diet", "vision": "Vision", "vaccinations": "Vaccinations", "emergency_contact": "Emergency contact", "handedness": "Dominant hand",
+    "area": "Area", "who": "For", "data_url": "Photo", "factor": "Care sensitivity", "step": "Step", "day": "Day",
+}
+_UNITS = {"height_cm": "cm", "weight_kg": "kg", "days_in_space": "days", "prior_dose_msv": "mSv", "days": "days"}
+
+
+def _field_of(loc) -> str:
+    return ".".join(str(x) for x in loc if x not in ("body", "query", "path"))
+
+
+def _friendly(err: dict) -> str:
+    loc = [x for x in err.get("loc", ()) if not isinstance(x, int)]
+    label = _LABELS.get(loc[-1], str(loc[-1]).replace("_", " ").capitalize()) if loc else "This"
+    unit = _UNITS.get(loc[-1] if loc else "", "")
+    u = f" {unit}" if unit else ""
+    ctx, kind = err.get("ctx") or {}, err.get("type", "")
+    if kind == "missing":
+        return f"{label} is required"
+    if kind == "string_too_short":
+        return f"{label} is required" if ctx.get("min_length") == 1 else f"{label} must be at least {ctx.get('min_length')} characters"
+    if kind == "string_too_long":
+        return f"{label} must be at most {ctx.get('max_length')} characters"
+    if kind in ("greater_than_equal", "less_than_equal", "greater_than", "less_than"):
+        lo = {"greater_than_equal": ctx.get("ge"), "greater_than": ctx.get("gt")}
+        hi = {"less_than_equal": ctx.get("le"), "less_than": ctx.get("lt")}
+        return f"{label} must be {'at least' if kind in lo else 'at most'} {(lo.get(kind) if kind in lo else hi.get(kind))}{u}"
+    if kind in ("int_parsing", "float_parsing", "int_from_float", "int_type", "float_type"):
+        return f"{label} must be {'a whole number' if kind.startswith('int') else 'a number'}"
+    if kind == "string_pattern_mismatch":
+        return f"{label} must be exactly 4 digits" if loc and loc[-1] == "pin" else f"{label} has the wrong format"
+    if kind == "value_error":
+        return str(err.get("msg", "")).removeprefix("Value error, ")
+    return f"{label}: {err.get('msg', 'not accepted')}"
+
+
+def _unprocessable(errors: list) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+@app.exception_handler(RequestValidationError)
+async def _on_request_validation(_req: Request, exc: RequestValidationError):
+    return _unprocessable([{"field": _field_of(e["loc"]), "message": _friendly(e)} for e in exc.errors()])
+
+
+@app.exception_handler(validation.ValidationFailure)
+async def _on_field_error(_req: Request, exc: validation.ValidationFailure):
+    return _unprocessable(exc.errors)
 
 
 def _crew(crew_id: str) -> dict:
@@ -447,9 +506,7 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     """A test or log from the Tests page (or a quick check from My space). Private: self and medical team."""
     _crew(body.crew_id)
     require_self(body.crew_id, v)
-    err = selftests.validate(body.kind, body.payload)
-    if err:
-        raise HTTPException(400, err)
+    selftests.validate(body.kind, body.payload)  # raises FieldError: 422 {field, message}, nothing written
     day = mission.state()["day"]
     p = selftests.normalise(body.kind, body.payload)
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
@@ -559,9 +616,10 @@ def emergencies():
 
 # ---------------------------------------------------------------- messages with communication delay
 class MessageIn(BaseModel):
-    sender: str
-    recipient: str
-    text: str = Field(min_length=1, max_length=2000)
+    model_config = ConfigDict(str_strip_whitespace=True)
+    sender: str = Field(min_length=1, max_length=60)
+    recipient: str = Field(min_length=1, max_length=60)
+    text: str = Field(min_length=1, max_length=1000)
 
 
 @app.post("/api/messages", tags=["messages"])
@@ -610,6 +668,7 @@ def nasa_sources():
 
 # ---------------------------------------------------------------- AI assistant slot
 class AskIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     crew_id: str
     question: str = Field(min_length=1, max_length=500)
 
@@ -733,23 +792,24 @@ class ThresholdsIn(BaseModel):
 @app.put("/api/medical/thresholds", tags=["medical"], dependencies=[Depends(require_medical)])
 def put_thresholds(body: ThresholdsIn):
     if body.act <= body.watch:
-        raise HTTPException(400, "act must be above watch")
+        raise validation.FieldError("act", f"Act ({body.act}) must be above watch ({body.watch})")
     db.set_setting("thresholds", {"watch": body.watch, "act": body.act})
     return health.thresholds()
 
 
 class MedGoalIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     who: str
     area: str = Field(pattern="^(physical|mental)$")
-    title: str = Field(min_length=3, max_length=140)
-    why: str = Field(default="Prescribed by the medical team.", max_length=280)
+    title: str = Field(min_length=3, max_length=120)
+    why: str = Field(default="Prescribed by the medical team.", max_length=200)
     days: int = Field(default=7, ge=1, le=60)
 
 
 @app.post("/api/medical/goals", tags=["medical"], dependencies=[Depends(require_medical)])
 def add_med_goal(body: MedGoalIn):
-    if body.who != "all":
-        _crew(body.who)
+    if body.who != "all" and body.who not in CREW_BY_ID:
+        raise validation.FieldError("who", "Pick a crew member or the whole crew")
     day = mission.state()["day"]
     db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
          (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
@@ -832,50 +892,117 @@ def control_demo():
     return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
 
 
+BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]
+SEAT_AGE = (25, 70)       # prototype assumption: plausible astronaut age at launch
+LAUNCH_YEARS = (2025, 2100)
+
+
+def _trim_list(v: List[str], what: str, max_items: int = 20, max_len: int = 60) -> List[str]:
+    out = [x.strip() for x in v if x.strip()]
+    if len(out) > max_items or any(len(x) > max_len for x in out):
+        raise ValueError(f"{what}: at most {max_items} items of {max_len} characters")
+    return out
+
+
 class SeatIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     seat: str = Field(pattern="^(h|k|a|t)$")
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=2, max_length=60)
     role: str = Field(min_length=2, max_length=60)
     home: str = Field(default="", max_length=80)
     pin: str = Field(pattern=r"^\d{4}$")
     dob: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    sex: str = ""
-    nationality: str = ""
+    sex: str = Field(default="", pattern="^(|Female|Male|Other)$")
+    nationality: str = Field(default="", max_length=60)
     languages: List[str] = []
-    agency: str = ""
+    agency: str = Field(default="", max_length=80)
     flights: int = Field(default=0, ge=0, le=20)
-    days_in_space: int = Field(default=0, ge=0, le=2000)
-    height_cm: float = Field(default=170, ge=120, le=220)
-    weight_kg: float = Field(default=70, ge=35, le=160)
+    days_in_space: int = Field(default=0, ge=0, le=1000)
+    height_cm: float = Field(default=170, ge=140, le=210)
+    weight_kg: float = Field(default=70, ge=40, le=150)
     blood_type: str = ""
     skin_type: str = Field(default="III", pattern="^(I|II|III|IV|V|VI)$")
-    handedness: str = "Right"
-    vision: str = ""
+    handedness: str = Field(default="Right", pattern="^(Right|Left)$")
+    vision: str = Field(default="", max_length=80)
     allergies: List[str] = []
     medications: List[str] = []
     conditions: List[str] = []
-    diet: str = ""
-    vaccinations: str = ""
-    emergency_contact: str = ""
+    diet: str = Field(default="", max_length=120)
+    vaccinations: str = Field(default="", max_length=200)
+    emergency_contact: str = Field(default="", max_length=200)
+    eva: Optional[str] = Field(default=None, pattern="^(surface|microgravity|none)$")
+    prior_dose_msv: Optional[float] = Field(default=None, ge=0, le=600)
+
+    @field_validator("blood_type")
+    @classmethod
+    def _blood(cls, v: str) -> str:
+        if v and v not in BLOOD_TYPES:
+            raise ValueError("Blood type must be one of: " + ", ".join(BLOOD_TYPES))
+        return v
+
+    @field_validator("dob")
+    @classmethod
+    def _dob(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("Date of birth is not a real date")
+        return v
+
+    @field_validator("languages", "allergies", "medications", "conditions")
+    @classmethod
+    def _lists(cls, v: List[str]) -> List[str]:
+        return _trim_list(v, "This list")
 
 
 class MissionRegIn(BaseModel):
-    callsign: str = Field(min_length=2, max_length=40)
+    model_config = ConfigDict(str_strip_whitespace=True)
+    callsign: str = Field(min_length=2, max_length=24)
     name: str = Field(min_length=2, max_length=80)
     launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     preset: str
 
+    @field_validator("launch_date")
+    @classmethod
+    def _launch(cls, v: str) -> str:
+        try:
+            d = date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("Launch date is not a real date")
+        if not LAUNCH_YEARS[0] <= d.year <= LAUNCH_YEARS[1]:
+            raise ValueError(f"Launch date must be between {LAUNCH_YEARS[0]} and {LAUNCH_YEARS[1]}")
+        return v
+
 
 class RegisterIn(BaseModel):
-    crew: List[SeatIn]
+    crew: List[SeatIn] = Field(min_length=4, max_length=4)
     mission: MissionRegIn
+
+
+def _check_registration(body: RegisterIn) -> None:
+    """The rules that need more than one field: the profile exists, PINs differ between seats, ages at launch."""
+    errs: List[dict] = []
+    if body.mission.preset not in plan.PRESETS:
+        errs.append({"field": "mission.preset", "message": "Mission profile must be one of: " + ", ".join(plan.PRESETS)})
+    launch = date.fromisoformat(body.mission.launch_date)
+    seen: dict = {}
+    for i, p in enumerate(body.crew):
+        age = validation.age_on(date.fromisoformat(p.dob), launch)
+        if not SEAT_AGE[0] <= age <= SEAT_AGE[1]:
+            errs.append({"field": f"crew.{i}.dob", "message": f"Date of birth gives an age of {age} at launch; it must be between {SEAT_AGE[0]} and {SEAT_AGE[1]}"})
+        if p.pin in seen:
+            errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by seat {seen[p.pin] + 1}; each seat needs its own"})
+        seen.setdefault(p.pin, i)
+    if sorted(p.seat for p in body.crew) != sorted(registry.SEATS):
+        errs.append({"field": "crew", "message": "Register each of the four seats once"})
+    if errs:
+        raise validation.ValidationFailure(errs)
 
 
 @app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
 def control_register(body: RegisterIn):
     """Register the four crew seats and the mission, then start the mission clock from the beginning."""
-    if body.mission.preset not in plan.PRESETS:
-        raise HTTPException(400, "unknown mission profile")
+    _check_registration(body)
     crew = [s.model_dump() for s in body.crew]
     try:
         registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], body.mission.model_dump())
