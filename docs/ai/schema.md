@@ -2,7 +2,7 @@
 
 Readable map of everything the AI layer stores, reads and returns. The code (`backend/canary/db.py`, `assistant/*.py`) must match this file; when one changes, update the other in the same change.
 
-Legend: **existing** = in the code today · **new** = added by [the plan](plan.md).
+Legend: **existing** = in the code before the AI layer · **new** = added by [the plan](plan.md). Everything marked new is built (Waves 0 to 3); this file was reconciled with the code in Wave 3.
 
 ---
 
@@ -51,15 +51,15 @@ Every fact the assistant may state carries a source id. The guard only accepts i
 | `goals` | `goals:{crew}:day{n}` | `goals:h:day147` | `tools.list_goals` | existing |
 | `checkin` | `checkin:{crew}:{kind}:day{n}` | `checkin:a:amsler:day150` | `health.latest_checkin` | existing |
 | `nasa` | `nasa:{dataset}:{key}` | `nasa:rad:2024-05-20` | `domain/nasa` | existing |
-| `card` | `card:{system}` | `card:brain` | `knowledge.system_cards` | existing, **moves to `kb:`** |
-| `protocol` | `protocol:{pid}` | `protocol:seizure` | `protocols.resolve` | existing, **moves to `kb:`** |
+| `card` | `card:{system}` | `card:brain` | `tools.explain_system` | existing, legacy alias of `kb:CARD-*` (still returned) |
+| `protocol` | `protocol:{pid}` | `protocol:seizure` | `tools.get_protocol` (`protocols.resolve`) | existing, legacy alias of `kb:PROTO-*` (still returned) |
 | `kb` | `kb:{doc_id}@{version}#{chunk}` | `kb:PROTO-NEURO-001@1#s2` | `tools.search_knowledge` | **new** |
 | `summary` | `summary:{crew}:day{n}:7d` | `summary:h:day147:7d` | `tools.get_weekly_summary` | **new** |
 
 Rules:
 
 - `kb:` ids are always versioned (`@1`), so an audit can tell which protocol text an answer used.
-- During migration, `card:` and `protocol:` stay valid as aliases of the matching `kb:` document.
+- `card:` and `protocol:` stay valid as aliases of the matching `kb:` document (`kb_map.json` `legacy`): `explain_system` and `get_protocol` still return them, the guard accepts them in `explanations`, and `source_meta` covers only `kb:` ids.
 - An id the model writes that no tool returned is dropped, and the claim with it.
 - `checkin` kinds are the 13 tests and logs of `domain/selftests.TESTS`: `pvt`, `dsst`, `span`, `mood`, `kss`, `tlx`, `wellbeing`, `vitals`, `amsler`, `symptoms`, `sleep`, `reading`, `journal`. A journal check-in stores only a line count, never the text. Alerts `wellbeing`, `sleepy` (KSS ≥ 7) and `symptoms` (severity ≥ 3) cite `checkin:` ids (`domain/health.py`).
 - Knowledge document ids (§3) are `PROTO-*`, `CARD-*`, `LOC-*`, `NASA-*`, `HAZARD-{R,I,D,G,E}`, `PRIVACY-CONTRACT` and `TEST-{id}` (e.g. `kb:TEST-KSS@1#summary`).
@@ -93,17 +93,20 @@ erDiagram
         TEXT section "summary | step | variant | after"
         TEXT gravity "g0 | gp | g1 | any"
         TEXT location "earth | rocket | iss | moon | transit | mars | any"
+        TEXT not_in "',mars,' places where a more specific variant replaces this chunk"
+        TEXT title "document title, also indexed"
         TEXT text
+        TEXT keywords "plain-language words, lexical search only, never shown"
         INTEGER tokens
     }
     kb_chunks_fts {
-        TEXT text "FTS5, porter tokenizer, rowid = kb_chunks.rowid"
+        TEXT title_text_keywords "FTS5(title, text, keywords), porter unicode61, rowid = kb_chunks.rowid"
     }
     kb_vec {
-        FLOAT embedding "vec0 float[384], rowid = kb_chunks.rowid"
+        FLOAT embedding "vec0 float[384] distance_metric=cosine, rowid = kb_chunks.rowid"
     }
     kb_meta {
-        TEXT key PK "embedder | dims | built_at | corpus_hash"
+        TEXT key PK "embedder | dims | built_at | corpus_hash | chunker"
         TEXT value
     }
 ```
@@ -139,6 +142,18 @@ The legacy-to-new mapping lives in `backend/canary/data/kb_map.json` (one place,
 | Self-test | `#summary` (what it measures, how long, what a high or low score means; never a diagnosis) |
 
 Chunks are short (one step or one card) so a search result is a quotable unit, not a page.
+
+### Search (`assistant/kb/`)
+
+| File | Role |
+| --- | --- |
+| `kb/__init__.py` | `search(query, kind, k, gravity, place) -> list[Chunk]` (never raises; `[]` on any failure), `KINDS`, legacy-id lookup from `kb_map.json` |
+| `kb/corpus.py` | builds every document and chunk from the domain modules and `kb_map.json` |
+| `kb/build.py` | writes `kb.db` (`make index` = `python -m canary.assistant.kb.build`); reuses vectors whose text did not change |
+| `kb/embed.py` | `local` embedder (fastembed `bge-small-en-v1.5`, 384 dims) or `none` |
+| `kb/hybrid.py` | BM25 (FTS5) + cosine search, fused, filtered by gravity and place; builds `kb.db` on first use if it is missing |
+
+Evidence floors: a match counts only with `-bm25 ≥ 2.0` or cosine `≥ 0.66`, and a lexical match needs at least one specific term (generic words such as *team*, *best*, *day* do not count alone, plan.md W1-3). With no embedder, or no sqlite-vec, search is BM25 only and still works offline.
 
 The place and gravity filters read `mission.state()["location"]`, which follows the mission plan (`domain/plan.py`: `location_at(day)`, presets `mars` / `iss` / `moon`) unless a location override is set; gravity is `catalog.LOCATIONS[location]["gravity_key"]`.
 
@@ -276,13 +291,34 @@ Allowed actions (the model picks one, it never invents one):
 | `mode` | existing | `ai`, `grounded`, `unknown`, `refused`, `emergency`, `fallback` (new value) |
 | `answer`, `claims`, `sources`, `tools_used`, `dropped`, `provider`, `provider_error`, `id` | existing | `claims` = observations + explanations that survived the guard |
 | `status`, `observations`, `explanations`, `limitations`, `recommended_action` | **new** | from `AssistantResponse`; `recommended_action` is resolved to `{id, label}` |
-| `guard` | **new** | `{dropped_claims, rejected_numbers, reason}` for the reliability demo |
+| `guard` | **new** | `{dropped_claims: [{field, statement, rule_id}], rejected_numbers: string[], reason, rule_ids: string[]}` for the reliability demo; `reason` is a rule id (precheck), a postcheck reason, or a loop/API exit such as `loop:max_steps: …` |
+| `model`, `prompt_version` | **new** | model id that answered (null without a provider) and the system prompt version (`system_v1`) |
+| `source_meta` | **new** | `{kb id: {title, version (int), text}}` for every `kb:` id `search_knowledge` returned this turn and the answer cites |
+
+`mode` values: `ai` (model answer that passed postcheck) · `grounded` (no provider set, or the provider is not configured: rule answer from `route()`) · `fallback` (a set provider failed, hit a loop guard, or its answer failed postcheck: rule answer from `route()`) · `unknown` (no provider and `route()` found nothing) · `refused` / `emergency` (precheck, no model call).
+
+### Guard flags (`assistant_log.guard_flags`, audit `guard_flags`)
+
+Rule ids from `data/guard_rules.json` (`G-DOSE-02`, `G-SRC-01`, `G-NUM-01`, `G-PRIV-01`, `G-ACT-01`…) plus the loop and API exits of `providers.GUARD_EXITS`:
+
+| Flag | Ends the loop | Meaning |
+| --- | --- | --- |
+| `loop:max_steps` | yes | more than `CANARY_LLM_MAX_STEPS` model rounds needed |
+| `loop:timeout` | yes | the question's deadline passed before a round |
+| `loop:max_tool_calls` | no | the tool budget was used up; later calls got an `is_error` result and the loop went on |
+| `loop:repeat` | no | a repeated call (same tool and arguments) got the cached result plus a note |
+| `model:refusal`, `model:max_tokens`, `model:bad_output` | yes | stop reason or unparsable JSON |
+| `api:timeout`, `api:rate_limit`, `api:connection`, `api:status`, `api:error` | yes | SDK errors (no SDK retries) |
+
+### Audit route
+
+`GET /api/medical/assistant-audit?limit=30` (medical token, `limit` 1..200) returns `AssistantAuditEntry[]`, newest first: `{id, crew_id, question, created_at, mode, status, provider, model, kb_version, tools: string[], guard_flags: string[], latency_ms}`. No answer text. `tools` comes from `assistant_turns`, or from the rule path's `tools_used` when no model ran.
 
 ### AI entries
 
 | Entry (`ProviderRequest.task`) | Route | Tools | Output | Check |
 | --- | --- | --- | --- | --- |
-| `chat` | `POST /api/assistant/ask` (`require_self`) | yes | `AssistantResponse` | `guard.postcheck` |
+| `chat` | `POST /api/assistant/ask` (`require_self`) → `chat.ask(crew_id, question, viewer=main.viewer())` | yes | `AssistantResponse` | `guard.postcheck` |
 | `briefing` | `POST /api/briefings` (`require_self`) | no | `BriefingDraft` (§7) | numbers in `facts`, sources |
 | `suggestions` | `GET /api/suggestions/{crew_id}` (astronaut only, not medical) | no | JSON list `[{id, why}]` rephrasing each `why` | `guard.unknown_numbers(text, facts_blob)`; on failure the rule text stays |
 

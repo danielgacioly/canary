@@ -104,7 +104,7 @@ File: `assistant/tools.py`.
 
 Files: `assistant/providers.py`, `assistant/chat.py`, `main.py` (assistant routes).
 
-**Entry points.** `/api/assistant/ask` already calls `require_self`; it then builds the `ToolContext` from `viewer()` (`viewer = v["id"]` when it is the bound person, otherwise `"medical"`; `medical = v["medical"]`) and passes it to `chat.ask`. Three AI entries share `complete()` / `ProviderRequest` (`contracts.AI_ENTRIES`): `chat` (tools, below), `briefing` and `suggestions` (no tools). Suggestions stay astronaut-only (`/api/suggestions` returns 403 to the medical team) and keep their current contract: a JSON list `[{id, why}]`, every rewrite checked with `guard.unknown_numbers`, the rule text kept on any failure. The no-provider test expecting `mode == "rules"` must stay green.
+**Entry points.** `/api/assistant/ask` already calls `require_self`; it then calls `chat.ask(crew_id, question, viewer=v)`, which builds the `ToolContext` from `v` (`viewer = v["id"]` when it is the bound person, otherwise `"medical"`; `medical = v["medical"]`; `viewer=None` means the person themself, for direct callers). Three AI entries share `complete()` / `ProviderRequest` (`contracts.AI_ENTRIES`): `chat` (tools, below), `briefing` and `suggestions` (no tools). Suggestions stay astronaut-only (`/api/suggestions` returns 403 to the medical team) and keep their current contract: a JSON list `[{id, why}]`, every rewrite checked with `guard.unknown_numbers`, the rule text kept on any failure. The no-provider test expecting `mode == "rules"` must stay green.
 
 ### The loop
 
@@ -142,10 +142,11 @@ question
 | Guard | Rule |
 | --- | --- |
 | Rounds | at most `CANARY_LLM_MAX_STEPS` (3) model calls per question |
-| Tool calls | at most `CANARY_LLM_MAX_TOOL_CALLS` (6) in total; extra calls get an `is_error` result saying the budget is used up |
+| Tool calls | at most `CANARY_LLM_MAX_TOOL_CALLS` (6) in total; extra calls get an `is_error` result saying the budget is used up, and the loop **continues** (decided in Wave 3): the model gets the chance to answer from what it has until the rounds run out. Flag `loop:max_tool_calls` is logged but does not end the loop |
 | Repeats | the same tool with the same arguments runs once; a repeat gets the cached result plus a note, not a new call |
 | Time | one deadline for the whole question (`CANARY_LLM_TIMEOUT_S`), checked before each round |
-| Exit | hitting any guard ends the loop and returns the grounded answer with `mode: "fallback"` and the guard that fired |
+| Exit | `loop:max_steps`, `loop:timeout`, a refusal, `max_tokens`, bad JSON or an API error ends the loop and returns the grounded answer with `mode: "fallback"` and the flag that fired (`guard.reason`, `assistant_log.guard_flags`). `loop:repeat` and `loop:max_tool_calls` are notes only |
+| Modes | no provider set (or not configured) → `mode: "grounded"`; a set provider that fails or whose answer fails postcheck → `mode: "fallback"`. Both use `route()` |
 
 ### System prompt (English, versioned)
 
@@ -167,7 +168,7 @@ Same interface. Document what it would need (a small model served through llama.
 
 ## Phase 3 · Vector knowledge base (1.5 days)
 
-Files: new `assistant/kb/` (`build.py`, `embed.py`, `search.py`), new `data/kb_map.json`. Schema: [schema.md §3](schema.md#3-knowledge-base-kbdb--new).
+Files: new `assistant/kb/` (`build.py`, `corpus.py`, `embed.py`, `hybrid.py`; built as `hybrid.py`, not `search.py`), new `data/kb_map.json`. Schema: [schema.md §3](schema.md#3-knowledge-base-kbdb--new).
 
 ### Choices
 
@@ -308,7 +309,7 @@ flowchart LR
         E["E · frontend"]
     end
     A & C --> D
-    subgraph W2["Wave 2 · 4 subagents in parallel"]
+    subgraph W2["Wave 2 · 4 subagents in parallel (done)"]
         D["D · provider loop + briefing"]
         F["F · eval harness"]
         G["G · Wave 1 decisions"]
@@ -316,7 +317,7 @@ flowchart LR
     end
     B --> D
     W1 --> F & G & H
-    D & F & G & H --> W3["Wave 3 · main session<br/>integration + verification"]
+    D & F & G & H --> W3["Wave 3 · integration + verification (done)"]
 ```
 
 ### Wave 0 · main session (sequential, before any subagent)
@@ -356,7 +357,7 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 | W1-3 | "best football team" retrieves `PRIVACY-CONTRACT` on the word "team" | Off-topic queries must abstain: a match needs at least two meaningful query terms or a vector score above the floor; generic words (team, best, good, day, time…) do not count alone. Add the case to `test_kb.py`. | G |
 | W1-4 | Frontend needs the audit route, source metadata and a direct protocol open | `GET /api/medical/assistant-audit?limit=30` (medical token) returns `AssistantAuditEntry[]` = `{id, crew_id, question, created_at, mode, status, provider, model, kb_version, tools: string[], guard_flags: string[], latency_ms}`; `AssistantAnswer.source_meta?: Record<id, {title, version, text?}>` for `kb:` ids returned that turn; `GuidedResponse` accepts `initialProtocol?: string`. | D (backend), H (frontend) |
 
-### Wave 2 · four subagents in parallel
+### Wave 2 · four subagents in parallel (done)
 
 | Agent | Phase | Owns (may edit) | Reads only | Done when |
 | --- | --- | --- | --- | --- |
@@ -365,12 +366,21 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 | **G · Wave 1 decisions** | 1, 3, 4 | `assistant/guard.py`, `data/guard_rules.json`, `tests/test_guard.py`, `assistant/tools.py`, `tests/test_tools.py`, `assistant/kb/*` (not the `search` signature), `data/kb_map.json`, `tests/test_kb.py` | contracts, domain | W1-1, W1-2, W1-3 done, each with tests; `unknown_numbers`, `precheck`, `postcheck`, `run_tool`, `route` signatures unchanged |
 | **H · frontend wiring** | 6 | `frontend/src/api/types.ts`, `frontend/src/api/client.ts`, `frontend/src/pages/Medical.tsx`, `frontend/src/features/AskCanary.tsx`, `frontend/src/features/GuidedResponse.tsx` (+ the component that opens it, if needed) | backend (W1-4 shapes are the contract) | real `api.assistantAudit()` replaces the placeholder; `source_meta` hover; `protocol:<pid>` opens that protocol; `npm run typecheck` and `npm run build` pass |
 
-### Wave 3 · main session
+### Wave 3 · main session (done, except the paid eval)
 
 1. Read every agent's report and diff (`git diff`), not just its summary.
 2. Fix what crosses boundaries: the old `tests/test_canary.py` (no agent may edit it), README, `schema.md` if a contract had to move.
 3. Run `make test` and `npm run typecheck`.
 4. Run the real eval (`python -m evals.run`) **only after you approve it**, because it calls the paid API. Report pass/fail and cost.
+
+#### Verified (Wave 3, 2026-11-14)
+
+- `pytest -q`: **389 passed** (test_canary 40, test_contracts 30, test_tools 58, test_kb 59, test_guard 161, test_chat_loop 41), no network.
+- `python -m evals.run --dry`: **34/34 passed**, must-pass groups 15/15.
+- `npm run typecheck` and `npm run build`: pass. `make test`: pass.
+- No-model smoke check (TestClient, Mars preset day 147, Helena): "Why is my sleep worse?" → `grounded`, `supported`, cites `telemetry:h:sleep:day147`; "How many ibuprofen can I take?" → `refused` (`G-DOSE-02`), no tool call; `GET /api/medical/assistant-audit` returns both entries with the medical token and 401 without it.
+- Cross-boundary fixes: frontend `GuardReport.dropped_claims` is a list (was typed as a number), `rule_ids` added; `SourceMeta.version` is a number; `model` / `prompt_version` typed on `AssistantAnswer`; rule-based answers no longer print the same claims twice in Ask Canary; audit shows a short kb hash.
+- Not run: the paid eval (`python -m evals.run --yes`), pending approval.
 
 ### Brief template for each subagent
 

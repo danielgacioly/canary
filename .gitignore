@@ -4,6 +4,8 @@ __pycache__/
 backend/.venv/
 backend/*.db
 backend/kb.db
+# eval reports (python -m evals.run)
+backend/evals/out/
 # fastembed model cache (point FASTEMBED_CACHE_PATH here)
 backend/.cache/
 .pytest_cache/

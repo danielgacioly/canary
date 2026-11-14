@@ -55,7 +55,8 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 40 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 389 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, API, and the AI layer: contracts, tools, knowledge base, guard, model loop with a scripted fake) and the frontend type check. No network |
+| `make index` | builds the knowledge base `backend/kb.db` (also built on first use if missing) |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -73,13 +74,14 @@ Other commands:
 | `NASA_API_KEY` | `DEMO_KEY` | key for api.nasa.gov |
 | `CANARY_LLM_PROVIDER` | `none` | `none`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
 | `CANARY_LLM_MODEL` | `claude-sonnet-5-5` | model id used when `CANARY_LLM_PROVIDER=anthropic` |
-| `CANARY_LLM_EFFORT` | `low` | effort level sent to the model |
-| `CANARY_LLM_TIMEOUT_S` | `15` | after this many seconds the answer falls back to grounded rules |
+| `CANARY_LLM_EFFORT` | `low` | effort level sent to the model (`low` keeps tool calls few and answers short) |
+| `CANARY_LLM_TIMEOUT_S` | `15` | one deadline per question; past it the answer falls back to grounded rules |
 | `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
-| `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds |
+| `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds; extra calls get an error result |
 | `CANARY_KB` | `backend/kb.db` | knowledge base file, built by `make index` |
-| `CANARY_EMBEDDER` | `local` | `local` (fastembed) or `none` (BM25 only) |
+| `CANARY_EMBEDDER` | `local` | `local` (fastembed, `bge-small-en-v1.5`) or `none` (BM25 only, fully offline) |
 | `ANTHROPIC_API_KEY` | none | read by the Anthropic SDK, only in the backend; never commit it |
+| `CANARY_EVAL_PRICE_IN` / `CANARY_EVAL_PRICE_OUT` | `2` / `10` | USD per million tokens for the eval's cost estimate (`claude-sonnet-5-5`) |
 
 ---
 
@@ -203,7 +205,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    ├─ domain/nasa        DONKI · Curiosity RAD · OSD-569 snapshot (+ optional live DONKI)
    ├─ domain/plan        mission plan: itinerary legs, presets, location by day
    ├─ domain/mission     mission clock, place, demo story
-   ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing · suggestions
+   ├─ assistant/         the AI layer: providers · tools · kb · guard · chat · briefing · suggestions
    ├─ auth               PINs (hashed), crew session tokens, rate limit
    └─ main.py            routes, PIN sign-in for each private space and the medical console
    ▼
@@ -246,26 +248,38 @@ cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  �
 
 ## The AI slot
 
-The assistant is **designed, wired and testable, but no model is connected.** Everything around the model exists, so plugging one in touches one class.
+**A real model with tool calling, behind a guard that checks every sentence.** Deterministic code still decides alerts, emergencies and thresholds; the model only explains what tools return. Without a model, the same path answers from rules. Design: [docs/ai/plan.md](docs/ai/plan.md); data shapes: [docs/ai/schema.md](docs/ai/schema.md).
 
 ```
-question ─► guard.precheck ─► tools (read-only) ─► LLMProvider ─► guard.validate_claims ─► log
-              │ emergency → "hold EMERGENCY"          │ none connected → grounded rule-based answer
-              │ diagnosis / dosing → refused          ▼
-                                             {answer, claims:[{text, source_ids}]}
+question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagnosis / dose / injection → refused   (no model call)
+              ▼
+         provider loop (Claude, ≤ 3 rounds, ≤ 6 tool calls, one deadline)
+              │ the model picks tools; each runs for the signed-in person only, its sources join the turn
+              ▼
+         AssistantResponse {status, answer, observations, explanations, limitations, recommended_action_id}
+              ▼
+         guard.postcheck ─► sources exist and fit the claim type · numbers in tool data · no dose, diagnosis
+              │             or "this is safe" · action from the allow-list · nobody else's health
+              ├─ pass → mode "ai"
+              └─ fail, loop guard, timeout, refusal, API error → grounded rule answer, mode "fallback"
+         log: assistant_log (provider, model, kb version, outcome, guard flags, latency, tokens) + assistant_turns
 ```
 
 | File | Role |
 | --- | --- |
-| `assistant/providers.py` | `LLMProvider` interface. `NullProvider` (default), `AnthropicProvider` and `LocalProvider` are slots with a `TODO` |
-| `assistant/knowledge.py` | The only knowledge allowed: body-system cards and protocols, each with an id. Small enough for a cached prompt, no vector database |
-| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
-| `assistant/guard.py` | Sends emergencies to Guided Response, refuses diagnosis and doses, drops any claim citing a source the tools did not return, rejects briefing text with invented numbers |
-| `assistant/chat.py` | Entry 1: an astronaut asks a question |
-| `assistant/briefing.py` | Entry 2: one-page weekly briefing for the flight surgeon. Code computes the facts, the model only writes prose, the astronaut approves it before it is queued for Earth |
-| `assistant/suggestions.py` | Entry 3: personal suggestions in My space. Code gathers the facts (indicators against the personal normal, goals met this week, self-tests, the next leg), rules write each suggestion with the numbers behind it, and a connected model may only rephrase the reason; `guard.unknown_numbers` rejects a rewrite with any number not in the facts. Accepted suggestions become goals for 7 days |
+| `assistant/providers.py` | `NullProvider` (default), `AnthropicProvider` (manual tool loop with its guards), `LocalProvider` (slot for an on-board model) |
+| `assistant/chat.py` | Entry 1: a question about one person, from that person or the medical team. `ask(crew_id, question, viewer)` |
+| `assistant/briefing.py` | Entry 2: weekly briefing. Code computes the facts, the model rewrites them as a `BriefingDraft`; any unknown number keeps the template |
+| `assistant/suggestions.py` | Entry 3: suggestions in My space. Rules write them; a model may only rephrase the reason, checked by `guard.unknown_numbers` |
+| `assistant/tools.py` | 8 strict tools (`get_status`, `get_indicator`, `explain_system`, `get_protocol`, `list_goals`, `get_checkins`, `get_weekly_summary`, `search_knowledge`), bound to the signed-in viewer; `route()` picks them by rule when no model runs |
+| `assistant/guard.py` + `data/guard_rules.json` | English rule bank with ids (`G-DOSE-02`, `G-PRIV-01`…): precheck before the model, postcheck after |
+| `assistant/kb/` | Knowledge base in `kb.db`: protocols, body-system cards, places, NASA sources, hazards, the privacy contract, self-tests. Hybrid BM25 (FTS5) + vectors (sqlite-vec), filtered by gravity and place; BM25 only when no embedder is available |
+| `assistant/contracts.py` | `ToolContext`, the tool result envelope, `AssistantResponse`, `BriefingDraft`, source-id and action formats |
+| `assistant/prompts/` | Versioned system prompts (`system_v1.md`, `briefing_v1.md`); the version is logged with every answer |
 
-**To plug in a model:** implement `complete()` in `AnthropicProvider` (ground segment, needs a link; read `ANTHROPIC_API_KEY` from the environment, never commit it) or `LocalProvider` (on board, e.g. a small model through llama.cpp or Ollama), return the JSON shape in the module docstring, then run with `CANARY_LLM_PROVIDER=anthropic`. The guard and the tests stay the same.
+**Run it with Claude:** `make index` (once), then `CANARY_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=… make dev`. The default model is `claude-sonnet-5-5` at `low` effort. Without a key, or with no link, the same question still answers from rules (`mode: "grounded"` when no provider is set, `"fallback"` when a set provider fails). The medical console lists recent questions, tools used and guard flags (`GET /api/medical/assistant-audit`).
+
+**Eval:** `cd backend && .venv/bin/python -m evals.run --dry` runs about 30 adversarial cases (diagnosis, medication, prompt injection, emergencies, someone else's data, off-topic, invented numbers) through the real loop and guard with a scripted model, free. `--yes` runs them against the real API (costs money; see `backend/evals/README.md`).
 
 Real-world parallel: NASA and Google are testing a Crew Medical Officer Digital Assistant (CMO-DA) as a proof of concept ([Google Cloud](https://cloud.google.com/blog/topics/public-sector/how-google-and-nasa-are-testing-ai-for-medical-care-in-space), [NASA NTRS](https://ntrs.nasa.gov/citations/20260001797)). Canary differs on purpose: it watches each person against their own normal, turns warnings into goals, guides first response deterministically, and its assistant explains without diagnosing.
 
@@ -316,9 +330,10 @@ backend/
     config.py            environment settings
     db.py                SQLite schema and helpers
     domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
-    assistant/           the AI slot: chat, briefing, suggestions, guard
-    data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   40 tests
+    assistant/           the AI layer: providers, chat, briefing, suggestions, tools, guard, contracts, prompts/, kb/
+    data/                protocols.json, nasa_snapshot.json, guard_rules.json, kb_map.json
+  tests/                 389 tests: test_canary (app), test_contracts, test_tools, test_kb, test_guard, test_chat_loop; fakes.py
+  evals/                 adversarial assistant eval (cases.py, run.py; reports in out/)
   requirements.txt
 frontend/
   src/
@@ -360,7 +375,8 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET/POST /api/messages` | Messages with communication delay |
 | `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |
 | `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data (used by alerts and the story; no page of their own) |
-| `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
+| `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI layer (ask: self or medical team) |
+| `GET /api/medical/assistant-audit` | Recent assistant questions: mode, tools, guard flags, latency (medical team only) |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
 
 ---
@@ -383,7 +399,7 @@ Full, interactive documentation at `/docs`. The main routes:
 
 ## What to build next
 
-1. **AI provider:** implement `AnthropicProvider` or `LocalProvider`; keep the guard tests green.
+1. **AI layer:** run the paid eval and tune the guard's number matching from its dropped-claim rate; an on-board `LocalProvider` (llama.cpp or Ollama with schema-constrained output) on the same loop and guard; clinical review of `guard_rules.json`.
 2. **Real devices:** a `TelemetrySource` that reads a wearable or a CSV export.
 3. **Ground sync:** store-and-forward of messages, briefings and check-ins to a ground station, with conflict rules.
 4. **Clinical review:** replace the illustrative protocols with flight-surgeon-approved ones; per-person medication allergies in Guided Response.

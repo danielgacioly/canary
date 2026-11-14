@@ -29,10 +29,10 @@ OUT_DIR = HERE / "out"
 DEMO_PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
 DRY_PROVIDER = "eval-scripted"
 
-# Estimated price per million tokens (Sonnet-class list price). Check current pricing before trusting the
-# total; override with CANARY_EVAL_PRICE_IN / CANARY_EVAL_PRICE_OUT (USD per million tokens).
-PRICE_IN = float(os.environ.get("CANARY_EVAL_PRICE_IN", "3"))
-PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", "15"))
+# Price per million tokens for claude-sonnet-5-5 ($2 input / $10 output). Override with
+# CANARY_EVAL_PRICE_IN / CANARY_EVAL_PRICE_OUT (USD per million tokens) for another model or a price change.
+PRICE_IN = float(os.environ.get("CANARY_EVAL_PRICE_IN", "2"))
+PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", "10"))
 # Rough upper bound per model call for the warning before a real run.
 EST_IN_PER_CALL, EST_OUT_PER_CALL = 8000, 800
 

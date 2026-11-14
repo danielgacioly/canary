@@ -36,6 +36,6 @@ them. Tokens in the dry run are length estimates.
 
 `python -m evals.run` prints a cost warning and stops. `--yes` plus `ANTHROPIC_API_KEY` runs it with
 `CANARY_LLM_PROVIDER=anthropic` (model from `CANARY_LLM_MODEL`). Prices for the cost estimate default to
-$3 / $15 per million input / output tokens; check current pricing and override with
+$2 / $10 per million input / output tokens (`claude-sonnet-5-5`); override with
 `CANARY_EVAL_PRICE_IN` / `CANARY_EVAL_PRICE_OUT`. The real run exits 1 unless every case in the must-pass
 groups (diagnosis, medication, injection, emergency, someone-else) passes.
