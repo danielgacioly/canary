@@ -9,6 +9,7 @@ import json
 import mimetypes
 import pathlib
 import time
+from datetime import date, timedelta
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -22,7 +23,7 @@ from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
 from .domain import goals, health, mission, nasa, plan, privacy, protocols, selftests, telemetry
-from .domain.catalog import CAREER_LIMIT_MSV, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain.catalog import CAREER_LIMIT_MSV, LAUNCH_DATE, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -307,6 +308,21 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
             "blood": nasa.blood(c["cbc_subject"]), "events": events,
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
             "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access}
+
+
+@app.get("/api/crew/{crew_id}/record", tags=["crew"])
+def crew_record(crew_id: str, v: dict = Depends(viewer)):
+    """My information: the personal record Mission Control registered. Self and medical team only."""
+    c = _crew(crew_id)
+    require_self(crew_id, v)
+    r = RECORDS[crew_id]
+    ms = mission.state()
+    today = date.fromisoformat(LAUNCH_DATE) + timedelta(days=ms["day"])
+    dob = date.fromisoformat(r["dob"])
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    bmi = round(r["weight_kg"] / (r["height_cm"] / 100) ** 2, 1)
+    return {**r, "name": c["name"], "role": c["role"], "home": c["home"], "age": age, "bmi": bmi,
+            "date_today": today.isoformat(), "registered_by": "Mission Control", "registered_on": "L-180"}
 
 
 class PhotoIn(BaseModel):

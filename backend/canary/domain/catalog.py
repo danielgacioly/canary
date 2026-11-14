@@ -60,6 +60,37 @@ CREW: List[dict] = [
 ]
 CREW_BY_ID = {c["id"]: c for c in CREW}
 
+# ---------------------------------------------------------------- personal records
+# Registered by Mission Control before flight (the future admin flow). Fictional people.
+# Private: the astronaut and the medical team. Ages follow the mission clock from LAUNCH_DATE.
+LAUNCH_DATE = "2035-06-01"
+RECORDS: Dict[str, dict] = {
+    "h": {"dob": "1988-09-14", "sex": "Female", "nationality": "Brazilian", "languages": ["Portuguese", "English", "Spanish"],
+          "agency": "Brazilian Space Agency (AEB)", "flights": 2, "days_in_space": 214,
+          "height_cm": 168, "weight_kg": 61.5, "blood_type": "O−", "skin_type": "III", "handedness": "Right",
+          "vision": "No correction", "allergies": ["Penicillin"], "medications": [], "conditions": [],
+          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
+          "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
+    "k": {"dob": "1993-11-02", "sex": "Male", "nationality": "Japanese", "languages": ["Japanese", "English"],
+          "agency": "Japan Aerospace Exploration Agency (JAXA)", "flights": 1, "days_in_space": 181,
+          "height_cm": 174, "weight_kg": 70.2, "blood_type": "A+", "skin_type": "III", "handedness": "Left",
+          "vision": "Glasses for reading", "allergies": [], "medications": [], "conditions": [],
+          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
+          "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
+    "a": {"dob": "1997-02-20", "sex": "Female", "nationality": "Nigerian", "languages": ["English", "Yoruba", "French"],
+          "agency": "European Space Agency (ESA)", "flights": 0, "days_in_space": 0,
+          "height_cm": 171, "weight_kg": 64.0, "blood_type": "B+", "skin_type": "VI", "handedness": "Right",
+          "vision": "No correction", "allergies": ["Peanuts"], "medications": [], "conditions": [],
+          "diet": "No peanuts", "vaccinations": "Up to date (checked L-90)",
+          "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
+    "t": {"dob": "1990-12-05", "sex": "Male", "nationality": "Chilean", "languages": ["Spanish", "English"],
+          "agency": "NASA (international partner seat)", "flights": 1, "days_in_space": 12,
+          "height_cm": 182, "weight_kg": 81.4, "blood_type": "O+", "skin_type": "IV", "handedness": "Right",
+          "vision": "Contact lenses", "allergies": [], "medications": ["Antihistamine as needed (seasonal)"], "conditions": ["Seasonal allergic rhinitis"],
+          "diet": "Vegetarian", "vaccinations": "Up to date (checked L-90)",
+          "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
+}
+
 # ---------------------------------------------------------------- indicators
 # dir: which way is bad. sd: personal day-to-day spread used for the z-score.
 INDICATORS: Dict[str, dict] = {

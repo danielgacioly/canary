@@ -119,3 +119,10 @@ export interface TestDef { id: string; group: string; name: string; measures: st
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
 export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
 export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }
+export interface PersonalRecord {
+  name: string; role: string; home: string; dob: string; age: number; sex: string; nationality: string; languages: string[]
+  agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; bmi: number
+  blood_type: string; skin_type: string; handedness: string; vision: string; allergies: string[]; medications: string[]
+  conditions: string[]; diet: string; vaccinations: string; emergency_contact: string; date_today: string
+  registered_by: string; registered_on: string
+}
