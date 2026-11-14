@@ -2,7 +2,11 @@
 // the full set lives on the Tests page. Results are private: the person and the medical team.
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
 import { Icon } from '../components/ui'
+import { useAction } from '../lib/useAction'
+import { useForm, type FormApi } from '../lib/useForm'
+import * as v from '../lib/validate'
 import { useSession } from '../state/session'
 
 export type CheckKind = 'pvt' | 'mood' | 'amsler' | 'vitals' | 'dsst' | 'span' | 'kss' | 'tlx' | 'wellbeing' | 'symptoms' | 'sleep' | 'reading' | 'journal'
@@ -38,17 +42,25 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
   )
 }
 
+/** Sends one result. It throws when the server refuses it: the caller (a form or useSave) shows the message. */
 function useSubmit(onClose: () => void) {
   const { me, bump, toast } = useSession()
   return async (kind: CheckKind, payload: Record<string, unknown>, msg?: string) => {
-    if (!me) return
+    if (!me) throw new Error('Enter your PIN in My space first.')
     const r = await api.checkin(me, kind, payload)
     bump(); toast(`${msg ?? `Saved: ${r.summary}${r.goal ? ' · goal done' : ''}`}${r.conclusion ? ` ${r.conclusion.text}` : ''}`); onClose()
   }
 }
 
-function Pvt({ onClose }: { onClose: () => void }) {
+/** For results sent with one button (no typed input): catches a refusal and keeps its message next to the button. */
+function useSave(onClose: () => void) {
   const submit = useSubmit(onClose)
+  const a = useAction()
+  return { save: (kind: CheckKind, payload: Record<string, unknown>, msg?: string) => a.run(() => submit(kind, payload, msg)), busy: a.busy, error: a.error }
+}
+
+function Pvt({ onClose }: { onClose: () => void }) {
+  const { save, busy, error } = useSave(onClose)
   const [st, setSt] = useState<'idle' | 'wait' | 'go' | 'early'>('idle')
   const [rts, setRts] = useState<number[]>([])
   const t0 = useRef(0), tm = useRef<number>()
@@ -72,58 +84,85 @@ function Pvt({ onClose }: { onClose: () => void }) {
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>
       )}
       <div className="row wrap">{rts.map((r, i) => <span key={i} className="tag num">{r} ms</span>)}</div>
-      {rts.length >= 5 && <button className="btn pri" onClick={() => submit('pvt', { ms: avg, rounds: rts }, `Reaction test saved: ${avg} ms`)}>Save result</button>}
+      {rts.length >= 5 && <button className="btn pri" disabled={busy} onClick={() => save('pvt', { ms: avg, rounds: rts }, `Reaction test saved: ${avg} ms`)}>{busy ? 'Saving…' : 'Save result'}</button>}
+      <ActionError error={error} />
     </div>
+  )
+}
+
+function Scale5({ form, name, label, hint }: { form: FormApi; name: string; label: string; hint: string }) {
+  return (
+    <FieldGroup form={form} name={name} label={label} hint={hint}>
+      <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button type="button" key={n} className={form.values[name] === n ? 'on' : ''} aria-pressed={form.values[name] === n} onClick={() => form.set(name, n)}>{n}</button>)}</div>
+    </FieldGroup>
   )
 }
 
 function Mood({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [mood, setMood] = useState(0), [stress, setStress] = useState(0)
+  const form = useForm({
+    initial: { mood: 0, stress: 0 },
+    validate: f => ({ mood: f.mood ? null : 'Pick your mood, from 1 (low) to 5 (great)', stress: f.stress ? null : 'Pick your stress, from 1 (calm) to 5 (very)' }),
+    submit: f => submit('mood', f, 'Check-in sent. Thank you for being honest.'),
+  })
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Thirty seconds. Only you and the medical team see it. A hard day counts the same as a good one.</p>
-      <span className="lbl">How is your mood? (1 low, 5 great)</span>
-      <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button key={n} className={mood === n ? 'on' : ''} onClick={() => setMood(n)}>{n}</button>)}</div>
-      <span className="lbl">How stressed are you? (1 calm, 5 very)</span>
-      <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button key={n} className={stress === n ? 'on' : ''} onClick={() => setStress(n)}>{n}</button>)}</div>
-      <button className="btn pri" disabled={!mood || !stress} onClick={() => submit('mood', { mood, stress }, 'Check-in sent. Thank you for being honest.')}>Send check-in</button>
-    </div>
+      <Scale5 form={form} name="mood" label="How is your mood?" hint="1 low, 5 great" />
+      <Scale5 form={form} name="stress" label="How stressed are you?" hint="1 calm, 5 very" />
+      <FormError form={form} />
+      <SubmitButton form={form}>Send check-in</SubmitButton>
+    </form>
   )
 }
 
 function Amsler({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+  const { save, busy, error } = useSave(onClose)
   return (
     <div className="col">
       <p className="muted">Cover one eye. Look only at the centre dot from 30 cm. Do any lines look wavy, blurred or missing?</p>
       <div className="amsler" aria-label="Amsler grid">{Array.from({ length: 400 }).map((_, i) => <i key={i} />)}</div>
       <div className="yesno">
-        <button className="n" onClick={() => submit('amsler', { distortion: true }, 'Saved. The medical officer will be told.')}>Yes, distorted</button>
-        <button className="y" onClick={() => submit('amsler', { distortion: false }, 'Saved: grid looks clear.')}>No, all straight</button>
+        <button className="n" disabled={busy} onClick={() => save('amsler', { distortion: true }, 'Saved. The medical officer will be told.')}>Yes, distorted</button>
+        <button className="y" disabled={busy} onClick={() => save('amsler', { distortion: false }, 'Saved: grid looks clear.')}>No, all straight</button>
       </div>
+      <ActionError error={error} />
     </div>
   )
 }
+
+const VITALS = [
+  { k: 'hr', label: 'Pulse', unit: 'bpm', min: 25, max: 250 },
+  { k: 'bp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
+  { k: 'temp', label: 'Temperature', unit: '°C', min: 30, max: 45, decimals: 1 },
+  { k: 'spo2', label: 'Oxygen', unit: '%', min: 50, max: 100, integer: true },
+] as const
 
 function Vitals({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [v, setV] = useState({ hr: '', bp: '', temp: '', spo2: '' })
-  const f = (k: keyof typeof v, label: string, unit: string) => (
-    <label className="col" style={{ gap: 4 }}><span className="lbl">{label} ({unit})</span>
-      <input value={v[k]} onChange={e => setV({ ...v, [k]: e.target.value })} inputMode="decimal" style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }} /></label>
-  )
-  const num = (s: string) => (s.trim() ? Number(s) : null)
+  const form = useForm({
+    initial: { hr: '', bp: '', temp: '', spo2: '' },
+    validate: f => {
+      const e: Record<string, string | null> = {}
+      for (const { k, label, unit, min, max, ...o } of VITALS) e[k] = v.number(label, { min, max, unit, optional: true, ...o })(f[k])
+      if (VITALS.every(({ k }) => !f[k].trim())) e.form = 'Type at least one value'
+      return e
+    },
+    submit: f => submit('vitals', Object.fromEntries(VITALS.map(({ k }) => [k, f[k].trim() ? v.parseNumber(f[k]) : null])), 'Vital signs saved.'),
+  })
   return (
-    <div className="col" style={{ gap: 12 }}>
+    <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
-      <div className="grid g2">{f('hr', 'Pulse', 'bpm')}{f('bp', 'Systolic pressure', 'mmHg')}{f('temp', 'Temperature', '°C')}{f('spo2', 'Oxygen', '%')}</div>
-      <button className="btn pri" onClick={() => submit('vitals', { hr: num(v.hr), bp: num(v.bp), temp: num(v.temp), spo2: num(v.spo2) }, 'Vital signs saved.')}>Save</button>
-    </div>
+      <div className="grid g2">
+        {VITALS.map(({ k, label, unit, min, max, ...o }) => (
+          <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />
+        ))}
+      </div>
+      <FormError form={form} />
+      <SubmitButton form={form}>Save</SubmitButton>
+    </form>
   )
 }
-
-const inputStyle = { padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }
 
 /* ---------- processing speed: digit symbol substitution, 60 seconds ---------- */
 const GLYPHS = ['M4 4h16v16H4Z', 'M12 3 21 20H3Z', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M3 12h18M12 3v18', 'M4 4l16 16M20 4 4 20',
@@ -132,7 +171,7 @@ function Glyph({ i, size = 28 }: { i: number; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={GLYPHS[i]} /></svg>
 }
 function Dsst({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+  const { save, busy, error } = useSave(onClose)
   const [phase, setPhase] = useState<'idle' | 'run' | 'done'>('idle')
   const [target, setTarget] = useState(0)
   const [score, setScore] = useState({ correct: 0, errors: 0 })
@@ -170,7 +209,8 @@ function Dsst({ onClose }: { onClose: () => void }) {
       {phase === 'done' && (
         <>
           <div className="result-big"><b className="num">{score.correct}</b><span>correct, {score.errors} {score.errors === 1 ? 'error' : 'errors'}</span></div>
-          <button className="btn pri" onClick={() => submit('dsst', score)}>Save result</button>
+          <ActionError error={error} />
+          <button className="btn pri" disabled={busy} onClick={() => save('dsst', score)}>{busy ? 'Saving…' : 'Save result'}</button>
         </>
       )}
     </div>
@@ -179,17 +219,21 @@ function Dsst({ onClose }: { onClose: () => void }) {
 
 /* ---------- working memory: forward digit span ---------- */
 function Span({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+  const { save, busy, error } = useSave(onClose)
   const [len, setLen] = useState(3)
   const [seq, setSeq] = useState<number[]>([])
   const [shown, setShown] = useState(-1)
   const [phase, setPhase] = useState<'idle' | 'show' | 'answer' | 'done'>('idle')
-  const [typed, setTyped] = useState('')
   const [best, setBest] = useState(0)
   const [fails, setFails] = useState(0)
+  const form = useForm({
+    initial: { typed: '' },
+    validate: f => ({ typed: f.typed.trim() ? null : `Type the ${len} digits you saw` }),
+    submit: f => check(f.typed),
+  })
   const play = (n: number) => {
     const s = Array.from({ length: n }, () => Math.floor(Math.random() * 10))
-    setSeq(s); setTyped(''); setPhase('show'); setShown(0)
+    setSeq(s); form.reset({ typed: '' }); setPhase('show'); setShown(0)
   }
   useEffect(() => {
     if (phase !== 'show') return
@@ -197,7 +241,7 @@ function Span({ onClose }: { onClose: () => void }) {
     const id = window.setTimeout(() => setShown(x => x + 1), 900)
     return () => clearTimeout(id)
   }, [phase, shown, seq.length])
-  const check = () => {
+  const check = (typed: string) => {
     if (typed === seq.join('')) { setBest(len); setFails(0); setLen(len + 1); play(len + 1) }
     else if (fails >= 1 || len >= 12) setPhase('done')
     else { setFails(1); play(len) }
@@ -208,16 +252,16 @@ function Span({ onClose }: { onClose: () => void }) {
       {phase === 'idle' && <button className="btn pri" onClick={() => play(3)}>Start</button>}
       {phase === 'show' && <div className="span-digit num" key={shown}>{shown < seq.length ? seq[shown] : ''}</div>}
       {phase === 'answer' && (
-        <form className="col" onSubmit={e => { e.preventDefault(); check() }}>
-          <span className="lbl">{len} digits</span>
-          <input autoFocus inputMode="numeric" value={typed} onChange={e => setTyped(e.target.value.replace(/\D/g, ''))} style={{ ...inputStyle, font: '500 26px var(--f-mono)', letterSpacing: '.2em' }} aria-label="Digits you saw" />
-          <button className="btn pri">Check</button>
+        <form className="col" noValidate onSubmit={form.submit}>
+          <Field form={form} name="typed" label={`${len} digits`} hint="Digits only" className="span-in" autoFocus inputMode="numeric" autoComplete="off" aria-label="Digits you saw" map={t => t.replace(/\D/g, '')} />
+          <SubmitButton form={form} busyLabel="Checking…">Check</SubmitButton>
         </form>
       )}
       {phase === 'done' && (
         <>
           <div className="result-big"><b className="num">{best}</b><span>digits held in mind</span></div>
-          <button className="btn pri" onClick={() => submit('span', { span: best })}>Save result</button>
+          <ActionError error={error} />
+          <button className="btn pri" disabled={busy} onClick={() => save('span', { span: best })}>{busy ? 'Saving…' : 'Save result'}</button>
         </>
       )}
     </div>
@@ -228,13 +272,14 @@ function Span({ onClose }: { onClose: () => void }) {
 const KSS = ['Extremely alert', 'Very alert', 'Alert', 'Rather alert', 'Neither alert nor sleepy', 'Some signs of sleepiness',
   'Sleepy, but no effort to keep awake', 'Sleepy, some effort to keep awake', 'Very sleepy, great effort to keep awake, fighting sleep']
 function Kss({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+  const { save, busy, error } = useSave(onClose)
   return (
     <div className="col" style={{ gap: 10 }}>
       <p className="muted">How sleepy are you right now, in the last 10 minutes?</p>
       <div className="scale-list">{KSS.map((t, i) => (
-        <button key={i} onClick={() => submit('kss', { level: i + 1 })}><b className="num">{i + 1}</b><span>{t}</span></button>
+        <button key={i} disabled={busy} onClick={() => save('kss', { level: i + 1 })}><b className="num">{i + 1}</b><span>{t}</span></button>
       ))}</div>
+      <ActionError error={error} />
     </div>
   )
 }
@@ -249,8 +294,8 @@ const TLX: [string, string, string, string][] = [
   ['frustration', 'Frustration', 'How insecure, discouraged, irritated or stressed were you?', 'Very low|Very high'],
 ]
 function Tlx({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
-  const [v, setV] = useState<Record<string, number>>(Object.fromEntries(TLX.map(([k]) => [k, 50])))
+  const { save, busy, error } = useSave(onClose)
+  const [sc, setSc] = useState<Record<string, number>>(Object.fromEntries(TLX.map(([k]) => [k, 50])))
   return (
     <div className="col" style={{ gap: 16 }}>
       <p className="muted">Think about today's work. Slide each one.</p>
@@ -258,14 +303,15 @@ function Tlx({ onClose }: { onClose: () => void }) {
         const [lo, hi] = anchors.split('|')
         return (
           <label key={k} className="col" style={{ gap: 4 }}>
-            <span className="row"><b>{name}</b><span className="num small muted right">{v[k]}</span></span>
+            <span className="row"><b>{name}</b><span className="num small muted right">{sc[k]}</span></span>
             <span className="small muted">{q}</span>
-            <input type="range" min={0} max={100} step={5} value={v[k]} onChange={e => setV({ ...v, [k]: Number(e.target.value) })} />
+            <input type="range" min={0} max={100} step={5} value={sc[k]} onChange={e => setSc({ ...sc, [k]: Number(e.target.value) })} />
             <span className="row small dim"><span>{lo}</span><span className="right">{hi}</span></span>
           </label>
         )
       })}
-      <button className="btn pri" onClick={() => submit('tlx', { scores: v })}>Save</button>
+      <ActionError error={error} />
+      <button className="btn pri" disabled={busy} onClick={() => save('tlx', { scores: sc })}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   )
 }
@@ -276,21 +322,25 @@ const WB_Q = ['Little interest or pleasure in doing things', 'Feeling down, depr
 const WB_A = ['Not at all', 'Several days', 'More than half the days', 'Nearly every day']
 function Wellbeing({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [a, setA] = useState<number[]>([-1, -1, -1, -1])
-  const ready = a.every(x => x >= 0)
-  const flag = ready && (a[0] + a[1] >= 3 || a[2] + a[3] >= 3)
+  const form = useForm({
+    initial: { q0: -1, q1: -1, q2: -1, q3: -1 } as Record<string, number>,
+    validate: f => Object.fromEntries(WB_Q.map((q, i) => [`q${i}`, f[`q${i}`] >= 0 ? null : `Answer question ${i + 1}: ${q}`])),
+    submit: f => submit('wellbeing', { answers: WB_Q.map((_, i) => f[`q${i}`]) }),
+  })
+  const a = WB_Q.map((_, i) => form.values[`q${i}`] as number)
+  const flag = a.every(x => x >= 0) && (a[0] + a[1] >= 3 || a[2] + a[3] >= 3)
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Over the last two weeks, how often have you been bothered by the following? Only you and the medical team see this.</p>
       {WB_Q.map((q, i) => (
-        <div key={i} className="col" style={{ gap: 6 }}>
-          <b>{q}</b>
-          <div className="seg-ctl wrap">{WB_A.map((t, j) => <button key={j} className={a[i] === j ? 'on' : ''} onClick={() => setA(x => x.map((y, k) => (k === i ? j : y)))}>{t}</button>)}</div>
-        </div>
+        <FieldGroup key={i} form={form} name={`q${i}`} label={<b className="q">{q}</b>}>
+          <div className="seg-ctl wrap">{WB_A.map((t, j) => <button type="button" key={j} className={a[i] === j ? 'on' : ''} aria-pressed={a[i] === j} onClick={() => form.set(`q${i}`, j)}>{t}</button>)}</div>
+        </FieldGroup>
       ))}
       {flag && <p className="small" style={{ color: 'var(--watch)' }}>Thank you for answering honestly. This is worth talking about: Canary will suggest a moment with the medical officer.</p>}
-      <button className="btn pri" disabled={!ready} onClick={() => submit('wellbeing', { answers: a })}>Save</button>
-    </div>
+      <FormError form={form} />
+      <SubmitButton form={form}>Save</SubmitButton>
+    </form>
   )
 }
 
@@ -298,74 +348,105 @@ function Wellbeing({ onClose }: { onClose: () => void }) {
 const SYMPTOMS = ['Headache', 'Congestion', 'Back pain', 'Nausea', 'Eye discomfort', 'Blurred vision', 'Skin irritation', 'Trouble sleeping', 'Muscle or joint pain', 'Dizziness']
 function Symptoms({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [items, setItems] = useState<string[]>([])
-  const [sev, setSev] = useState(1)
-  const [note, setNote] = useState('')
+  const form = useForm({
+    initial: { items: [] as string[], sev: 1, note: '' },
+    validate: f => ({ note: v.length('Note', { max: 200, optional: true })(f.note) }),
+    submit: f => submit('symptoms', { items: f.items, severity: f.items.length ? f.sev : 0, note: f.note.trim() }),
+  })
+  const { items, sev } = form.values
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Tick anything you feel now. Leave it empty if all is well: that is useful too.</p>
       <div className="chips-pick">{SYMPTOMS.map(t => (
-        <button key={t} className={items.includes(t) ? 'on' : ''} onClick={() => setItems(x => (x.includes(t) ? x.filter(y => y !== t) : [...x, t]))}>{t}</button>
+        <button type="button" key={t} className={items.includes(t) ? 'on' : ''} aria-pressed={items.includes(t)} onClick={() => form.set('items', items.includes(t) ? items.filter(y => y !== t) : [...items, t])}>{t}</button>
       ))}</div>
       {!!items.length && (
         <div className="col" style={{ gap: 6 }}>
           <b>How strong?</b>
-          <div className="seg-ctl">{['Mild', 'Moderate', 'Strong'].map((t, i) => <button key={t} className={sev === i + 1 ? 'on' : ''} onClick={() => setSev(i + 1)}>{t}</button>)}</div>
+          <div className="seg-ctl">{['Mild', 'Moderate', 'Strong'].map((t, i) => <button type="button" key={t} className={sev === i + 1 ? 'on' : ''} aria-pressed={sev === i + 1} onClick={() => form.set('sev', i + 1)}>{t}</button>)}</div>
         </div>
       )}
-      <input placeholder="Anything else (optional)" value={note} onChange={e => setNote(e.target.value)} style={inputStyle} maxLength={200} />
-      <button className="btn pri" onClick={() => submit('symptoms', { items, severity: items.length ? sev : 0, note })}>{items.length ? 'Save' : 'All well, save'}</button>
-    </div>
+      <Field form={form} name="note" label="Anything else" optional hint="Up to 200 characters" maxLength={200} />
+      <FormError form={form} />
+      <SubmitButton form={form}>{items.length ? 'Save' : 'All well, save'}</SubmitButton>
+    </form>
   )
 }
 
 /* ---------- logs ---------- */
 function SleepLog({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [bed, setBed] = useState('23:00'), [wake, setWake] = useState('07:00'), [q, setQ] = useState(0)
+  const form = useForm({
+    initial: { bed: '23:00', wake: '07:00', q: 0 },
+    validate: f => {
+      const e: Record<string, string | null> = { bed: v.time('Lights out')(f.bed), wake: v.time('Woke up')(f.wake), q: f.q ? null : 'Rate how well you slept, from 1 (badly) to 5 (very well)' }
+      const h = v.sleepHours(f.bed, f.wake)
+      if (!e.wake && !e.bed && h !== null && (h < 1 || h > 16)) e.wake = `Sleep must last between 1 and 16 h (these times give ${h} h)`
+      return e
+    },
+    submit: f => submit('sleep', { bed: f.bed, wake: f.wake, quality: f.q }),
+  })
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Last night. It feeds your sleep reading for today.</p>
       <div className="grid g2">
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Lights out</span><input type="time" value={bed} onChange={e => setBed(e.target.value)} style={inputStyle} /></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Woke up</span><input type="time" value={wake} onChange={e => setWake(e.target.value)} style={inputStyle} /></label>
+        <Field form={form} name="bed" label="Lights out" type="time" hint="24-hour time" />
+        <Field form={form} name="wake" label="Woke up" type="time" hint="Sleep of 1 to 16 h" />
       </div>
-      <span className="lbl">How well did you sleep? (1 badly, 5 very well)</span>
-      <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button key={n} className={q === n ? 'on' : ''} onClick={() => setQ(n)}>{n}</button>)}</div>
-      <button className="btn pri" disabled={!q} onClick={() => submit('sleep', { bed, wake, quality: q })}>Save</button>
-    </div>
+      <Scale5 form={form} name="q" label="How well did you sleep?" hint="1 badly, 5 very well" />
+      <FormError form={form} />
+      <SubmitButton form={form}>Save</SubmitButton>
+    </form>
   )
 }
 
 function Reading({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [title, setTitle] = useState(''), [minutes, setMinutes] = useState('20'), [pages, setPages] = useState(''), [enjoy, setEnjoy] = useState(0)
+  const form = useForm({
+    initial: { title: '', minutes: '20', pages: '', enjoy: 0 },
+    validate: f => ({
+      title: v.length('Title', { max: 120 })(f.title),
+      minutes: v.number('Minutes', { min: 1, max: 600, unit: 'min', integer: true })(f.minutes),
+      pages: v.number('Pages', { min: 0, max: 2000, integer: true, optional: true })(f.pages),
+    }),
+    submit: f => submit('reading', { title: f.title.trim(), minutes: Number(f.minutes), pages: f.pages.trim() ? Number(f.pages) : null, absorbing: f.enjoy || null }),
+  })
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Deep attention on something that is not the mission. Twenty minutes completes today's reading goal.</p>
-      <label className="col" style={{ gap: 4 }}><span className="lbl">Book</span><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" style={inputStyle} maxLength={120} /></label>
+      <Field form={form} name="title" label="Book" placeholder="Title" maxLength={120} />
       <div className="grid g2">
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Minutes</span><input inputMode="numeric" value={minutes} onChange={e => setMinutes(e.target.value.replace(/\D/g, ''))} style={inputStyle} /></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Pages (optional)</span><input inputMode="numeric" value={pages} onChange={e => setPages(e.target.value.replace(/\D/g, ''))} style={inputStyle} /></label>
+        <Field form={form} name="minutes" label="Minutes" hint={v.range(1, 600, 'min')} inputMode="numeric" />
+        <Field form={form} name="pages" label="Pages" optional hint={v.range(0, 2000, 'pages')} inputMode="numeric" />
       </div>
-      <span className="lbl">How absorbing was it? (1 not at all, 5 completely)</span>
-      <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button key={n} className={enjoy === n ? 'on' : ''} onClick={() => setEnjoy(n)}>{n}</button>)}</div>
-      <button className="btn pri" disabled={!minutes} onClick={() => submit('reading', { title: title.trim(), minutes: Number(minutes), pages: pages ? Number(pages) : null, absorbing: enjoy || null })}>Save</button>
-    </div>
+      <FieldGroup form={form} name="enjoy" label="How absorbing was it? (optional)" hint="1 not at all, 5 completely">
+        <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button type="button" key={n} className={form.values.enjoy === n ? 'on' : ''} aria-pressed={form.values.enjoy === n} onClick={() => form.set('enjoy', n)}>{n}</button>)}</div>
+      </FieldGroup>
+      <FormError form={form} />
+      <SubmitButton form={form}>Save</SubmitButton>
+    </form>
   )
 }
 
 function Journal({ onClose }: { onClose: () => void }) {
   const submit = useSubmit(onClose)
-  const [lines, setLines] = useState(['', '', ''])
-  const n = lines.filter(l => l.trim()).length
+  const PH = ['Something that happened', 'How it felt', 'Something you are looking forward to']
+  const form = useForm({
+    initial: { l0: '', l1: '', l2: '' } as Record<string, string>,
+    validate: f => {
+      const e: Record<string, string | null> = {}
+      PH.forEach((_, i) => { e[`l${i}`] = v.length('This line', { max: 200, optional: true })(f[`l${i}`]) })
+      if (!PH.some((_, i) => f[`l${i}`].trim())) e.l0 = 'Write at least one line'
+      return e
+    },
+    submit: f => submit('journal', { lines: PH.filter((_, i) => f[`l${i}`].trim()).length }, 'Journal done. Your words were not saved.'),
+  })
   return (
-    <div className="col" style={{ gap: 12 }}>
+    <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">Three lines about today. They stay on this screen: Canary only records that you wrote.</p>
-      {['Something that happened', 'How it felt', 'Something you are looking forward to'].map((ph, i) => (
-        <input key={i} placeholder={ph} value={lines[i]} onChange={e => setLines(x => x.map((y, k) => (k === i ? e.target.value : y)))} style={inputStyle} maxLength={200} />
-      ))}
-      <button className="btn pri" disabled={!n} onClick={() => submit('journal', { lines: n }, 'Journal done. Your words were not saved.')}>Done</button>
-    </div>
+      {PH.map((ph, i) => <Field key={i} form={form} name={`l${i}`} label={ph} maxLength={200} />)}
+      <FormError form={form} />
+      <SubmitButton form={form} busyLabel="Saving…">Done</SubmitButton>
+    </form>
   )
 }
