@@ -152,7 +152,9 @@ def test_nullable_action_is_required_but_nullable():
 
 
 def test_kb_stub():
-    assert kb.search("seizure", kind="protocol", k=3, gravity="g0", place="transit") == []
+    hits = kb.search("seizure", kind="protocol", k=3, gravity="g0", place="transit")
+    assert isinstance(hits, list) and len(hits) <= 3
+    assert all(isinstance(h, kb.Chunk) and h.chunk_id.startswith("kb:") and "@" in h.chunk_id for h in hits)
     c = kb.Chunk(chunk_id="kb:PROTO-NEURO-001@1#s2", doc_id="PROTO-NEURO-001", version=1, title="Seizure",
                  text="Protect the head.", score=0.5, section="step", gravity="g0")
     assert c.as_tool_data() == {"chunk_id": c.chunk_id, "title": "Seizure", "text": "Protect the head.", "score": 0.5}

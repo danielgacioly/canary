@@ -301,20 +301,22 @@ Why the same checkout and not one git worktree per agent: worktrees only bring w
 flowchart LR
     W0["Wave 0 · subagent<br/>contracts + Phase 0 (done)"] --> W05["Wave 0.5 · subagent<br/>adapt to main rules (done)"]
     W05 --> A & B & C & E
-    subgraph W1["Wave 1 · 4 subagents in parallel"]
+    subgraph W1["Wave 1 · 4 subagents in parallel (done)"]
         A["A · tools"]
         B["B · knowledge base"]
         C["C · guard"]
         E["E · frontend"]
     end
     A & C --> D
-    subgraph W2["Wave 2 · 2 subagents in parallel"]
+    subgraph W2["Wave 2 · 4 subagents in parallel"]
         D["D · provider loop + briefing"]
         F["F · eval harness"]
+        G["G · Wave 1 decisions"]
+        H["H · frontend wiring"]
     end
     B --> D
-    W1 --> F
-    D & F --> W3["Wave 3 · main session<br/>integration + verification"]
+    W1 --> F & G & H
+    D & F & G & H --> W3["Wave 3 · main session<br/>integration + verification"]
 ```
 
 ### Wave 0 · main session (sequential, before any subagent)
@@ -345,12 +347,23 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 | **C · guard** | 4 | `assistant/guard.py`, `data/guard_rules.json`, `tests/test_guard.py` | `contracts.py`, `assistant/suggestions.py`, `domain/privacy.py`, `catalog.py` | `precheck` + `postcheck` with rule ids, including other-person and wellbeing-diagnosis rules; `unknown_numbers(text, facts_blob)` signature unchanged; every rule has a failing-input test; `pytest tests/test_guard.py` passes |
 | **E · frontend** | 6 | `features/AskCanary.tsx`, `pages/Medical.tsx` (audit list), `styles/app.css` (new classes only) | `api/types.ts`, `api/client.ts` | renders `fallback` mode, observations vs explanations, limitations, action button; "Enter your space first" gate kept; audit list next to `ops`; `npm run typecheck` passes |
 
-### Wave 2 · two subagents in parallel
+### Decisions taken after Wave 1
+
+| # | Issue found in Wave 1 | Decision | Owner |
+| --- | --- | --- | --- |
+| W1-1 | `G-DOSE-01` refuses "radiation dose", which blocks the solar-storm scenario | Radiation dose questions are allowed (they are mission data, not medication). Dosing rules only fire with medication words or units of a drug (mg, pills, tablets, ml of a drug). Precheck and output rules both. | G |
+| W1-2 | `list_goals` returns goals created from accepted suggestions (`by: "suggestion"`, `sg_*`) to the medical viewer, while suggestions are astronaut-only | Hide `by: "suggestion"` goals from medical viewers in every tool result; the astronaut still sees them. The action allow-list for a medical viewer excludes `goal:sg_*`. | G |
+| W1-3 | "best football team" retrieves `PRIVACY-CONTRACT` on the word "team" | Off-topic queries must abstain: a match needs at least two meaningful query terms or a vector score above the floor; generic words (team, best, good, day, time…) do not count alone. Add the case to `test_kb.py`. | G |
+| W1-4 | Frontend needs the audit route, source metadata and a direct protocol open | `GET /api/medical/assistant-audit?limit=30` (medical token) returns `AssistantAuditEntry[]` = `{id, crew_id, question, created_at, mode, status, provider, model, kb_version, tools: string[], guard_flags: string[], latency_ms}`; `AssistantAnswer.source_meta?: Record<id, {title, version, text?}>` for `kb:` ids returned that turn; `GuidedResponse` accepts `initialProtocol?: string`. | D (backend), H (frontend) |
+
+### Wave 2 · four subagents in parallel
 
 | Agent | Phase | Owns (may edit) | Reads only | Done when |
 | --- | --- | --- | --- | --- |
-| **D · provider loop** | 2 | `assistant/providers.py`, `assistant/chat.py`, `assistant/briefing.py`, `assistant/prompts/*`, `main.py` (assistant and medical-audit routes only), `tests/test_chat_loop.py` | tools, guard, kb, contracts, `assistant/suggestions.py` | `ToolContext` built from `viewer()` after `require_self`; manual loop with Sonnet 5.5 at `low`, loop guards, fallback; `suggestions` entry kept with no tools (no-provider `mode == "rules"` test green); scripted-provider tests cover tool use, every guard exit, timeout and refusal |
-| **F · eval harness** | 5 | `backend/evals/*` | everything | `python -m evals.run --dry` lists the ~30 cases (incl. wellbeing, sleepy, symptoms and someone-else cases) and runs them against the scripted provider, with reset → Mars preset → day, demo PINs and one token per crew member; the real-API run is left for the main session |
+| **D · provider loop** | 2 | `assistant/providers.py`, `assistant/chat.py`, `assistant/briefing.py`, `assistant/prompts/*`, `main.py` (assistant routes + `GET /api/medical/assistant-audit`), `tests/fakes.py`, `tests/test_chat_loop.py` | tools, guard, kb, contracts, `assistant/suggestions.py` | `ToolContext` built from `viewer()` after `require_self`; manual loop with Sonnet 5.5 at `low`, loop guards, fallback; `suggestions` entry kept with no tools (no-provider `mode == "rules"` test green); `source_meta` in answers; audit route (W1-4); scripted-provider tests cover tool use, every guard exit, timeout and refusal |
+| **F · eval harness** | 5 | `backend/evals/*` | everything | `python -m evals.run --dry` lists the ~30 cases (incl. wellbeing, sleepy, symptoms, someone-else, radiation-dose and off-topic cases) and runs them against the scripted provider, with reset → Mars preset → day, demo PINs and one token per crew member; the real-API run is left for the main session |
+| **G · Wave 1 decisions** | 1, 3, 4 | `assistant/guard.py`, `data/guard_rules.json`, `tests/test_guard.py`, `assistant/tools.py`, `tests/test_tools.py`, `assistant/kb/*` (not the `search` signature), `data/kb_map.json`, `tests/test_kb.py` | contracts, domain | W1-1, W1-2, W1-3 done, each with tests; `unknown_numbers`, `precheck`, `postcheck`, `run_tool`, `route` signatures unchanged |
+| **H · frontend wiring** | 6 | `frontend/src/api/types.ts`, `frontend/src/api/client.ts`, `frontend/src/pages/Medical.tsx`, `frontend/src/features/AskCanary.tsx`, `frontend/src/features/GuidedResponse.tsx` (+ the component that opens it, if needed) | backend (W1-4 shapes are the contract) | real `api.assistantAudit()` replaces the placeholder; `source_meta` hover; `protocol:<pid>` opens that protocol; `npm run typecheck` and `npm run build` pass |
 
 ### Wave 3 · main session
 
