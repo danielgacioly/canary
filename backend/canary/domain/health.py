@@ -27,8 +27,12 @@ def thresholds() -> dict:
     return db.get_setting("thresholds", DEFAULT_THRESHOLDS)
 
 
-def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None) -> dict:
+def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last: Optional[Dict[str, int]] = None,
+              uv: Optional[dict] = None) -> dict:
     th = th or thresholds()
+    day = ms["day"]
+    last = telemetry.last_user_day(crew_id, day) if last is None else last
+    obs = telemetry.observation(crew_id, ind, day, uv)  # where today's value came from
     I = INDICATORS[ind]
     base = CREW_BY_ID[crew_id]["base"][ind]
     if ind == "exer":  # the exercise plan changes with the place: compare with today's plan, not with pre-flight
@@ -40,12 +44,16 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None) -> di
     return {"id": ind, "name": I["name"], "unit": I["unit"], "area": I["area"], "facet": I.get("facet"),
             "dp": I["dp"], "value": round(v, 2), "baseline": base, "delta": round(v - base, 2),
             "z": round(z, 2), "bad": round(bad, 2), "level": level,
-            "source": f"telemetry:{crew_id}:{ind}:day{ms['day']}"}
+            "source": f"telemetry:{crew_id}:{ind}:day{day}",
+            "origin": obs["origin"], "last_measured_day": last.get(ind),
+            "age_days": day - last[ind] if ind in last else None}
 
 
 def indicators(crew_id: str, ms: dict) -> Dict[str, dict]:
     th = thresholds()
-    return {i: indicator(crew_id, i, ms, th) for i in INDICATORS}
+    last = telemetry.last_user_day(crew_id, ms["day"])
+    uv = telemetry.user_values(crew_id, ms["day"], ms["day"])
+    return {i: indicator(crew_id, i, ms, th, last, uv) for i in INDICATORS}
 
 
 def latest_checkin(crew_id: str, kind: str, day: int, window: int = 7) -> Optional[dict]:
@@ -114,7 +122,7 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "sources": ["nasa:rad:2024-05-20" if mars else "nasa:donki:sep:2024-05"], "goals": []})
 
     if lv("sleep") and lv("mood") and lv("react"):
-        used.update(["sleep", "mood", "react", "stress", "social"])
+        used.update(["sleep", "mood", "react", "stress", "social", "dsst", "span", "kss", "tlx"])
         A.append({"id": "behaviour", "level": 2, "sys": "brain", "test": "pvt",
                   "title": "Sleep, mood and focus are dropping together.",
                   "why": (f"For two weeks you have slept {c['base']['sleep'] - inds['sleep']['value']:.1f} h less than your normal, "
@@ -175,6 +183,16 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "todo": ["Tell the medical officer today", "Log it again tomorrow so the trend is clear"],
                   "sources": [f"checkin:{crew_id}:symptoms:day{sy['day']}"], "goals": []})
 
+    from . import goals  # late import: goals imports health
+    day = ms["day"]
+    log = goals._log(crew_id)
+    if not any(goals.is_done(crew_id, "mood", d, day, log) for d in (day, day - 1, day - 2)):
+        A.append({"id": "missing_mood", "level": 1, "data": True, "sys": "brain", "test": "mood",
+                  "title": "No mood check-in for 3 days.",
+                  "why": "Canary reads your mood and stress less well without a check-in, and the numbers can look better than the days feel. Nothing is wrong with skipping; days get busy.",
+                  "todo": ["A 30-second mood check-in is enough", "Add a line about why if you want the medical team to know"],
+                  "sources": [f"goal:{crew_id}:mood:day{day}"], "goals": []})
+
     for i, d in inds.items():
         if d["level"] and i not in used:
             sysid = next((k for k, s in SYSTEMS.items() if i in s["indicators"]), None)
@@ -195,6 +213,6 @@ def snapshot(crew_id: str, ms: dict) -> dict:
     for area in ("physical", "mental"):
         lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area])
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
-    top = max([a["level"] for a in al] + [0])
+    top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
     return {"crew_id": crew_id, "indicators": inds, "systems": syss, "alerts": al, "areas": areas,
             "level": top, "status": STATUS[top], "dose": dose(ms)}
