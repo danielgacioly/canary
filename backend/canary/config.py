@@ -47,6 +47,19 @@ class Settings:
     live_space_weather: bool = os.environ.get("CANARY_LIVE_SPACE_WEATHER", "0") == "1"
     # AI assistant provider: "none" (default), "anthropic" or "local". See canary/assistant/providers.py
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
+    # Model settings for the tool-calling loop (docs/ai/plan.md, Phase 0). The API key is never read here:
+    # the Anthropic SDK reads ANTHROPIC_API_KEY from the environment itself.
+    llm_model: str = os.environ.get("CANARY_LLM_MODEL", "claude-sonnet-5-5")
+    llm_effort: str = os.environ.get("CANARY_LLM_EFFORT", "low")
+    # After this many seconds the answer falls back to grounded rules.
+    llm_timeout_s: float = float(os.environ.get("CANARY_LLM_TIMEOUT_S", "15"))
+    # Tool-calling rounds per question, and tool calls per question across all rounds.
+    llm_max_steps: int = int(os.environ.get("CANARY_LLM_MAX_STEPS", "3"))
+    llm_max_tool_calls: int = int(os.environ.get("CANARY_LLM_MAX_TOOL_CALLS", "6"))
+    # Knowledge base file, built offline by `make index`, read-only at runtime.
+    kb_path: str = os.environ.get("CANARY_KB", str(ROOT / "backend" / "kb.db"))
+    # Embedder for knowledge search: "local" (fastembed) or "none" (BM25 only).
+    embedder: str = os.environ.get("CANARY_EMBEDDER", "local")
     frontend_dist: str = os.environ.get("CANARY_FRONTEND_DIST", str(ROOT / "frontend" / "dist"))
 
 

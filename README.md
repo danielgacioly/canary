@@ -29,7 +29,7 @@ It compares every astronaut with **their own normal**, turns early warnings into
 
 ## Run it
 
-Needs **Python 3.9+** and **Node 18+**.
+Needs **Python 3.10+** and **Node 18+**.
 
 ```bash
 make setup     # backend venv + npm install
@@ -72,6 +72,14 @@ Other commands:
 | `CANARY_LIVE_SPACE_WEATHER` | `0` | `1` also asks NASA DONKI for the last 30 days (falls back to the snapshot) |
 | `NASA_API_KEY` | `DEMO_KEY` | key for api.nasa.gov |
 | `CANARY_LLM_PROVIDER` | `none` | `none`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
+| `CANARY_LLM_MODEL` | `claude-sonnet-5-5` | model id used when `CANARY_LLM_PROVIDER=anthropic` |
+| `CANARY_LLM_EFFORT` | `low` | effort level sent to the model |
+| `CANARY_LLM_TIMEOUT_S` | `15` | after this many seconds the answer falls back to grounded rules |
+| `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
+| `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds |
+| `CANARY_KB` | `backend/kb.db` | knowledge base file, built by `make index` |
+| `CANARY_EMBEDDER` | `local` | `local` (fastembed) or `none` (BM25 only) |
+| `ANTHROPIC_API_KEY` | none | read by the Anthropic SDK, only in the backend; never commit it |
 
 ---
 

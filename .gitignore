@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 backend/.venv/
 backend/*.db
+backend/kb.db
+# fastembed model cache (point FASTEMBED_CACHE_PATH here)
+backend/.cache/
 .pytest_cache/
 # Node
 frontend/node_modules/
