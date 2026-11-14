@@ -17,6 +17,7 @@ from canary.assistant.kb.embed import DIMS, NullEmbedder
 from canary.config import settings
 from canary.domain import nasa, protocols, selftests
 from canary.domain.catalog import LOCATIONS, SYSTEMS
+from canary.assistant.knowledge import RISK_CARDS
 
 
 class FakeEmbedder:
@@ -74,7 +75,9 @@ def test_build_writes_every_table_and_kind(kb_path):
     assert meta["embedder"] == "none" and meta["dims"] == "0" and len(meta["corpus_hash"]) == 64
     kinds = dict(rows(kb_path, "SELECT kind, COUNT(*) FROM kb_documents GROUP BY kind"))
     assert kinds == {"protocol": len(protocols.order()), "system_card": len(SYSTEMS), "location": len(LOCATIONS),
-                     "nasa_source": sum(x["id"].startswith("nasa:") for x in nasa.SOURCES), "hazard": 5, "privacy": 1, "self_test": len(selftests.TESTS)}
+                     "nasa_source": sum(x["id"].startswith("nasa:") for x in nasa.SOURCES), "hazard": 5, "privacy": 1, "self_test": len(selftests.TESTS),
+                     "risk": len(RISK_CARDS), "care_window": sum(1 for pid in protocols.order()
+                                                                 if protocols.care(pid)["window_days"] or protocols.care(pid)["after_items"])}
     docs = {r[0] for r in rows(kb_path, "SELECT doc_id FROM kb_documents")}
     assert {f"HAZARD-{h}" for h in "RIDGE"} <= docs
     assert {f"LOC-{p.replace('_', '-').upper()}" for p in LOCATIONS} <= docs
@@ -107,6 +110,10 @@ def test_kb_map_covers_every_legacy_id(kb_path):
     assert set(legacy.values()) <= docs
     assert {f"protocol:{pid}" for pid in protocols.order()} <= set(legacy)
     assert {f"card:{sid}" for sid in SYSTEMS} <= set(legacy)
+    # The risk layer (tools.get_risks) cites card:risk:{id} and card:hazard:{H}: each maps to an indexed document.
+    assert {f"card:risk:{rid}" for rid in RISK_CARDS} <= set(legacy)
+    assert {f"card:hazard:{h}" for h in "RIDGE"} <= set(legacy)
+    assert legacy["card:risk:bone_muscle"] == "RISK-BONE-MUSCLE" and legacy["card:hazard:G"] == "HAZARD-G"
     m = corpus.load_map()
     assert set(m["keywords"]) <= docs and set(m["notes"]) <= docs
 
@@ -320,3 +327,53 @@ def test_broken_index_never_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "kb_path", str(path))
     monkeypatch.setattr(settings, "embedder", "none")
     assert kb.search("seizure") == []
+
+
+# ---------------------------------------------------------------- risk cards and care windows
+def test_risk_and_care_documents(kb_path):
+    q = "SELECT c.chunk_id, c.gravity, c.location, d.kind, d.legacy_id FROM kb_chunks c JOIN kb_documents d USING (doc_id, version) WHERE d.kind IN ('risk', 'care_window')"
+    got = rows(kb_path, q)
+    ids = {r[0] for r in got}
+    assert {f"kb:{corpus.risk_doc_id(r)}@1#summary" for r in RISK_CARDS} <= ids
+    assert {"kb:CARE-SEIZURE@1#summary", "kb:CARE-SEIZURE@1#items", "kb:CARE-RAD@1#summary"} <= ids
+    assert "kb:CARE-TRIAGE@1#summary" not in ids  # triage leaves no care window
+    assert all(g == "any" and loc == "any" for _, g, loc, _, _ in got)  # not variants: true at every place and gravity
+    assert all(C.KB_SOURCE_RE.match(i) for i in ids)
+    assert {lid for _, _, _, kind, lid in got if kind == "risk"} == {f"card:risk:{r}" for r in RISK_CARDS}
+
+
+def test_care_window_follows_the_bank():
+    docs = {d.doc_id: d for d in corpus.documents()}
+    for pid in protocols.order():
+        c = protocols.care(pid)
+        d = docs.get(corpus.care_doc_id(pid))
+        if not c["window_days"] and not c["after_items"]:
+            assert d is None
+            continue
+        text = " ".join(ch.text for ch in d.chunks)
+        assert f"care window of {c['window_days']} day" in text
+        assert all(i["title"] in text for i in c["after_items"])
+
+
+def test_adding_care_windows_left_protocol_documents_alone():
+    """Care windows are their own documents, so `PROTO-*@1` still means the same text in past audits."""
+    for d in corpus.documents():
+        if d.kind == "protocol":
+            assert {c.section for c in d.chunks} <= {"summary", "step", "variant", "after"}
+
+
+@pytest.mark.parametrize("query,expected,kind", [
+    ("how often should my bone density be checked", "kb:RISK-BONE-MUSCLE@1#summary", "any"),
+    ("what happens after a seizure emergency", "kb:CARE-SEIZURE@1#", "any"),
+    ("what does Canary read for the radiation risk", "kb:RISK-RADIATION@1#summary", "risk"),
+    ("how long am I off duty after choking", "kb:CARE-CHOKE@1#", "care_window"),
+])
+@pytest.mark.parametrize("place", ["transit", "mars", "iss"])
+def test_risk_and_care_retrieval(use_kb, query, expected, kind, place):
+    got = top(query, kind=kind, place=place)
+    assert any(c.startswith(expected) for c in got), got
+
+
+def test_risk_and_care_kind_filters(use_kb):
+    assert all(c.doc_id.startswith("RISK-") for c in kb.search("bone density", kind="risk", k=10))
+    assert all(c.doc_id.startswith("CARE-") for c in kb.search("seizure", kind="care_window", k=10))

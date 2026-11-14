@@ -1,4 +1,4 @@
-"""Knowledge base: approved protocols, system cards, places and NASA sources, searched by the assistant.
+"""Knowledge base: approved protocols, care windows, system and risk cards, places and NASA sources, searched by the assistant.
 
 Contract (docs/ai/plan.md Phase 3, docs/ai/schema.md §3). Implementation: `corpus.py` (documents and
 chunks), `embed.py` (LocalEmbedder / NullEmbedder), `build.py` (writes kb.db), `hybrid.py`
@@ -9,7 +9,8 @@ chunks), `embed.py` (LocalEmbedder / NullEmbedder), `build.py` (writes kb.db), `
 - `search` is hybrid: BM25 over `kb_chunks_fts` plus vector similarity over `kb_vec` when
   `settings.embedder == "local"` (fastembed); BM25 only when it is "none" or the embedder is unavailable.
 - `kind` filters by document kind: "protocol", "system_card", "location", "nasa_source", "hazard",
-  "privacy", "self_test" or "any".
+  "privacy", "self_test", "risk" (RISK-*, the risk layer's cards), "care_window" (CARE-*, what follows a
+  closed emergency) or "any".
 - `gravity` ("g0" | "gp" | "g1") and `place` ("earth" | "rocket" | "iss" | "moon" | "transit" | "mars") keep
   chunks that match the current mission or are tagged "any", so the model never sees a variant for the wrong
   gravity or place. When only `place` is given, its gravity comes from `catalog.LOCATIONS[place]["gravity_key"]`.
@@ -25,7 +26,7 @@ from typing import List, Optional
 
 log = logging.getLogger("canary.kb")
 
-KINDS = ("protocol", "system_card", "location", "nasa_source", "hazard", "privacy", "self_test", "any")
+KINDS = ("protocol", "system_card", "location", "nasa_source", "hazard", "privacy", "self_test", "risk", "care_window", "any")
 
 
 @dataclass(frozen=True)

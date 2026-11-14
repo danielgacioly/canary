@@ -1,5 +1,5 @@
 {
- "_about": "Knowledge base id map, reviewed by hand (docs/ai/schema.md §3). `legacy` maps old source ids to kb document ids. `protocols` gives each protocol its document id. `keywords` are plain-language words people use for a document; they are indexed for lexical search only and never shown or quoted. `notes` is extra card text (how to read a self-test score); it is illustrative and not clinically reviewed. `versions` overrides the document version (default 1; protocols take theirs from protocols.json).",
+ "_about": "Knowledge base id map, reviewed by hand (docs/ai/schema.md §3). `legacy` maps old source ids to kb document ids. `protocols` gives each protocol its document id. `legacy` also maps the risk layer's `card:risk:{id}` and `card:hazard:{H}` to `RISK-*` and `HAZARD-*`. `keywords` are plain-language words people use for a document; they are indexed for lexical search only and never shown or quoted. `notes` is extra card text (how to read a self-test score); it is illustrative and not clinically reviewed. `versions` overrides the document version (default 1; protocols take theirs from protocols.json).",
  "protocols": {
   "cpr": "PROTO-CARDIO-001",
   "seizure": "PROTO-NEURO-001",
@@ -36,7 +36,20 @@
   "nasa:donki": "NASA-DONKI",
   "nasa:rad": "NASA-RAD",
   "nasa:osd569": "NASA-OSD569",
-  "nasa:hrp": "NASA-HRP"
+  "nasa:hrp": "NASA-HRP",
+  "card:risk:fatigue": "RISK-FATIGUE",
+  "card:risk:radiation": "RISK-RADIATION",
+  "card:risk:sans": "RISK-SANS",
+  "card:risk:nutrition": "RISK-NUTRITION",
+  "card:risk:renal": "RISK-RENAL",
+  "card:risk:immune": "RISK-IMMUNE",
+  "card:risk:cardio": "RISK-CARDIO",
+  "card:risk:bone_muscle": "RISK-BONE-MUSCLE",
+  "card:hazard:R": "HAZARD-R",
+  "card:hazard:I": "HAZARD-I",
+  "card:hazard:D": "HAZARD-D",
+  "card:hazard:G": "HAZARD-G",
+  "card:hazard:E": "HAZARD-E"
  },
  "keywords": {
   "PROTO-CARDIO-001": "unconscious unresponsive collapsed not breathing no pulse cardiac arrest heart stopped resuscitation compressions",
@@ -77,7 +90,15 @@
   "TEST-SYMPTOMS": "symptoms pain feels off severity",
   "TEST-SLEEP": "sleep diary bed wake hours",
   "TEST-READING": "reading book",
-  "TEST-JOURNAL": "journal diary writing"
+  "TEST-JOURNAL": "journal diary writing",
+  "RISK-FATIGUE": "tired fatigue exhausted burnout mood stress sleep performance behavioural health mental",
+  "RISK-RADIATION": "radiation dose career limit exposure storm lymphocytes how much radiation",
+  "RISK-SANS": "vision eyes blurry SANS eye pressure Amsler wavy lines",
+  "RISK-NUTRITION": "food nutrition weight loss eating glucose sugar diet",
+  "RISK-RENAL": "kidneys kidney stones hydration water urine creatinine calcium",
+  "RISK-IMMUNE": "immunity infection blood count fever CRP inflammation white cells",
+  "RISK-CARDIO": "heart circulation pulse blood pressure oxygen aerobic fitness VO2 dizzy",
+  "RISK-BONE-MUSCLE": "bone density bones muscles muscle loss strength grip exercise fracture how often checked measured"
  },
  "notes": {
   "TEST-PVT": "A slower reaction time than your own normal, or more lapses, points to tiredness you may not feel yet. It is a reason to rest, not a diagnosis.",

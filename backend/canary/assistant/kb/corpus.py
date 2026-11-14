@@ -2,8 +2,10 @@
 
 Pure and deterministic: the same source data always gives the same documents, chunks and hashes.
 Sources (docs/ai/schema.md §3): protocols (data/protocols.json), system cards and places (catalog),
-NASA source notes (domain/nasa), the five RIDGE hazards and the visibility contract (domain/privacy)
-and one card per self-test (domain/selftests). Ids and hand-written extras come from data/kb_map.json.
+NASA source notes (domain/nasa), the five RIDGE hazards and the visibility contract (domain/privacy),
+one card per self-test (domain/selftests), one card per risk of the risk layer (domain/risk.SPECS,
+assistant/knowledge.RISK_CARDS) and one care-window document per protocol that leaves one (data/protocols.json
+`window_days`, `ops`, `after_days`; domain/care). Ids and hand-written extras come from data/kb_map.json.
 """
 import hashlib
 import json
@@ -11,8 +13,8 @@ import pathlib
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List
 
-from ...domain import nasa, privacy, selftests
-from ...domain.catalog import INDICATORS, LOCATIONS, SYSTEMS
+from ...domain import care, nasa, privacy, protocols, selftests
+from ...domain.catalog import HAZARDS_BY_INDICATOR, INDICATORS, LOCATIONS, SYSTEMS
 
 DATA = pathlib.Path(__file__).resolve().parents[2] / "data"
 PLACES = tuple(LOCATIONS)  # earth, rocket, iss, moon, transit, mars
@@ -229,9 +231,83 @@ def _selftests(m: dict) -> List[Document]:
     return out
 
 
+def _days(n: int) -> str:
+    return f"{n} day{'s' if n != 1 else ''}"
+
+
+def risk_doc_id(rid: str) -> str:
+    """`bone_muscle` -> `RISK-BONE-MUSCLE` (KB_SOURCE_RE has no underscores)."""
+    return f"RISK-{rid.replace('_', '-').upper()}"
+
+
+def _risks(m: dict) -> List[Document]:
+    """One card per risk (`card:risk:{id}` in get_risks). Not place- or gravity-specific: the card says what the
+    risk reads; the live level, and which hazards are active where the crew is, come from get_risks."""
+    from ...domain import risk
+    from .. import knowledge
+    specs = {"fatigue": {"name": risk.NAMES["fatigue"], "nasa_red": True, "systems": ["brain"], "clock_days": 14,
+                         "reads": list(risk.FATIGUE["weights"]) + ["wellbeing", "mood"]}, **risk.SPECS}
+    names = {h["id"]: h["name"] for h in privacy.RIDGE}
+    out = []
+    for rid, text in knowledge.RISK_CARDS.items():
+        S = specs[rid]
+        doc_id = risk_doc_id(rid)
+        reads = S.get("reads", [])
+        hz = [h for h in names if any(l["hazard"] == h for k in reads for l in HAZARDS_BY_INDICATOR.get(k, []))]
+        panels = [f"{k} exams about every {P['every_days']} days" for k, P in risk.PANELS.items()
+                  if any(i in P["indicators"] for i in reads)]
+        body = (f"{S['name']} (risk). What Canary reads: {text} Body systems: {_join(SYSTEMS[s]['name'] for s in S['systems'])}. "
+                f"Canary reviews this risk on a clock of about {_days(S['clock_days'])}"
+                + (f"; {_join(panels)}" if panels else "") + ". "
+                + ("One of NASA's red risks for a Mars mission. " if S["nasa_red"] else "")
+                + (f"Hazards that can be possible factors: {_join(names[h] for h in hz)}. " if hz else "")
+                + "A risk level (0, 1 or 2) comes from rules against the person's own normal; it is never a diagnosis.")
+        out.append(Document(doc_id, _version(m, doc_id), "risk", S["name"], f"card:risk:{rid}", "illustrative",
+                            f"domain/risk.py SPECS.{rid}; assistant/knowledge.py RISK_CARDS.{rid}",
+                            [ChunkSpec("summary", "summary", f"{S['name']} risk", body, keywords=m["keywords"].get(doc_id, ""))]))
+    return out
+
+
+def care_doc_id(pid: str) -> str:
+    return f"CARE-{pid.upper()}"
+
+
+def _care_windows(m: dict) -> List[Document]:
+    """One document per protocol that leaves a care window or aftercare (protocols.care). Kept apart from the protocol
+    document so adding it did not change what `PROTO-*@{version}` means in past audits. Chunks: `summary` (the window
+    and the operational status) and `items` (each aftercare item with its days)."""
+    bank = _bank()
+    sens = care.SENSITIVITY
+    out = []
+    for pid in bank["order"]:
+        p = bank["protocols"][pid]
+        c = protocols.care(pid)
+        if not c["window_days"] and not c["after_items"]:
+            continue
+        doc_id = care_doc_id(pid)
+        proto_kw = m["keywords"].get(m["protocols"][pid], "")
+        kw = m["keywords"].get(doc_id) or f"after afterwards recovery care window back to duty following days {proto_kw}"
+        ops = privacy.OPS[c["ops"]]["label"]
+        status = (f"the patient stays {ops[0].lower() + ops[1:]}" if c["ops"] == "full"
+                  else f"the patient's operational status is at least \"{ops}\"")
+        summary = (f"After a {p['n']} emergency (Guided Response): a care window of {_days(c['window_days'])} from the day "
+                   f"the emergency closes. During it {status}, and their alerts are watched more closely (thresholds "
+                   f"x{sens['factor']:g}, a {sens['source']}). The closed emergency stays on record. "
+                   f"Illustrative, not clinically reviewed.")
+        chunks = [ChunkSpec("summary", "summary", f"{p['n']}, care window", summary, keywords=kw)]
+        if c["after_items"]:
+            items = "; ".join(f"{i['title']} ({_days(i['days'])})" if i["days"] else i["title"] for i in c["after_items"])
+            chunks.append(ChunkSpec("items", "after", f"{p['n']}, aftercare", f"Aftercare after a {p['n']} emergency: {items}."))
+        out.append(Document(doc_id, int(m.get("versions", {}).get(doc_id, p.get("version", 1))), "care_window",
+                            f"{p['n']}: care window", "", p.get("reviewed", "illustrative"),
+                            f"data/protocols.json#{pid} (window_days, ops, after_days); domain/care.py", chunks))
+    return out
+
+
 def documents() -> List[Document]:
     m = load_map()
-    docs = _protocols(m) + _cards(m) + _places(m) + _nasa(m) + _hazards(m) + _privacy(m) + _selftests(m)
+    docs = (_protocols(m) + _cards(m) + _places(m) + _nasa(m) + _hazards(m) + _privacy(m) + _selftests(m)
+            + _risks(m) + _care_windows(m))
     ids = [d.doc_id for d in docs]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate knowledge document id")

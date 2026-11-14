@@ -34,7 +34,7 @@ INDICATOR_IDS = list(INDICATORS)
 SYSTEM_IDS = list(SYSTEMS)
 PROTOCOL_IDS = list(protocols.order())
 CHECKIN_KINDS = [t["id"] for t in selftests.TESTS] + ["any"]
-KNOWLEDGE_KINDS = ["protocol", "system_card", "location", "nasa_source", "hazard", "privacy", "self_test", "any"]
+KNOWLEDGE_KINDS = list(kb.KINDS)
 MAX_CHECKIN_DAYS = 14
 MAX_KNOWLEDGE_K = 6
 MAX_QUERY_CHARS = 200
@@ -244,7 +244,7 @@ TOOLS: Dict[str, dict] = {
     "search_knowledge": {
         "fn": search_knowledge,
         "description": ("Search approved knowledge (protocols, body-system cards, places, NASA sources, hazards, the privacy contract, "
-                        "self-test cards), filtered to the current place and gravity. Returns citable chunks, or none when nothing matches."),
+                        "self-test cards, risk cards, care windows after an emergency), filtered to the current place and gravity. Returns citable chunks, or none when nothing matches."),
         "input_schema": _obj({
             "query": {"type": "string", "maxLength": MAX_QUERY_CHARS, "description": "What to look up, in plain English (at most 200 characters)."},
             "kind": {"type": "string", "enum": KNOWLEDGE_KINDS, "description": "Document kind, or 'any'."},
