@@ -33,21 +33,49 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (controlToken) headers['X-Canary-Control'] = controlToken
   const sent = viewerToken
   if (sent) headers['X-Canary-Viewer'] = sent
-  const r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
+  let r: Response
+  try {
+    r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
+  } catch {
+    throw new ApiError(0, 'Cannot reach the Canary server. Check the connection and try again.')
+  }
   if (!r.ok) {
-    let detail = r.statusText
+    let detail: unknown = r.statusText
     try { detail = (await r.json()).detail ?? detail } catch { /* not json */ }
     if (sent && sent === viewerToken && (r.status === 401 || r.status === 403) && !/\/(session|pin)$/.test(path) && sessionLost(path, r.status, sent)) {
       storeViewer(null)
       window.dispatchEvent(new Event('canary:locked'))
     }
-    throw new ApiError(r.status, String(detail))
+    const issues = issuesOf(detail)
+    throw new ApiError(r.status, issues.length ? issues.map(i => i.message).join('. ') : r.status >= 500 ? 'The server had a problem with this request. Try again in a moment.' : String(detail), issues)
   }
   return r.json() as Promise<T>
 }
 
+/** One thing wrong with one field. `field` is a dotted path such as `crew.1.dob`, or `form` for the whole form. */
+export interface FieldIssue { field: string; message: string }
+
+/** Reads the two shapes the API sends: `[{field, message}]` and FastAPI's own `[{loc, msg}]`. */
+function issuesOf(detail: unknown): FieldIssue[] {
+  if (!Array.isArray(detail)) return []
+  return detail.flatMap((d): FieldIssue[] => {
+    if (d && typeof d === 'object') {
+      const o = d as Record<string, unknown>
+      if (typeof o.message === 'string') return [{ field: String(o.field ?? 'form'), message: o.message }]
+      if (typeof o.msg === 'string') return [{ field: Array.isArray(o.loc) ? o.loc.filter(x => x !== 'body').join('.') : 'form', message: o.msg }]
+    }
+    return []
+  })
+}
+
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  /** `status` is 0 when the server could not be reached. `issues` is set for 400/422 answers that name fields. */
+  constructor(public status: number, message: string, public issues: FieldIssue[] = []) { super(message) }
+}
+
+/** The sentence to show a person for any thrown value. */
+export function errorText(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : 'Something went wrong. Try again.'
 }
 
 const body = (b: unknown) => ({ body: JSON.stringify(b) })
