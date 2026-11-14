@@ -53,7 +53,7 @@ function Pvt({ onClose }: { onClose: () => void }) {
           {st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · tap for the next` : 'Tap to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW' : 'Too early. Tap to retry'}
         </div>
       ) : (
-        <div className="card flat"><span className="lbl">Average</span><b className="num" style={{ fontSize: 36, display: 'block' }}>{avg} ms</b>
+        <div className="card pad-sm"><span className="lbl">Average</span><b className="num" style={{ fontSize: 36, display: 'block' }}>{avg} ms</b>
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>
       )}
       <div className="row wrap">{rts.map((r, i) => <span key={i} className="tag num">{r} ms</span>)}</div>
@@ -96,7 +96,7 @@ function Vitals({ onClose }: { onClose: () => void }) {
   const [v, setV] = useState({ hr: '', bp: '', temp: '', spo2: '' })
   const f = (k: keyof typeof v, label: string, unit: string) => (
     <label className="col" style={{ gap: 4 }}><span className="lbl">{label} ({unit})</span>
-      <input value={v[k]} onChange={e => setV({ ...v, [k]: e.target.value })} inputMode="decimal" style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--panel-2)' }} /></label>
+      <input value={v[k]} onChange={e => setV({ ...v, [k]: e.target.value })} inputMode="decimal" style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }} /></label>
   )
   const num = (s: string) => (s.trim() ? Number(s) : null)
   return (

@@ -123,25 +123,14 @@ export class HologramScene {
     const floor = new THREE.Group()
     const r1 = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.425, 96), ringMat(0.55))
     const r2 = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.552, 128), ringMat(0.25))
-    const r3 = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.66, 128, 1, 0, Math.PI * 0.6), ringMat(0.18))
     const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 64), ringMat(0.04))
-    const ticks = new THREE.Group()
-    for (let i = 0; i < 72; i++) {
-      const t = new THREE.Mesh(new THREE.PlaneGeometry(0.004, i % 6 ? 0.018 : 0.04), ringMat(i % 6 ? 0.25 : 0.55))
-      const a = (i / 72) * Math.PI * 2
-      t.position.set(Math.cos(a) * 0.5, Math.sin(a) * 0.5, 0)
-      t.rotation.z = a + Math.PI / 2
-      ticks.add(t)
-    }
-    floor.add(r1, r2, r3, disc, ticks)
+    floor.add(r1, r2, disc)
     floor.rotation.x = -Math.PI / 2
     floor.position.y = 0.002
-    floor.userData.spin = r3
-    floor.userData.ticks = ticks
     this.scene.add(floor)
     this.scene.userData.floor = floor
 
-    const n = 420, pos = new Float32Array(n * 3), seed = new Float32Array(n)
+    const n = 240, pos = new Float32Array(n * 3), seed = new Float32Array(n)
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, r = 0.3 + Math.random() * 0.75
       pos.set([Math.cos(a) * r, Math.random() * 2.1, Math.sin(a) * r], i * 3)
@@ -150,7 +139,7 @@ export class HologramScene {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     g.setAttribute('seed', new THREE.BufferAttribute(seed, 1))
-    this.particles = new THREE.Points(g, new THREE.PointsMaterial({ color: '#7cf3ff', size: 0.008, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }))
+    this.particles = new THREE.Points(g, new THREE.PointsMaterial({ color: '#7cf3ff', size: 0.008, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }))
     this.scene.add(this.particles)
   }
 
@@ -247,9 +236,6 @@ export class HologramScene {
       m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1)
       if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.setScalar(1).multiply(new THREE.Vector3(0.042, 0.05, 0.04)).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
     }
-    const floor = this.scene.userData.floor as THREE.Group
-    floor.userData.spin.rotation.z = t * 0.25
-    floor.userData.ticks.rotation.z = -t * 0.05
     if (this.particles) {
       const p = this.particles.geometry.getAttribute('position') as THREE.BufferAttribute
       for (let i = 0; i < p.count; i++) { let y = p.getY(i) + dt * 0.04; if (y > 2.1) y = 0; p.setY(i, y) }

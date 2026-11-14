@@ -8,7 +8,6 @@ import Intro from './pages/Intro'
 import Me from './pages/Me'
 import Medical from './pages/Medical'
 import Mission from './pages/Mission'
-import Ranking from './pages/Ranking'
 import { useSession } from './state/session'
 
 export default function App() {
@@ -17,16 +16,17 @@ export default function App() {
     <Routes>
       <Route path="/welcome" element={<Intro />} />
       <Route element={<Shell />}>
-        <Route path="/me" element={<Me />} />
+        <Route path="/today" element={<Me />} />
+        <Route path="/me" element={<Navigate to="/today" replace />} />
+        <Route path="/ranking" element={<Navigate to="/goals?tab=ranking" replace />} />
         <Route path="/crew" element={<Crew />} />
         <Route path="/crew/:id" element={<Astronaut />} />
         <Route path="/goals" element={<Goals />} />
-        <Route path="/ranking" element={<Ranking />} />
         <Route path="/mission" element={<Mission />} />
         <Route path="/medical" element={<Medical />} />
         <Route path="/about" element={<About />} />
       </Route>
-      <Route path="*" element={<Navigate to={me ? '/me' : '/welcome'} replace />} />
+      <Route path="*" element={<Navigate to={me ? '/today' : '/welcome'} replace />} />
     </Routes>
   )
 }

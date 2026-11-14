@@ -68,8 +68,8 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   return (
     <div className="er" role="dialog" aria-label="Guided Response">
       <div className="er-top">
-        <i className="ring" style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--nasa-red)', animation: 'ping 1.4s infinite' }} />
-        <div><span className="lbl" style={{ color: '#ffb4a8' }}>Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
+        <i className="dot s2" style={{ background: 'var(--nasa-red)' }} />
+        <div><span className="lbl">Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
         <div className="right row" style={{ gap: 22 }}>
           <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}><span className="lbl">Elapsed</span><b className="num" style={{ fontSize: 22 }}>{mmss(elapsed)}</b></div>
           <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}><span className="lbl">Earth sees this in</span><b className="num" style={{ fontSize: 22, color: earthIn ? 'var(--watch)' : 'var(--ok)' }}>{earthIn ? mmss(earthIn) : 'Live'}</b></div>
@@ -98,7 +98,7 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
             <div className="col detail" key={`${pid}-${i}`} style={{ gap: 18 }}>
               <span className="lbl">Step {i + 1} of {proto.steps.length}</span>
               {step.t && <p className="er-big">{step.t}</p>}
-              {step.variant && <div className="er-variant"><span className="lbl" style={{ color: 'var(--cyan)' }}>Here, at {mission?.place.name}</span><p style={{ marginTop: 6, fontSize: 16 }}>{step.variant}</p></div>}
+              {step.variant && <div className="er-variant"><span className="lbl">Here, at {mission?.place.name}</span><p style={{ marginTop: 6, fontSize: 16 }}>{step.variant}</p></div>}
               {step.metro ? <div><div className="metro" /><p className="small muted" style={{ textAlign: 'center' }}>Push on every pulse: 110 per minute</p></div> : null}
               {step.breath ? <div><div className="breath" /><p className="small muted" style={{ textAlign: 'center' }}>In as it grows, out as it shrinks</p></div> : null}
               {step.timer ? <div className="row"><span className="lbl">Timer</span><b className="timer">{mmss(step.timer - stepElapsed)}</b></div> : null}
@@ -124,15 +124,15 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
             <div className="card detail">
               <h2>Closed and reported.</h2>
               <p className="muted" style={{ marginTop: 8 }}>The log is attached to the report. Follow-up care appears as goals for the patient over the next 3 days.</p>
-              {proto && <ul className="todo s0">{proto.after.map(a => <li key={a}>{a}</li>)}</ul>}
+              {proto && <ul className="steps">{proto.after.map(a => <li key={a}>{a}</li>)}</ul>}
               <button className="btn pri" style={{ marginTop: 16 }} onClick={onClose}>Back to Canary</button>
             </div>
           )}
         </div>
 
         <aside className="col">
-          {proto && <div className="card tight"><span className="lbl">Bring</span><ul className="todo s0">{proto.kit.length ? proto.kit.map(k => <li key={k}>{k}</li>) : <li>Medical kit</li>}</ul></div>}
-          <div className="card tight">
+          {proto && <div className="card pad-sm"><span className="lbl">Bring</span><ul className="steps">{proto.kit.length ? proto.kit.map(k => <li key={k}>{k}</li>) : <li>Medical kit</li>}</ul></div>}
+          <div className="card pad-sm">
             <span className="lbl">Log, sent with the report</span>
             <div className="col" style={{ gap: 6, marginTop: 10, maxHeight: 300, overflow: 'auto' }}>
               {(em?.log ?? []).slice().reverse().map(([t, x], k) => <div key={k} className="row small" style={{ alignItems: 'baseline' }}><span className="num dim">{mmss(t)}</span><span>{x}</span></div>)}

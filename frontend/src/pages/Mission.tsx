@@ -1,68 +1,90 @@
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
-import { LineChart, Loading, Pill } from '../components/ui'
+import { PlaceGrid } from '../components/Shell'
+import { Icon, LineChart, Loading, Tabs } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
+type Tab = 'place' | 'weather' | 'mars' | 'link'
+
 export default function Mission() {
-  const { catalog, mission, setLocation, toast } = useSession()
+  const { mission, setLocation, toast } = useSession()
+  const [params, setParams] = useSearchParams()
+  const tab = (params.get('tab') as Tab) || 'place'
   const { data: sw } = useApi(() => api.spaceWeather(), [])
   const { data: rad } = useApi(() => api.rad(), [])
-  if (!catalog || !mission || !sw || !rad) return <Loading what="mission data" />
+  if (!mission || !sw || !rad) return <Loading what="mission" />
   const t0 = sw.kp.length ? Date.parse(sw.kp[0][0]) : 0
   const kp = sw.kp.map(([t, v]) => [(Date.parse(t) - t0) / 36e5, v] as [number, number])
   return (
     <div className="page">
-      <div className="hello">
-        <div className="col" style={{ gap: 8 }}><span className="lbl">{mission.day_label}</span><h1>Where you are changes everything.</h1></div>
-        <div className="right"><Pill level={sw.active ? 2 : 0}>{sw.headline}</Pill></div>
-      </div>
+      <div className="head"><div><h1>{mission.place.name}, {mission.day_label}</h1><p className="sub">{mission.place.what}</p></div></div>
+      <Tabs value={tab} onChange={t => setParams(t === 'place' ? {} : { tab: t }, { replace: true })}
+        options={[['place', 'Where you are'], ['weather', 'Space weather'], ['mars', 'Radiation on Mars'], ['link', 'Link to Earth']]} />
 
-      <section className="card">
-        <div className="head"><h2>Place</h2><span className="small muted">Gravity, distance and radiation reshape goals, alerts and Guided Response</span></div>
-        <div className="places">
-          {Object.entries(catalog.locations).map(([k, p]) => (
-            <button key={k} className={`place ${mission.location === k ? 'on' : ''}`} onClick={async () => { await setLocation(k); toast(`Now at: ${p.name}`) }}>
-              <span className="lbl">{p.sub}</span><b style={{ fontSize: 17 }}>{p.name}</b>
-              <dl><dt>Gravity</dt><dd>{p.gravity}</dd><dt>Earth replies</dt><dd>{p.reply}</dd><dt>Hospital</dt><dd>{p.hospital}</dd><dt>Radiation</dt><dd>{p.dose_rate} mSv/day</dd></dl>
-              <span className="small muted">{p.what}</span>
-            </button>))}
+      {tab === 'place' && <PlaceGrid current={mission.location} onPick={async (k, n) => { await setLocation(k); toast(`Now at: ${n}`) }} />}
+
+      {tab === 'weather' && (
+        <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
+          <section className="card">
+            <h2>Geomagnetic storm, May 2024</h2>
+            <p className="small muted" style={{ margin: '4px 0 16px' }}>Kp index from NASA DONKI. Kp 5 and above is a storm.</p>
+            <LineChart series={[{ pts: kp, color: 'var(--watch)' }]} refY={5} refLabel="storm (Kp 5)" xLabels={['5 May', '8 May', '11 May', '14 May', '16 May']} />
+          </section>
+          <aside className="col" style={{ gap: 12 }}>
+            {[['Strongest Kp', sw.kp_max], ['Solar particle events', sw.sep_events], ['CMEs at 900 km/s or more', sw.fast_cmes]].map(([k, v]) => (
+              <div key={k} className="card pad-sm"><div className="lbl">{k}</div><div className="big-num num" style={{ marginTop: 4 }}>{v}</div></div>))}
+            <p className="small dim">Demo step 4 replays this storm on the way to Mars.{sw.live ? ` Live DONKI, ${sw.live.window}: Kp max ${sw.live.kp_max}.` : ''}</p>
+          </aside>
         </div>
-      </section>
+      )}
 
-      <div className="grid g2">
-        <section className="card">
-          <div className="head"><div><span className="lbl">NASA DONKI · {sw.window}</span><h2 style={{ marginTop: 4 }}>Geomagnetic storm, Kp index</h2></div></div>
-          <LineChart series={[{ pts: kp, color: '#ffb547' }]} refY={5} refLabel="storm level (Kp 5)" xLabels={['5 May', '8 May', '11 May', '14 May', '16 May']} yLabel="Kp" />
-          <div className="row wrap" style={{ gap: 22, marginTop: 12 }}>
-            <div className="kpi"><span className="lbl">Kp max</span><b className="num">{sw.kp_max}</b></div>
-            <div className="kpi"><span className="lbl">Solar particle events</span><b className="num">{sw.sep_events}</b></div>
-            <div className="kpi"><span className="lbl">CMEs ≥ 900 km/s</span><b className="num">{sw.fast_cmes}</b></div>
-            <div className="kpi"><span className="lbl">Linked flares</span><b className="num">{sw.flares}</b></div>
-          </div>
-          {sw.live && <p className="small muted" style={{ marginTop: 10 }}>Live DONKI, {sw.live.window}: {sw.live.sep_events} particle events, Kp max {sw.live.kp_max}.</p>}
-          <p className="small dim" style={{ marginTop: 10 }}>The 10 to 11 May 2024 storm reached Kp 9, the strongest in two decades. Story step 4 replays it on a Mars transit.</p>
-        </section>
-        <section className="card">
-          <div className="head"><div><span className="lbl">Curiosity RAD level 2 · Gale crater</span><h2 style={{ marginTop: 4 }}>Dose rate on Mars, quiet day vs storm</h2></div></div>
-          <LineChart series={[{ pts: rad.quiet, color: '#5ef2ff' }, { pts: rad.storm, color: '#ff4d5e' }]} xLabels={['00:00', '06:00', '12:00', '18:00', '24:00']} refY={rad.quietMean} refLabel={`quiet mean ${rad.quietMean}`} yLabel="µGy/day" />
-          <div className="row wrap" style={{ gap: 22, marginTop: 12 }}>
-            <div className="kpi"><span className="lbl">Quiet day mean</span><b className="num">{rad.quietMean}<small>µGy/day</small></b></div>
-            <div className="kpi"><span className="lbl">Storm peak, 20 May 2024</span><b className="num" style={{ color: 'var(--act)' }}>{rad.peak.toLocaleString()}<small>µGy/day</small></b></div>
-            <div className="kpi"><span className="lbl">Ratio</span><b className="num">{rad.ratio}×</b></div>
-          </div>
-          <p className="small dim" style={{ marginTop: 10 }}>Blue: 9 May 2024. Red: 20 May 2024. Story step 6 puts the crew on Mars that day.</p>
-        </section>
-      </div>
-
-      <section className="card">
-        <div className="head"><h2>Communication delay</h2></div>
-        <div className="grid g3">
-          {(['iss', 'moon', 'mars'] as const).map(k => {
-            const p = catalog.locations[k]
-            return <div key={k} className="kpi"><span className="lbl">{p.name}</span><b className="num">{p.reply}</b><span className="small muted">Hospital: {p.hospital}</span></div>
-          })}
+      {tab === 'mars' && (
+        <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
+          <section className="card">
+            <h2>Dose rate at Gale crater</h2>
+            <p className="small muted" style={{ margin: '4px 0 16px' }}>NASA Curiosity RAD, µGy/day over the day. Grey: 9 May 2024. Red: 20 May 2024.</p>
+            <LineChart series={[{ pts: rad.quiet, color: 'var(--muted)' }, { pts: rad.storm, color: 'var(--act)' }]} xLabels={['00:00', '06:00', '12:00', '18:00', '24:00']} />
+          </section>
+          <aside className="col" style={{ gap: 12 }}>
+            <div className="card pad-sm"><div className="lbl">Quiet day</div><div className="big-num num" style={{ marginTop: 4 }}>{rad.quietMean}<small>µGy/day</small></div></div>
+            <div className="card pad-sm"><div className="lbl">Storm peak</div><div className="big-num num" style={{ marginTop: 4, color: 'var(--act)' }}>{rad.peak.toLocaleString('en-US')}<small>µGy/day</small></div></div>
+            <div className="card pad-sm"><div className="lbl">Times normal</div><div className="big-num num" style={{ marginTop: 4 }}>{rad.ratio}×</div></div>
+          </aside>
         </div>
-        <p className="muted" style={{ marginTop: 12 }}>At Mars a question to the flight surgeon can take up to 24 minutes to arrive and as long to come back. Canary stays on board for that gap: it watches, guides the first response and sends a short report so Earth catches up when the message lands. In the demo, delays run 20 times faster.</p>
+      )}
+
+      {tab === 'link' && <LinkLog />}
+    </div>
+  )
+}
+
+function LinkLog() {
+  const { me, mission, bump } = useSession()
+  const { data } = useApi(() => api.messages(me ?? undefined), [me])
+  const [text, setText] = useState('')
+  const [, tick] = useState(0)
+  useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
+  return (
+    <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 24, alignItems: 'start' }}>
+      <section className="card">
+        <h2>Messages, briefings and reports</h2>
+        <p className="small muted" style={{ margin: '4px 0 12px' }}>Everything waits for the real delay from {mission?.place.name} ({mission?.place.reply}), 20 times faster in the demo.</p>
+        <div className="list">{(data ?? []).map(m => {
+          const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
+          return (
+            <div key={m.id} className={`item s${eta ? 1 : 0}`} style={{ alignItems: 'flex-start' }}>
+              <span className="dot" style={{ marginTop: 8 }} />
+              <div className="grow"><b>{m.sender} → {m.recipient}</b> <span className="tag">{m.kind}</span><div className="small muted" style={{ whiteSpace: 'pre-line', marginTop: 2 }}>{m.text.slice(0, 220)}</div></div>
+              <span className="v small">{eta ? `arrives in ${eta}s` : 'delivered'}</span>
+            </div>)
+        })}{!data?.length && <p className="muted">Nothing sent yet.</p>}</div>
       </section>
+      <form className="card col" onSubmit={async e => { e.preventDefault(); if (!me) return; await api.send(me, 'earth', text); setText(''); bump() }}>
+        <h3>Write to Earth</h3>
+        <textarea className="in" required rows={4} value={text} onChange={e => setText(e.target.value)} />
+        <button className="btn pri" disabled={!text.trim()}><Icon name="send" />Send</button>
+      </form>
     </div>
   )
 }

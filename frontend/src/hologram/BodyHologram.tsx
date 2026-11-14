@@ -8,7 +8,6 @@ interface Props {
   selected?: SystemId | null
   onSelect?: (s: SystemId | null) => void
   names?: Record<string, string>
-  levels?: Record<string, number>
   interactive?: boolean
   autoRotate?: boolean
   className?: string
@@ -17,8 +16,8 @@ interface Props {
 
 const STATUS = ['On track', 'Watch', 'Act']
 
-export default function BodyHologram({ status = {}, lens = 'physical', selected = null, onSelect, names = {}, levels = {},
-  interactive = true, autoRotate = true, className = 'holo-wrap', children }: Props) {
+export default function BodyHologram({ status = {}, lens = 'physical', selected = null, onSelect, names = {},
+  interactive = true, autoRotate = true, className = 'bodycard', children }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const scene = useRef<HologramScene | null>(null)
   const [ready, setReady] = useState(false)
@@ -49,22 +48,15 @@ export default function BodyHologram({ status = {}, lens = 'physical', selected 
   useEffect(() => { scene.current?.setLens(lens) }, [lens, ready])
   useEffect(() => { scene.current?.select(selected) }, [selected, ready])
 
+  const lvl = tip ? status[tip.sys] ?? 0 : 0
   return (
     <div className={className}>
       <div ref={host} style={{ position: 'absolute', inset: 0 }} />
-      <div className="scan" />
-      <div className="holo-hud">
-        <i className="corner tl" /><i className="corner tr" /><i className="corner bl" /><i className="corner br" />
-      </div>
-      {!ready && !failed && <div className="holo-loading"><span className="lbl">Calibrating hologram…</span></div>}
-      {failed && <div className="holo-loading"><span className="lbl">3D needs WebGL 2. Health data is still shown beside.</span></div>}
+      {!ready && !failed && <div className="holo-loading">Loading body…</div>}
+      {failed && <div className="holo-loading">The 3D body needs WebGL 2. Your data is listed beside it.</div>}
       {tip && (
         <div className="holo-tip" style={{ left: tip.x, top: tip.y }}>
-          <div className="row" style={{ gap: 8 }}>
-            <span className={`dot s${levels[tip.sys] ?? 0}`} />
-            <b>{names[tip.sys] ?? tip.sys}</b>
-            <span className={`small s${levels[tip.sys] ?? 0} c`}>{STATUS[levels[tip.sys] ?? 0]}</span>
-          </div>
+          <b>{names[tip.sys] ?? tip.sys}</b> <span className={`s${lvl} c`}>· {STATUS[lvl]}</span>
         </div>
       )}
       {children}

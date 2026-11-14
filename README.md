@@ -74,19 +74,23 @@ Other commands:
 
 ## What it does
 
-| Screen | What you see |
+Four tabs, one job each. Everything else is one click away, never on screen at the same time.
+
+| Tab | What you see |
 | --- | --- |
-| **Intro** | The canary story in four beats over the hologram, then "Who is at this terminal?" |
-| **My health** | One sentence that says how you are, up to three numbered actions, then the split view: **Physical** on the left, the **3D body** in the centre, **Mental** on the right. Click any part of the body to open that system. |
-| **Crew** | Crew readiness (physical and mental), mission dose, space weather, one card per astronaut, a person × body-system matrix and this week's crew missions |
-| **Astronaut page** | Profile, the same body view, every indicator against personal normal with 30-day trends, and mission patches |
-| **Goals** | Personal goals split into Physical and Mental, crew missions, level, XP, streak, 14-day history and patches |
-| **Ranking** | Weekly leaderboard by effort, with a podium, levels, streaks and physical / mental XP |
-| **Mission** | Where you are (Earth, launch, ISS, Moon, Mars transit, Mars), NASA DONKI storm chart, Curiosity RAD dose on Mars, communication delay |
-| **Guided Response** | Hold the red button for one second. Ten situations, step by step, adapted to gravity and place, with timers, a CPR pacer, a breathing guide, voice, a log and a report for Earth |
-| **Ask Canary** | The AI assistant slot (see below) |
-| **Medical console** | PIN sign-in. Triage table, weekly briefings, prescribe goals, alert thresholds, delayed messages, emergency log |
-| **About & data** | Sources, architecture, AI rules and business model |
+| **Today** | The body on the left; on the right, one sentence on how you are, up to three numbered steps, and the body systems sorted by what needs attention. Physical and Mental are two buttons on the body, each with its score. Click any part of the body (or any row) and the right panel turns into that system: numbers against your normal, what space does there, what to do, goals. |
+| **Goals** | Tabs: Today (Physical or Mental), Crew missions, Ranking, Patches |
+| **Crew** | Tabs: People (one card per astronaut, sorted by attention), Body systems (person × system). Each person opens a page with the same body view, all numbers and patches |
+| **Mission** | Tabs: Where you are, Space weather (NASA DONKI), Radiation on Mars (Curiosity RAD), Link to Earth (delayed messages) |
+
+Always reachable: **Hold for emergency** (top right) opens Guided Response; the **avatar menu** holds Switch crew member, Ask Canary, Medical console and About & data; the **demo bar** at the bottom drives the story.
+
+### Design rules
+
+- Flat surfaces, no gradients, no glow, no glass. The hologram is the only luminous thing on screen.
+- Colour means state: green on track, amber watch, red act. One accent colour (blue) for what you can press.
+- Hierarchy by size, weight and space: one headline per screen, then the steps, then the details.
+- One thing at a time: tabs and a right panel that swaps content instead of showing everything at once.
 
 ### The three ideas behind it
 
@@ -108,7 +112,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | --- | --- | --- |
 | 1 | **L-30, Earth** | Canary is learning everyone's normal. No alerts. |
 | 2 | **Day 2, launch** | Tomás: fast pulse, little water. Space sickness alert with hydration goals. |
-| 3 | **Day 147, Mars transit** | Helena: sleep, mood, focus and crew time slipping together. The brain glows red on the body. Take the reaction test, Ask Canary why, open the Mental lens. |
+| 3 | **Day 147, Mars transit** | Helena: sleep, mood, focus and crew time slipping together. Today opens on the Mental lens with the brain in red. Take the reaction test, or Ask why. |
 | 4 | **Day 152, replay of 10 May 2024** | NASA DONKI's real storm. Everyone to the shelter, radiation protocol. |
 | 5 | **Day 153, dinner** | Kenji's terminal. Tomás has a seizure: hold EMERGENCY, pick Seizure, follow the steps, close and report. Then see the follow-up goals and the report in the medical console. |
 | 6 | **Sol 12 on Mars, replay of 20 May 2024** | Curiosity RAD measured 51× the normal dose. Gravity re-adaptation for everyone. |
@@ -249,7 +253,7 @@ frontend/
     api/                 typed client and response types
     state/session.tsx    mission, terminal user, refresh signal
     hologram/            scene, shaders, procedural anatomy, React wrapper
-    components/          shell, body view, goals, charts, patches
+    components/          shell, BodyView (body + observations), goals, charts, patches
     features/            Guided Response, Ask Canary, self-checks
     pages/               Intro, Me, Crew, Astronaut, Goals, Ranking, Mission, Medical, About
     styles/app.css       design tokens and components

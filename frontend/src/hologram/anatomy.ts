@@ -64,7 +64,8 @@ export function buildAnatomy(J: Joints) {
   const chestZ = -0.035
 
   // ---- brain and eyes
-  organ('brain', [0, top.y - 0.068, head.z - 0.012], [0.064, 0.056, 0.074], SYSTEM_COLOR.brain, 4, 0.06)
+  // Sits inside the skull: the head is about ±0.075 m wide and -0.155..+0.04 m deep between y 1.64 and 1.70
+  organ('brain', [0, top.y - 0.069, head.z + 0.037], [0.056, 0.046, 0.07], SYSTEM_COLOR.brain, 4, 0.04)
   for (const s of ['l', 'r']) organ('eyes', J[`${s}-eye`], [0.012, 0.012, 0.012], SYSTEM_COLOR.eyes, 2)
 
   // ---- skeleton: vertebrae, ribs, sternum, clavicles, pelvis, limbs, hands, feet
@@ -163,7 +164,7 @@ export function buildAnatomy(J: Joints) {
     tube([v(J['spine-1']), v(J[`${s}-shoulder`]), v(J[`${s}-elbow`]).add(new THREE.Vector3(0, 0, -0.012)), v(J[`${s}-hand`]), v(J[`${s}-finger-3-4`])], 0.0028, 'brain', 'nerve', '#c9a6ff', 0.6, 0.35)
     tube([v(J['spine-4']), v(J[`${s}-upper-leg`]).add(new THREE.Vector3(0, 0, -0.02)), v(J[`${s}-knee`]).add(new THREE.Vector3(0, 0, -0.03)), v(J[`${s}-ankle`]), v(J[`${s}-toe-3-3`] ?? J[`${s}-toe-1-3`])], 0.003, 'brain', 'nerve', '#c9a6ff', 0.6, 0.35)
   }
-  centers.brain = new THREE.Vector3(0, top.y - 0.07, head.z)
+  centers.brain = new THREE.Vector3(0, top.y - 0.069, head.z + 0.037)
   centers.eyes = v(J['l-eye']).add(v(J['r-eye'])).multiplyScalar(0.5)
   centers.muscles = v(J['l-knee']).add(new THREE.Vector3(0, 0.2, 0))
   centers.skin = new THREE.Vector3(0, lungY - 0.05, 0.05)

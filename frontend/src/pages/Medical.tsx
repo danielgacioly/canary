@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
-import { Avatar, Icon, Pill } from '../components/ui'
+import { Avatar, Icon, Status, Tabs } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
 const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
@@ -19,11 +19,11 @@ export default function Medical() {
   if (!signed) return <PinGate onOk={() => setSigned(true)} />
   return (
     <div className="page">
-      <div className="hello">
-        <div className="col" style={{ gap: 8 }}><span className="lbl">Medical console · signed in</span><h1>Flight surgeon view</h1></div>
+      <div className="head">
+        <div><h1>Medical console</h1><p className="sub">Flight surgeons and the crew medical officer</p></div>
         <button className="btn sm right" onClick={() => { api.medicalSignOut(); setSigned(false) }}>Sign out</button>
       </div>
-      <div className="seg" style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>{TABS.map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}</div>
+      <Tabs value={tab} onChange={setTab} options={TABS.map(t => [t, t] as [typeof t, string])} />
       {!ov ? <span className="lbl">Loading…</span> : (
         <>
           {tab === 'Triage' && <Triage ov={ov} />}
@@ -46,10 +46,10 @@ function PinGate({ onOk }: { onOk: () => void }) {
         e.preventDefault()
         try { await api.medicalSignIn(pin); onOk() } catch (x) { setErr((x as Error).message) }
       }}>
-        <span className="lbl">Medical team only</span><h2>Sign in to the medical console</h2>
+        <h2>Medical console</h2>
         <p className="small muted">The crew has no accounts. Only the medical team signs in. Demo PIN: 1961.</p>
         <input type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={pin} onChange={e => setPin(e.target.value)} aria-label="PIN"
-          style={{ padding: 12, borderRadius: 10, border: '1px solid var(--line-2)', background: 'var(--panel-2)', font: '500 22px var(--f-mono)', letterSpacing: '.3em' }} />
+          style={{ padding: 12, borderRadius: 10, border: '1px solid var(--line-2)', background: 'var(--bg)', font: '500 22px var(--f-mono)', letterSpacing: '.3em' }} />
         {err && <span className="small" style={{ color: 'var(--act)' }}>{err}</span>}
         <button className="btn pri">Enter</button>
       </form>
@@ -62,8 +62,8 @@ function Triage({ ov }: { ov: MedicalOverview }) {
   return (
     <>
       <div className="grid g4">{ov.crew.map(c => (
-        <div key={c.id} className={`card col s${c.level}`} style={{ gap: 8 }}>
-          <div className="row"><b>{c.name}</b><span className="right"><Pill level={c.level} /></span></div>
+        <div key={c.id} className="card col" style={{ gap: 8 }}>
+          <div className="row"><b>{c.name}</b><span className="right"><Status level={c.level} /></span></div>
           <span className="small muted">{c.role}</span>
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}
@@ -91,18 +91,17 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
   return (
     <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
       <section className="card col">
-        <span className="lbl">Weekly briefing · AI slot</span>
-        <h2>One page for the flight surgeon</h2>
+        <h2>Weekly briefing</h2>
         <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The crew member approves it before it is queued for Earth.</p>
         <div className="slot small">{st ? (st.configured ? `Model: ${st.provider}` : 'No model connected: template text from the same facts.') : '…'}</div>
         <div className="row wrap">{ov.crew.map(c => <button key={c.id} className={`btn sm ${who === c.id ? 'pri' : ''}`} onClick={() => setWho(c.id)}>{c.name.split(' ')[0]}</button>)}</div>
-        <button className="btn pri" onClick={async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) }}><Icon name="spark" size={15} />Generate briefing</button>
-        <div className="col" style={{ gap: 6 }}>{(list ?? []).map(x => <button key={x.id} className="sysrow" onClick={() => setB(x)}><span className={`dot s${x.status === 'draft' ? 1 : 0}`} />Day {x.day} · {x.status}<span className="v">{x.bytes} B</span></button>)}</div>
+        <button className="btn pri" onClick={async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) }}>Generate briefing</button>
+        <div className="list">{(list ?? []).map(x => <button key={x.id} className={`item s${x.status === 'draft' ? 1 : 0}`} onClick={() => setB(x)}><span className="dot" />Day {x.day} · {x.status}<span className="v">{x.bytes} B</span></button>)}</div>
       </section>
       <section className="card">
         {b ? (
           <>
-            <div className="head"><span className="tag">{b.mode === 'ai' ? 'AI prose' : 'template'}</span><span className="tag">{b.bytes} bytes</span><span className={`pill s${b.status === 'draft' ? 1 : 0}`}><span className="dot" />{b.status}</span>
+            <div className="head"><span className="tag">{b.mode === 'ai' ? 'AI prose' : 'template'}</span><span className="tag">{b.bytes} bytes</span><Status level={b.status === 'draft' ? 1 : 0}>{b.status}</Status>
               {b.status === 'draft' && <button className="btn sm pri right" onClick={async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the crew member and queued for Earth.') }}>Approve and queue</button>}</div>
             <pre style={{ whiteSpace: 'pre-wrap', font: '500 13px/1.7 var(--f-mono)', margin: 0, color: 'var(--ink)' }}>{b.text}</pre>
           </>
@@ -116,7 +115,7 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
   const { bump, toast } = useSession()
   const { data: goals, setData } = useApi(() => api.medGoals(), [])
   const [f, setF] = useState({ who: 'all', area: 'physical', title: '', why: 'Prescribed by the medical team.', days: 7, xp: 20 })
-  const inp = { padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--panel-2)' }
+  const inp = { padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }
   return (
     <div className="grid g2">
       <form className="card col" onSubmit={async e => { e.preventDefault(); setData(await api.addMedGoal(f)); bump(); toast('Goal prescribed'); setF({ ...f, title: '' }) }}>
@@ -155,7 +154,7 @@ function Rules({ ov }: { ov: MedicalOverview }) {
       <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={a <= w} onClick={async () => { await api.setThresholds(w, a); bump(); toast('Alert rules updated for the whole crew') }}>Apply to crew</button>
       <div className="hr" />
       <span className="lbl">Cross-signal rules (always on)</span>
-      <ul className="todo s0">
+      <ul className="steps">
         <li>Sleep + mood + reaction time together → behavioural alert, reaction test, 3-night plan</li>
         <li>High pulse + low water in the first 72 h → space sickness, hydration goals</li>
         <li>Low pressure + high pulse in partial gravity → re-adaptation, slow standing</li>
@@ -176,9 +175,9 @@ function Messages() {
     <div className="grid g2">
       <form className="card col" onSubmit={async e => { e.preventDefault(); await api.send('flight surgeon', to, text); setText(''); bump() }}>
         <h2>Message the crew</h2><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
-        <select value={to} onChange={e => setTo(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--panel-2)' }}>
+        <select value={to} onChange={e => setTo(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }}>
           <option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        <textarea required rows={4} value={text} onChange={e => setText(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--panel-2)' }} />
+        <textarea required rows={4} value={text} onChange={e => setText(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }} />
         <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={!text.trim()}><Icon name="send" size={15} />Send</button>
         <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
       </form>
@@ -202,7 +201,7 @@ function Emergencies({ ov }: { ov: MedicalOverview }) {
     <section className="card"><div className="head"><h2>Guided Response log</h2></div>
       {!ov.emergencies.length && <p className="muted">No emergencies yet. Hold the red button to run one.</p>}
       <div className="col" style={{ gap: 12 }}>{ov.emergencies.map(e => (
-        <div key={e.id} className={`card flat tight alert s${e.ended_at ? 0 : 2}`}>
+        <div key={e.id} className="card pad-sm">
           <div className="row"><b>{e.protocol ?? 'triage'}</b><span className="small muted">day {e.day} · {e.location}</span>
             {e.patient && <span className="row small" style={{ gap: 6 }}><Avatar initials={e.patient.toUpperCase()} />patient</span>}
             <span className="right small">{e.outcome ?? 'open'}</span></div>
