@@ -798,3 +798,57 @@ ul.plain li:last-child { border-bottom: 0; }
 :root[data-theme="light"] .er { background: var(--bg); }
 
 .chart-wide { max-width: 1100px; }
+
+/* ---------- photos on dots ---------- */
+.pdot { overflow: visible; }
+.pdot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.pdot.has-photo { box-shadow: none; }
+.pdot.lg { width: 72px; height: 72px; } .pdot.lg .ini { font: 600 20px var(--f-display); }
+
+/* ---------- My space: locked picker ---------- */
+.picker { align-items: center; text-align: center; justify-content: center; min-height: calc(100vh - 64px - 60px); gap: 22px; }
+.picker .lock { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--muted); }
+.picker h1 { font-size: 30px; }
+.picker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 170px)); gap: 14px; margin-top: 8px; }
+.picker-grid button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 12px 20px; border-radius: 16px; border: 1px solid var(--line); transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.picker-grid button:hover { background: var(--surface); border-color: var(--line-2); }
+.picker-grid button:active { transform: scale(.97); }
+.picker-grid .pdot { margin-bottom: 8px; }
+.picker-grid b { font-size: 15px; }
+@media (max-width: 760px) { .picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; } }
+
+/* ---------- My space: inside ---------- */
+.myspace { gap: 32px; }
+.space-head { display: flex; align-items: center; gap: 16px; }
+.space-head h1 { font-size: 24px; }
+.myspace > .tabs { margin-top: -8px; }
+
+/* dashboard tab */
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.chart-card { margin: 0; padding: 14px 16px 8px; border: 1px solid var(--line); border-radius: 14px; }
+.chart-card figcaption { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 14px; }
+.chart-card figcaption .num { margin-left: auto; font-size: 13px; }
+.day-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; height: 140px; align-items: end; max-width: 760px; }
+.day-bars > div { display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+.day-bars i { display: block; width: 100%; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--accent); transition: height 400ms var(--ease-out); }
+.day-bars span { font-size: 11px; color: var(--dim); }
+
+/* ---------- settings (terminal and personal) ---------- */
+.settings { display: flex; flex-direction: column; gap: 34px; max-width: 860px; }
+.page.settings { max-width: 900px; }
+.set-group h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.set-row { display: flex; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.set-row:last-child { border-bottom: 0; }
+.set-row b { font-size: 15px; font-weight: 600; }
+.set-row p { margin-top: 2px; max-width: 60ch; }
+.seg-ctl { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface); gap: 2px; flex: none; }
+.seg-ctl button { height: 32px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--muted); transition: background 160ms var(--ease-out), color 160ms var(--ease-out); }
+.seg-ctl button.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+@media (max-width: 760px) { .set-row { flex-wrap: wrap; } .seg-ctl { width: 100%; } .seg-ctl button { flex: 1; } }
+
+/* ---------- accessibility preferences ---------- */
+:root[data-text="large"] .shell, :root[data-text="large"] .scrim, :root[data-text="large"] .drawer, :root[data-text="large"] .er { zoom: 1.12; }
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+:root[data-contrast="high"] { --muted: #c4cad4; --dim: #a3abb8; --line: #3a414e; --line-2: #4c5463; }
+:root[data-theme="light"][data-contrast="high"] { --muted: #333a46; --dim: #4a5260; --line: #b9bfca; --line-2: #9aa2b0; }
+.switch::after { background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }

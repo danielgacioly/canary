@@ -1,7 +1,7 @@
-"""Goals, XP, levels, streaks, badges, crew missions and the ranking.
+"""Goals, streaks, patches, crew missions and the ranking.
 
 The ranking counts effort (goals done, check-ins sent), never health numbers:
-nobody climbs by looking healthy, and reporting a bad day earns the same XP.
+nobody climbs by looking healthy, and reporting a bad day counts the same as a good one.
 
 Past days use a simulated completion history so the demo has a lived-in crew;
 anything the crew ticks in the app is stored and wins over the simulation.
@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from .. import db
 from . import health, plan, telemetry
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
-                      WINDOW_BY_PLACE, level_for)
+                      WINDOW_BY_PLACE)
 
 HISTORY_START = -30  # first day with goals (pre-flight training)
 STREAK_RATE = 0.7    # a day counts for the streak when 70% of goals are done
@@ -59,7 +59,7 @@ def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict
 
 def medical_goals(crew_id: str, day: int) -> List[dict]:
     rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=?", (crew_id, day, day))
-    return [{"id": f"med_{r['id']}", "area": r["area"], "title": r["title"], "why": r["why"], "xp": r["xp"],
+    return [{"id": f"med_{r['id']}", "area": r["area"], "title": r["title"], "why": r["why"],
              "by": "medical"} for r in rows]
 
 
@@ -69,7 +69,7 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
     out = []
     for gid in daily_goal_ids(loc):
         g = PERSONAL_BY_ID[gid]
-        out.append({"id": gid, "area": g["area"], "title": _title(g, loc), "why": g["why"], "xp": g["xp"],
+        out.append({"id": gid, "area": g["area"], "title": _title(g, loc), "why": g["why"],
                     "sys": g.get("sys"), "action": g.get("action"), "by": "routine",
                     "done": is_done(crew_id, gid, day, day, log)})
     snap = snap or health.snapshot(crew_id, ms)
@@ -102,9 +102,8 @@ def _history(crew_id: str, today: int) -> dict:
     for d in range(_start(today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
-        extra_xp = sum(15 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_")))
-        days[d] = {"done": done, "total": len(ids),
-                   "xp": sum(PERSONAL_BY_ID[g]["xp"] for g in done) + extra_xp}
+        extra = sum(1 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_")))
+        days[d] = {"done": done, "total": len(ids), "count": len(done) + extra}
     return days
 
 
@@ -146,16 +145,6 @@ def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, windo
     return out
 
 
-def _team_xp(today: int, histories: Dict[str, dict]) -> int:
-    """Crew-mission XP from finished weeks (each member gets it)."""
-    xp = 0
-    end = HISTORY_START + 6
-    while end < today:
-        xp += sum(t["xp"] for t in team_progress(today, histories, end) if t["done"])
-        end += 7
-    return xp
-
-
 def badges_for(crew_id: str, days: dict, streak: int) -> List[dict]:
     counts: Dict[str, int] = {}
     for d in days.values():
@@ -177,19 +166,16 @@ def badges_for(crew_id: str, days: dict, streak: int) -> List[dict]:
 def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = None) -> dict:
     histories = histories or {c["id"]: _history(c["id"], today) for c in CREW}
     days = histories[crew_id]
-    team_xp = _team_xp(today, histories)
-    total = sum(d["xp"] for d in days.values()) + team_xp
-    week = sum(days[d]["xp"] for d in range(today - 6, today + 1) if d in days)
+    week = sum(days[d]["count"] for d in range(today - 6, today + 1) if d in days)
     streak = _streak(days, today)
     b = badges_for(crew_id, days, streak)
     last7 = [d for d in range(today - 6, today + 1) if d in days]
     rate = round(100 * sum(len(days[d]["done"]) for d in last7) / max(1, sum(days[d]["total"] for d in last7)))
-    by_area = {a: sum(PERSONAL_BY_ID[g]["xp"] for d in last7 for g in days[d]["done"] if PERSONAL_BY_ID[g]["area"] == a)
+    by_area = {a: sum(1 for d in last7 for g in days[d]["done"] if PERSONAL_BY_ID[g]["area"] == a)
                for a in ("physical", "mental")}
-    return {"crew_id": crew_id, "xp_total": total, "xp_week": week, "xp_week_by_area": by_area, "team_xp": team_xp,
-            **level_for(total), "streak": streak, "completion_7d": rate,
+    return {"crew_id": crew_id, "goals_week": week, "goals_week_by_area": by_area, "streak": streak, "completion_7d": rate,
             "badges": b, "badges_earned": sum(1 for x in b if x["earned"]),
-            "daily_xp": [[d, days[d]["xp"]] for d in range(max(_start(today), today - 13), today + 1)]}
+            "daily_done": [[d, days[d]["count"], days[d]["total"]] for d in range(max(_start(today), today - 13), today + 1)]}
 
 
 def crew_streak(today: int, histories: Dict[str, dict]) -> int:
@@ -218,9 +204,9 @@ def crew_board(today: int) -> dict:
 def leaderboard(today: int) -> dict:
     histories = {c["id"]: _history(c["id"], today) for c in CREW}
     rows = [profile(c["id"], today, histories) for c in CREW]
-    rows.sort(key=lambda r: (-r["xp_week"], -r["xp_total"]))
+    rows.sort(key=lambda r: (-r["goals_week"], -r["completion_7d"], -r["streak"]))
     for i, r in enumerate(rows):
         r["rank"] = i + 1
     team = team_progress(today, histories)
-    return {"rows": rows, "team": team, "crew_xp_week": sum(r["xp_week"] for r in rows),
+    return {"rows": rows, "team": team, "crew_goals_week": sum(r["goals_week"] for r in rows),
             "team_done": sum(1 for t in team if t["done"]), "team_total": len(team)}

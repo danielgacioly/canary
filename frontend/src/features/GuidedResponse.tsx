@@ -8,7 +8,7 @@ import { useSession } from '../state/session'
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
 
 export default function GuidedResponse({ onClose }: { onClose: () => void }) {
-  const { me, mission, catalog, bump, toast } = useSession()
+  const { me, mission, catalog, bump, toast, prefs } = useSession()
   const [P, setP] = useState<Protocols | null>(null)
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -16,7 +16,7 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const [patient, setPatient] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
   const [stepAt, setStepAt] = useState(Date.now())
-  const [voice, setVoice] = useState(false)
+  const [voice, setVoice] = useState(prefs.voice)
   const [done, setDone] = useState(false)
 
   useEffect(() => {

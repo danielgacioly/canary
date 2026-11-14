@@ -109,7 +109,7 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
 function Prescribe({ ov }: { ov: MedicalOverview }) {
   const { bump, toast } = useSession()
   const { data: goals, setData } = useApi(() => api.medGoals(), [])
-  const [f, setF] = useState({ who: 'all', area: 'physical', title: '', why: 'Prescribed by the medical team.', days: 7, xp: 20 })
+  const [f, setF] = useState({ who: 'all', area: 'physical', title: '', why: 'Prescribed by the medical team.', days: 7 })
   const inp = { padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }
   return (
     <div className="grid g2">
@@ -119,10 +119,7 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
         <label className="col" style={{ gap: 4 }}><span className="lbl">Area</span><select style={inp} value={f.area} onChange={e => setF({ ...f, area: e.target.value })}><option value="physical">Physical</option><option value="mental">Mental</option></select></label>
         <label className="col" style={{ gap: 4 }}><span className="lbl">Goal</span><input style={inp} required minLength={3} value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="e.g. Measure pressure lying and standing, morning and night" /></label>
         <label className="col" style={{ gap: 4 }}><span className="lbl">Why (the crew sees this)</span><input style={inp} value={f.why} onChange={e => setF({ ...f, why: e.target.value })} /></label>
-        <div className="grid g2">
-          <label className="col" style={{ gap: 4 }}><span className="lbl">Days</span><input style={inp} type="number" min={1} max={60} value={f.days} onChange={e => setF({ ...f, days: +e.target.value })} /></label>
-          <label className="col" style={{ gap: 4 }}><span className="lbl">XP</span><input style={inp} type="number" min={5} max={100} value={f.xp} onChange={e => setF({ ...f, xp: +e.target.value })} /></label>
-        </div>
+        <label className="col" style={{ gap: 4 }}><span className="lbl">Days</span><input style={inp} type="number" min={1} max={60} value={f.days} onChange={e => setF({ ...f, days: +e.target.value })} /></label>
         <button className="btn pri">Prescribe</button>
       </form>
       <section className="card"><div className="head"><h2>Active prescriptions</h2></div>

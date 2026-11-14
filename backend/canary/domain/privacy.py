@@ -3,7 +3,7 @@
 - The astronaut and the medical team see everything about that astronaut.
 - Operational status ("fit for EVA", "off critical tasks") is a medical matter: only the astronaut
   and the medical team see it. The crew sees environment hazards, crew goals and each person's
-  goal participation. Raw data and history only if the astronaut chooses to share.
+  goal participation and profile photo. Raw data and history never leave the person and the medical team.
 - Earth gets operational status through the medical team and, after a critical event, a delayed briefing.
 - Crew views show states, never averages: with four people an average reveals individuals.
 - If the medical officer is the patient, their alerts go to a substitute.
@@ -23,7 +23,7 @@ OPS = {
 }
 
 CONTRACT = [
-    {"info": "Raw data and history", "self": "Yes", "doctor": "Yes", "crew": "Only if you share", "earth": "No"},
+    {"info": "Raw data and history", "self": "Yes", "doctor": "Yes", "crew": "No", "earth": "No"},
     {"info": "Personal risks and advice", "self": "Yes", "doctor": "Yes", "crew": "No", "earth": "No"},
     {"info": "Operational status (e.g. fit for EVA)", "self": "Yes", "doctor": "Yes", "crew": "No", "earth": "Via the medical team"},
     {"info": "Critical alert", "self": "Immediately", "doctor": "Immediately", "crew": "No", "earth": "Delayed briefing"},
@@ -61,18 +61,26 @@ def care_by(crew_id: str) -> str:
     return f"{c['name']} ({'substitute medical officer' if who == SUBSTITUTE else 'medical officer'})"
 
 
-def shared(crew_id: str) -> bool:
-    return bool(db.get_setting("share", {}).get(crew_id, False))
+PHOTO_PREFIXES = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")
 
 
-def set_shared(crew_id: str, value: bool) -> None:
-    s = db.get_setting("share", {})
-    s[crew_id] = bool(value)
-    db.set_setting("share", s)
+def photos() -> dict:
+    return db.get_setting("photos", {})
+
+
+def set_photo(crew_id: str, data_url: Optional[str]) -> None:
+    if data_url is not None and not data_url.startswith(PHOTO_PREFIXES):
+        raise ValueError("a photo must be a JPEG, PNG or WebP image")
+    p = photos()
+    if data_url is None:
+        p.pop(crew_id, None)
+    else:
+        p[crew_id] = data_url
+    db.set_setting("photos", p)
 
 
 def can_see_details(viewer: Optional[str], crew_id: str, medical: bool) -> bool:
-    return medical or viewer == crew_id or shared(crew_id)
+    return medical or viewer == crew_id
 
 
 def hazards(ms: dict, env_alerts: list) -> list:

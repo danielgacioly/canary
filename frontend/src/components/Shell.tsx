@@ -10,16 +10,15 @@ import { CanaryMark, Icon } from './ui'
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your space".
 const NAV: { group: string; items: [string, string, string][] }[] = [
   { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/plan', 'plan', 'Mission plan'], ['/ranking', 'rank', 'Ranking']] },
-  { group: 'Your space', items: [['/today', 'today', 'My health'], ['/goals', 'goals', 'My goals']] },
+  { group: 'Your space', items: [['/me', 'today', 'My space']] },
 ]
 
 export default function Shell() {
-  const { mission, me, setMe, emergency, setEmergency, askOpen, setAskOpen, toasts } = useSession()
+  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
   const { data: crew } = useApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
-  // First run (and after a demo reset): the mission is set up before anything else.
 
   return (
     <div className="shell">
@@ -31,7 +30,7 @@ export default function Shell() {
             {g.items.map(([to, icon, label]) => (
               <NavLink key={to} to={to} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
                 <Icon name={icon} /><span>{label}</span>
-                {(to === '/today' || to === '/goals') && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
+                {to === '/me' && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
               </NavLink>
             ))}
           </div>
@@ -39,21 +38,13 @@ export default function Shell() {
         <div className="group">Support</div>
         <button className="nav" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
         <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
+        <NavLink to="/settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
         <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
-        <ThemeToggle />
         <div className="foot">
-          {mine ? (
-            <button className="me-chip" onClick={() => { setMe(null); nav('/crew') }} title="Lock your space">
-              <Dot p={mine} size="sm" me />
-              <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine.name}</b><span className="small muted">Lock my space</span></span>
-              <Icon name="lock" />
-            </button>
-          ) : (
-            <button className="me-chip" onClick={() => nav('/today')} title="Enter your private space">
-              <span className="pdot sm"><Icon name="lock" /></span>
-              <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>Enter my space</b><span className="small muted">Your health is private</span></span>
-            </button>
-          )}
+          <button className="me-chip" onClick={() => nav('/me')} title="My space">
+            {mine ? <Dot p={mine} size="sm" me /> : <span className="pdot sm"><Icon name="lock" /></span>}
+            <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine ? mine.name : 'My space'}</b><span className="small muted">{mine ? 'Open my space' : 'Choose your profile'}</span></span>
+          </button>
         </div>
       </aside>
 
@@ -74,7 +65,7 @@ export default function Shell() {
         <Outlet />
       </div>
 
-      <StoryBar />
+      {prefs.storyBar && <StoryBar />}
       {where && <WherePicker onClose={() => setWhere(false)} />}
       {emergency && <GuidedResponse onClose={() => setEmergency(false)} />}
       {askOpen && <AskCanary onClose={() => setAskOpen(false)} />}
@@ -109,7 +100,7 @@ function StoryBar() {
       <div className="dots">{catalog.story.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b style={{ color: 'var(--ink)' }}>Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b style={{ color: 'var(--ink)' }}>{mission.story.when}.</b> {mission.story.text}</>}</p>
       {!mission.custom_day && me !== mission.suggested_user && (
-        <button className="btn sm ghost" onClick={() => nav(`/today?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
+        <button className="btn sm ghost" onClick={() => nav(`/me?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
           Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
         </button>
       )}
@@ -150,21 +141,5 @@ export function PlaceGrid({ onPick, current }: { onPick: (k: string, name: strin
         </button>
       ))}
     </div>
-  )
-}
-
-/** Dark is the default on board; light for bright rooms. Remembered on this device. */
-function ThemeToggle() {
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
-  const flip = () => {
-    const next = theme === 'light' ? 'dark' : 'light'
-    document.documentElement.dataset.theme = next
-    try { localStorage.setItem('canary.theme', next) } catch { /* storage blocked */ }
-    setTheme(next)
-  }
-  return (
-    <button className="nav theme-toggle" onClick={flip} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
-      <Icon name={theme === 'light' ? 'moon' : 'sun'} /><span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span>
-    </button>
   )
 }

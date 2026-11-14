@@ -74,7 +74,9 @@ export const api = {
   setup: (name: string, legs: Leg[]) => req<Mission>('/setup', { method: 'POST', ...body({ name, legs }) }),
   crew: () => req<CrewList>('/crew'),
   overview: () => req<CrewOverview>('/crew/overview'),
-  setSharing: (id: string, shared: boolean) => req<{ shared: boolean }>(`/crew/${id}/sharing`, { method: 'PUT', ...body({ shared }) }),
+  photos: () => req<Record<string, string>>('/crew/photos'),
+  setPhoto: (id: string, data_url: string) => req<Record<string, string>>(`/crew/${id}/photo`, { method: 'PUT', ...body({ data_url }) }),
+  deletePhoto: (id: string) => req<Record<string, string>>(`/crew/${id}/photo`, { method: 'DELETE' }),
   crewDetail: (id: string) => req<CrewDetail>(`/crew/${id}`),
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
@@ -114,7 +116,7 @@ export const api = {
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),
   medGoals: () => req<MedGoal[]>('/medical/goals'),
-  addMedGoal: (g: { who: string; area: string; title: string; why: string; days: number; xp: number }) =>
+  addMedGoal: (g: { who: string; area: string; title: string; why: string; days: number }) =>
     req<MedGoal[]>('/medical/goals', { method: 'POST', ...body(g) }),
   delMedGoal: (id: number) => req<MedGoal[]>(`/medical/goals/${id}`, { method: 'DELETE' }),
 }

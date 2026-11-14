@@ -3,12 +3,12 @@ import Shell from './components/Shell'
 import About from './pages/About'
 import Astronaut from './pages/Astronaut'
 import Crew from './pages/Crew'
-import Goals from './pages/Goals'
 import Intro from './pages/Intro'
-import Me from './pages/Me'
+import MySpace from './pages/MySpace'
 import Medical from './pages/Medical'
 import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
+import Settings from './pages/Settings'
 import Setup from './pages/Setup'
 
 function seenIntro(): boolean {
@@ -21,12 +21,14 @@ export default function App() {
       <Route path="/welcome" element={<Intro />} />
       <Route path="/setup" element={<Setup />} />
       <Route element={<Shell />}>
-        <Route path="/today" element={<Me />} />
-        <Route path="/me" element={<Navigate to="/today" replace />} />
+        <Route path="/me" element={<MySpace />} />
+        <Route path="/me/:tab" element={<MySpace />} />
+        <Route path="/today" element={<Navigate to="/me" replace />} />
+        <Route path="/goals" element={<Navigate to="/me/goals" replace />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/ranking" element={<Ranking />} />
         <Route path="/crew" element={<Crew />} />
         <Route path="/crew/:id" element={<Astronaut />} />
-        <Route path="/goals" element={<Goals />} />
         <Route path="/plan" element={<MissionPlan />} />
         <Route path="/space-weather" element={<Navigate to="/crew" replace />} />
         <Route path="/link" element={<Navigate to="/crew" replace />} />

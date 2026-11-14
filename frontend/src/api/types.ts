@@ -29,7 +29,7 @@ export interface Indicator {
   value: number; baseline: number; delta: number; z: number; bad: number; level: Level; source: string
 }
 export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null }
-export interface AlertGoal { id: string; area: Area; title: string; xp: number }
+export interface AlertGoal { id: string; area: Area; title: string }
 export interface Alert {
   id: string; level: Level; title: string; why: string; todo: string[]; sys?: string | null
   protocol?: string; test?: string; env?: boolean; sources: string[]; goals: AlertGoal[]
@@ -37,24 +37,23 @@ export interface Alert {
 export interface AreaState { score: number; level: Level; status: string }
 export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean }
 export interface Goal {
-  id: string; area: Area; title: string; why: string; xp: number; sys?: string | null
+  id: string; area: Area; title: string; why: string; sys?: string | null
   action?: string | null; by: 'routine' | 'alert' | 'medical'; done: boolean
 }
 export interface Badge { id: string; name: string; desc: string; area: string; progress: number; need: number; earned: boolean }
 export interface Profile {
-  crew_id: string; xp_total: number; xp_week: number; xp_week_by_area: Record<Area, number>; team_xp: number
-  level: number; into: number; need: number; streak: number; completion_7d: number
-  badges: Badge[]; badges_earned: number; daily_xp: [number, number][]; rank?: number
+  crew_id: string; goals_week: number; goals_week_by_area: Record<Area, number>; streak: number; completion_7d: number
+  badges: Badge[]; badges_earned: number; daily_done: [number, number, number][]; rank?: number
   name?: string; initials?: string; role?: string
 }
 export interface TeamGoal {
-  id: string; area: Area; title: string; target: number; unit: string; xp: number
+  id: string; area: Area; title: string; target: number; unit: string
   value: number; pct: number; done: boolean; contrib: Record<string, number>
 }
 export interface CrewSummary {
   id: string; name: string; role: string; initials: string; home: string
   areas: Record<Area, AreaState>; level: Level; status: string; top_alert: string | null; alerts: number
-  ops: Ops; systems: Record<string, Level>; xp_week: number; level_xp: number; streak: number
+  ops: Ops; systems: Record<string, Level>; goals_week: number; streak: number
 }
 export interface CrewList {
   mission: Mission; crew: CrewSummary[]; team: TeamGoal[]; dose: Dose
@@ -67,12 +66,12 @@ export interface CrewDetail {
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
-  ops?: Ops; shared: boolean; care_by: string; access: 'self' | 'medical' | 'shared'  // ops: only for self and medical
+  ops: Ops; care_by: string; access: 'self' | 'medical'
 }
 export interface Ops { key: 'full' | 'limited' | 'rest'; label: string; level: Level }
 export interface Person {
   id: string; name: string; role: string; initials: string; home: string
-  shared: boolean; today: { done: number; total: number; streak: number }
+  today: { done: number; total: number; streak: number }
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
 export interface Ridge { id: 'R' | 'I' | 'D' | 'G' | 'E'; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[] }
@@ -90,7 +89,7 @@ export interface CrewOverview {
   contract: ContractRow[]; ridge: Ridge[]; warnings: Warning[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
-export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_xp_week: number; team_done: number; team_total: number }
+export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
 export interface Step { i: number; t?: string; q?: string; yes?: number | string; no?: number | string; timer?: number; metro?: number; breath?: number; end?: number; variant?: string | null }
 export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; steps: Step[]; source: string }
 export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean }
@@ -114,4 +113,4 @@ export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
   crew: { id: string; name: string; role: string; level: Level; ops: Ops; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
 }
-export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; xp: number; from_day: number; to_day: number }
+export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }

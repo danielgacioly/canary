@@ -248,7 +248,7 @@ def _summary(c: dict, ms: dict, prof: dict) -> dict:
             "areas": s["areas"], "level": s["level"], "status": s["status"], "ops": privacy.operational(s),
             "top_alert": s["alerts"][0]["title"] if s["alerts"] else None, "alerts": len(s["alerts"]),
             "systems": {k: v["level"] for k, v in s["systems"].items()},
-            "xp_week": prof["xp_week"], "level_xp": prof["level"], "streak": prof["streak"], "rank": prof.get("rank")}
+            "goals_week": prof["goals_week"], "streak": prof["streak"], "rank": prof.get("rank")}
 
 
 @app.get("/api/crew", tags=["medical"], dependencies=[Depends(require_medical)])
@@ -262,6 +262,11 @@ def crew_list():
             "space_weather": {k: v for k, v in nasa.space_weather(ms["storm"]).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
+@app.get("/api/crew/photos", tags=["crew"])
+def crew_photos():
+    return privacy.photos()
+
+
 @app.get("/api/crew/overview", tags=["crew"])
 def crew_overview():
     """What everyone on board may see: hazards, participation and crew goals. Never anyone's status."""
@@ -272,7 +277,7 @@ def crew_overview():
         snap = health.snapshot(c["id"], ms)
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
-                       "shared": privacy.shared(c["id"]), "today": board["people"][c["id"]]})
+                       "today": board["people"][c["id"]]})
     sw = nasa.space_weather(ms["storm"])
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
@@ -286,39 +291,48 @@ def crew_overview():
 
 @app.get("/api/crew/{crew_id}", tags=["crew"])
 def crew_detail(crew_id: str, v: dict = Depends(viewer)):
-    """Full health detail: the person, the medical team, or the crew if the person chose to share."""
+    """Full health detail: the person themself or the medical team. Nobody else."""
     c = _crew(crew_id)
     if not privacy.can_see_details(v["id"], crew_id, v["medical"]):
-        raise HTTPException(403, f"{c['name']} keeps their health details private")
+        raise HTTPException(403, f"{c['name']}'s health is private")
     ms = mission.state()
     snap = health.snapshot(crew_id, ms)
-    access = "self" if v["id"] == crew_id else "medical" if v["medical"] else "shared"
-    ops = privacy.operational(snap)
-    if access == "shared":  # sharing opens data and history, never personal risks and advice
-        snap = {**snap, "alerts": [a for a in snap["alerts"] if a.get("env")]}
+    access = "self" if v["id"] == crew_id else "medical"
     trends = {i: telemetry.series(crew_id, i, ms["day"], 30) for i in INDICATORS}
     events = [{"kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"])}
               for r in db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 12", (crew_id,))]
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
-            "trends": trends, "goals": [] if access == "shared" else goals.personal_today(crew_id, ms, snap),
+            "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
             "blood": nasa.blood(c["cbc_subject"]), "events": events,
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
-            **({"ops": ops} if access != "shared" else {}),  # status: the person and the medical team only
-            "shared": privacy.shared(crew_id), "care_by": privacy.care_by(crew_id), "access": access}
+            "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access}
 
 
-class ShareIn(BaseModel):
-    shared: bool
+class PhotoIn(BaseModel):
+    data_url: str = Field(max_length=400_000)
 
 
-@app.put("/api/crew/{crew_id}/sharing", tags=["crew"])
-def crew_sharing(crew_id: str, body: ShareIn, v: dict = Depends(viewer)):
+@app.put("/api/crew/{crew_id}/photo", tags=["crew"])
+def crew_photo(crew_id: str, body: PhotoIn, v: dict = Depends(viewer)):
+    """Profile photo, set by the astronaut. Visible to the crew like a name badge."""
     _crew(crew_id)
     if v["id"] != crew_id:
-        raise HTTPException(403, "only the astronaut decides what to share")
-    privacy.set_shared(crew_id, body.shared)
-    return {"crew_id": crew_id, "shared": body.shared}
+        raise HTTPException(403, "only the astronaut changes their photo")
+    try:
+        privacy.set_photo(crew_id, body.data_url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return privacy.photos()
+
+
+@app.delete("/api/crew/{crew_id}/photo", tags=["crew"])
+def crew_photo_delete(crew_id: str, v: dict = Depends(viewer)):
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "only the astronaut changes their photo")
+    privacy.set_photo(crew_id, None)
+    return privacy.photos()
 
 
 # ---------------------------------------------------------------- goals and ranking
@@ -424,7 +438,7 @@ def emergency_event(eid: int, body: EmergencyEvent):
             after = protocols.resolve(ms["location"])["protocols"][e["protocol"]]["after"]
             for a in after:
                 db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (e["patient"], "physical", a, "Follow-up after Guided Response.", 20, ms["day"], ms["day"] + 3, time.time()))
+                     (e["patient"], "physical", a, "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + 3, time.time()))
         delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
         report = f"Guided Response report: {e['protocol'] or 'triage'}, patient {e['patient'] or 'unknown'}, outcome {body.outcome or 'stable'}, {len(log)} logged steps."
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
@@ -569,7 +583,6 @@ class MedGoalIn(BaseModel):
     title: str = Field(min_length=3, max_length=140)
     why: str = Field(default="Prescribed by the medical team.", max_length=280)
     days: int = Field(default=7, ge=1, le=60)
-    xp: int = Field(default=20, ge=5, le=100)
 
 
 @app.post("/api/medical/goals", tags=["medical"], dependencies=[Depends(require_medical)])
@@ -578,7 +591,7 @@ def add_med_goal(body: MedGoalIn):
         _crew(body.who)
     day = mission.state()["day"]
     db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-         (body.who, body.area, body.title, body.why, body.xp, day, day + body.days - 1, time.time()))
+         (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
     return med_goals()
 
 

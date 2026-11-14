@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import type { Plan } from '../api/types'
 import BodyHologram from '../hologram/BodyHologram'
 import Stars from '../components/Stars'
+import { Dot } from '../components/People'
 import Timeline from '../components/Timeline'
 import { CanaryMark, Icon } from '../components/ui'
 import { useSession } from '../state/session'
@@ -83,7 +84,7 @@ function MissionReady({ plan, crew, places }: { plan: Plan | null; crew: { id: s
       <div className="ready-crew">
         {crew.map((c, k) => (
           <div key={c.id} className="reveal" style={{ animationDelay: `${700 + k * 90}ms` }}>
-            <span className="pdot md neutral"><span className="ini">{c.initials}</span></span>
+            <Dot p={c} size="md" />
             <span><b>{c.name}</b><span className="small muted">{c.role}</span></span>
           </div>
         ))}

@@ -10,7 +10,7 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
     if (readOnly) return
     if (!g.done && g.action && onCheck) { onCheck(g.action as CheckKind); return }
     await api.setGoal(crewId, g.id, !g.done)
-    if (!g.done) toast(`Done · +${g.xp} XP`)
+    if (!g.done) toast('Goal done')
     bump()
   }
   return (
@@ -21,7 +21,6 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
         {!compact && <div className="small dim">{g.why}</div>}
       </div>
       {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : 'From an alert'}</span>}
-      <span className="xp">{g.xp} XP</span>
     </div>
   )
 }
@@ -30,7 +29,7 @@ export function TeamRow({ t, names }: { t: TeamGoal; names: Record<string, strin
   return (
     <div className="team-row col" style={{ gap: 10 }}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
-        <div className="grow"><div style={{ fontWeight: 600 }}>{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · {t.xp} XP for everyone</div></div>
+        <div className="grow"><div style={{ fontWeight: 600 }}>{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
         {t.done && <span className="status s0"><span className="dot" />Done</span>}
       </div>
       <div className="row">

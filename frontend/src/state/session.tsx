@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
 import type { Catalog, Mission } from '../api/types'
+import { applyPrefs, loadPrefs, savePrefs, type Prefs } from './prefs'
 
 interface Session {
   catalog: Catalog | null
@@ -22,6 +23,10 @@ interface Session {
   setAskOpen: (v: boolean) => void
   toast: (t: string) => void
   toasts: { id: number; t: string }[]
+  /** Profile photos by crew id (data URLs). */
+  photos: Record<string, string>
+  prefs: Prefs
+  setPref: <K extends keyof Prefs>(k: K, v: Prefs[K]) => void
 }
 
 const Ctx = createContext<Session | null>(null)
@@ -44,9 +49,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [askOpen, setAskOpen] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; t: string }[]>([])
   const tid = useRef(0)
+  const [photos, setPhotos] = useState<Record<string, string>>({})
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
 
   useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [])
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
+  useEffect(() => { api.photos().then(setPhotos).catch(() => undefined) }, [rev])
+  useEffect(() => {
+    applyPrefs(prefs)
+    if (prefs.theme !== 'system' || typeof matchMedia !== 'function') return
+    const mq = matchMedia('(prefers-color-scheme: dark)'), on = () => applyPrefs(prefs)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [prefs])
+  const setPref = useCallback(<K extends keyof Prefs>(k: K, v: Prefs[K]) => {
+    setPrefs(p => { const n = { ...p, [k]: v }; savePrefs(n); return n })
+  }, [])
 
   const bump = useCallback(() => setRev(r => r + 1), [])
   const toast = useCallback((t: string) => {
@@ -71,8 +89,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [bump])
   const setLocation = useCallback(async (loc: string | null) => { setMission(await api.setLocation(loc)); bump() }, [bump])
 
-  const value = useMemo(() => ({ catalog, mission, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, askOpen, setAskOpen, toast, toasts }),
-    [catalog, mission, me, setMe, rev, bump, setStep, setLocation, emergency, askOpen, toast, toasts])
+  const value = useMemo(() => ({ catalog, mission, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, askOpen, setAskOpen, toast, toasts, photos, prefs, setPref }),
+    [catalog, mission, me, setMe, rev, bump, setStep, setLocation, emergency, askOpen, toast, toasts, photos, prefs, setPref])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

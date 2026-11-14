@@ -81,16 +81,24 @@ def test_checkin_overrides_and_completes_goal():
     assert g["mood"]["done"]
 
 
-def test_xp_levels_are_monotonic():
-    xs = [catalog.level_for(x)["level"] for x in range(0, 20000, 500)]
-    assert xs == sorted(xs)
-
-
 def test_leaderboard_ranks_everyone():
     at(2)
     lb = client.get("/api/leaderboard").json()
     assert [r["rank"] for r in lb["rows"]] == [1, 2, 3, 4]
     assert len(lb["team"]) == len(catalog.TEAM_GOALS)
+    goals_week = [r["goals_week"] for r in lb["rows"]]
+    assert goals_week == sorted(goals_week, reverse=True)
+
+    def keys(x):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(x, list):
+            for v in x:
+                yield from keys(v)
+    for payload in (lb, client.get("/api/goals/h", headers=as_("h")).json()):
+        assert not [k for k in keys(payload) if "xp" in k]
 
 
 @pytest.mark.parametrize("q,mode", [
@@ -178,25 +186,29 @@ def test_crew_overview_hides_private_health():
     at(2)
     o = client.get("/api/crew/overview").json()
     helena = next(p for p in o["people"] if p["id"] == "h")
-    assert "ops" not in helena and not helena["shared"] and "fit" not in o
+    assert "ops" not in helena and "shared" not in helena and "fit" not in o
     text = str(o)
     for leak in ("indicators", "areas", "alerts", "score", "baseline", "Sleep, mood and focus", "'ops'", "Fit for", "Off critical"):
         assert leak not in text
 
 
-def test_details_are_private_until_shared():
+def test_details_are_private_to_self_and_medical():
     at(2)
     assert client.get("/api/crew/h").status_code == 403
     assert client.get("/api/crew/h", headers=as_("k")).status_code == 403
-    assert client.get("/api/crew/h", headers=as_("h")).json()["access"] == "self"
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    assert d["access"] == "self" and d["ops"]["key"] == "rest"
     assert client.get("/api/goals/h", headers=as_("t")).status_code == 403
-    assert client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("k")).status_code == 403
-    client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("h"))
-    d = client.get("/api/crew/h", headers=as_("k")).json()
-    assert d["access"] == "shared" and d["alerts"] == [] and d["goals"] == [] and "ops" not in d
-    assert client.get("/api/crew/h", headers=as_("h")).json()["ops"]["key"] == "rest"
-    assert client.get("/api/goals/h", headers=as_("k")).status_code == 403  # sharing opens health, not advice
+    assert client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("h")).status_code in (404, 405)
 
+
+def test_profile_photo_is_set_by_the_astronaut_only():
+    png = "data:image/png;base64,iVBORw0KGgo="
+    assert client.put("/api/crew/h/photo", json={"data_url": png}, headers=as_("k")).status_code == 403
+    assert client.put("/api/crew/h/photo", json={"data_url": "javascript:alert(1)"}, headers=as_("h")).status_code == 400
+    assert client.put("/api/crew/h/photo", json={"data_url": png}, headers=as_("h")).json() == {"h": png}
+    assert client.get("/api/crew/photos").json() == {"h": png}
+    assert client.delete("/api/crew/h/photo", headers=as_("h")).json() == {}
 
 def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
     tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
@@ -249,7 +261,6 @@ def test_a_plain_id_in_the_viewer_header_is_rejected():
 def test_a_token_only_opens_its_own_space():
     assert client.get("/api/goals/h", headers=as_("h")).status_code == 200
     assert client.get("/api/goals/k", headers=as_("h")).status_code == 403
-    assert client.put("/api/crew/k/sharing", json={"shared": True}, headers=as_("h")).status_code == 403
 
 
 def test_changing_the_pin_replaces_the_old_one():

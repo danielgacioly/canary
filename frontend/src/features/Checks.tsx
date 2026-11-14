@@ -67,7 +67,7 @@ function Mood({ onClose }: { onClose: () => void }) {
   const [mood, setMood] = useState(0), [stress, setStress] = useState(0)
   return (
     <div className="col" style={{ gap: 14 }}>
-      <p className="muted">Thirty seconds. Only you and the medical team see it. A hard day earns the same XP as a good one.</p>
+      <p className="muted">Thirty seconds. Only you and the medical team see it. A hard day counts the same as a good one.</p>
       <span className="lbl">How is your mood? (1 low, 5 great)</span>
       <div className="scale5">{[1, 2, 3, 4, 5].map(n => <button key={n} className={mood === n ? 'on' : ''} onClick={() => setMood(n)}>{n}</button>)}</div>
       <span className="lbl">How stressed are you? (1 calm, 5 very)</span>

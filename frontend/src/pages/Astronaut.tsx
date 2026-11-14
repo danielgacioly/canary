@@ -1,5 +1,5 @@
-// A crew member's page. By default only the public card: goal participation, never a status.
-// Health details appear for the medical team (with operational status), or for the crew when the person chose to share.
+// A crew member's page. The crew sees only the public card: goal participation, never a status.
+// Health details and operational status appear for the medical team only.
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
@@ -11,7 +11,7 @@ import { useApi, useSession } from '../state/session'
 export default function Astronaut() {
   const { id = '' } = useParams()
   const { me } = useSession()
-  if (id === me) return <Navigate to="/today" replace />
+  if (id === me) return <Navigate to="/me" replace />
   return <Other id={id} />
 }
 
@@ -33,14 +33,12 @@ function Other({ id }: { id: string }) {
       <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
-        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · level {p.level} · {p.xp_week} XP this week · {p.badges_earned} patches</p></div>
+        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · {p.goals_week} goals this week · {p.badges_earned} patches</p></div>
         {d.ops && <div className="right"><span className="small dim" style={{ display: 'block', textAlign: 'right' }}>Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
       </div>
       <div className="privacy-bar rise">
-        <Icon name={d.access === 'medical' ? 'med' : 'open'} />
-        <span className="grow muted">{d.access === 'medical'
-          ? <><b style={{ color: 'var(--ink)' }}>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</>
-          : <><b style={{ color: 'var(--ink)' }}>{d.crew.name.split(' ')[0]} shares data with the crew.</b> Numbers and history only. Alerts and advice stay private.</>}</span>
+        <Icon name="med" />
+        <span className="grow muted"><b style={{ color: 'var(--ink)' }}>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</span>
       </div>
       <BodyView key={d.crew.id} d={d} self={false} />
       <section className="detail-card rise" style={{ padding: 8 }}>
@@ -87,7 +85,7 @@ function PublicCard({ p }: { p: Person }) {
         <div className="detail-card rise gate-mini" style={{ ['--d' as string]: 2 }}>
           <span className="lock"><Icon name="lock" size={20} /></span>
           <h2>{first}'s health is private</h2>
-          <p className="muted">The crew sees only how {first} is doing with goals, nothing more. Numbers, alerts, advice and operational status stay with {first} and the medical team. {first} can choose to share data and history.</p>
+          <p className="muted">The crew sees only how {first} is doing with goals, nothing more. Numbers, alerts, advice and operational status stay with {first} and the medical team.</p>
           <Link to="/medical" className="link">Medical team: open the console</Link>
         </div>
       </section>

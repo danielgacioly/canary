@@ -4,17 +4,16 @@ import { Icon } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
 export default function About() {
-  const { catalog, setStep, toast } = useSession()
+  const { catalog } = useSession()
   const { data: st } = useApi(() => api.assistantStatus(), [])
   const nav = useNavigate()
   return (
     <div className="page" style={{ maxWidth: 1180 }}>
       <div className="head"><div><h1>A health watch-keeper for when Earth is too far to answer.</h1><p className="sub">About Canary, its data and how it is built</p></div>
-        <div className="row right"><button className="btn" onClick={() => nav('/welcome')}>Replay intro</button>
-          <button className="btn" onClick={async () => { await api.reset(); await setStep(0); toast('Demo reset.') }}>Reset demo</button></div></div>
+      </div>
 
       <div className="grid g3">
-        {[['Goals', 'Personal and crew goals for body and mind: exercise, water, sleep, meditation, reading, crew time, films, calls home. XP, levels, streaks and mission patches.'],
+        {[['Goals', 'Personal and crew goals for body and mind: exercise, water, sleep, meditation, reading, crew time, films, calls home. Streaks and mission patches.'],
           ['Warnings', 'Each person against their own pre-flight normal, never an average. Signals are crossed (sleep + mood + focus) and every warning says what to do now.'],
           ['Guided Response', 'Hold the red button for one second. Ten situations, step by step, adapted to gravity and place, with timers, a CPR pacer, voice and a report for Earth.']].map(([h, p]) => (
           <div key={h} className="card"><h2>{h}</h2><p className="muted" style={{ marginTop: 8 }}>{p}</p></div>))}
@@ -36,7 +35,7 @@ export default function About() {
 Canary API (FastAPI, one process)
    ├─ telemetry   sensors → simulator today
    ├─ health      baseline, alerts, scores
-   ├─ goals       XP, crew missions, patches
+   ├─ goals       goals, crew missions, patches
    ├─ protocols   Guided Response bank
    ├─ nasa        DONKI · RAD · OSD-569
    ├─ medical     PIN → short token
@@ -61,7 +60,7 @@ SQLite on board  ──later──▶  ground sync`}</pre>
           <div><b>Remote work on Earth</b><p className="muted small" style={{ marginTop: 6 }}>Offshore platforms, ships, mines and remote communities: the hospital is far there too. The core stays open source.</p></div>
         </div>
       </section>
-      <button className="btn pri" style={{ alignSelf: 'flex-start' }} onClick={() => nav('/today')}>Back to today<Icon name="chev" /></button>
+      <button className="btn pri" style={{ alignSelf: 'flex-start' }} onClick={() => nav('/crew')}>Back to the crew<Icon name="chev" /></button>
     </div>
   )
 }

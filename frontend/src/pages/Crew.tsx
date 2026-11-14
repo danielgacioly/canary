@@ -35,13 +35,13 @@ export default function Crew() {
           <h1>{headline}</h1>
           <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; each person's status goes only to the medical team.</p>
         </div>
-        <button className="btn right" onClick={() => nav('/today')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my health' : 'Enter my space'}</button>
+        <button className="btn right" onClick={() => nav('/me')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my space' : 'My space'}</button>
       </div>
 
       <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
         <div className="orbit">
           {data.people.map((p, i) => (
-            <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} onClick={() => nav(p.id === me ? '/today' : `/crew/${p.id}`)}>
+            <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} onClick={() => nav(p.id === me ? '/me' : `/crew/${p.id}`)}>
               <Dot p={p} size="xl" me={p.id === me} />
               <b>{p.name}</b>
               <span className="small muted">{p.role}</span>
@@ -49,7 +49,7 @@ export default function Crew() {
                 <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
                 <span className="small dim num">{p.today.done}/{p.today.total} today</span>
               </span>
-              {(p.id === me || p.shared) && <span className="tag">{p.id === me ? 'You' : 'Shares data'}</span>}
+              {p.id === me && <span className="tag">You</span>}
             </button>
           ))}
         </div>

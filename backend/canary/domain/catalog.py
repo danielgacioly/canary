@@ -132,36 +132,36 @@ WINDOW_BY_PLACE = {
     "mars": "Watch the blue Martian sunset",
 }
 
-# xp is the reward for doing it. sys links the goal to a body system.
+# sys links the goal to a body system.
 PERSONAL_GOALS: List[dict] = [
-    {"id": "exercise", "area": "physical", "xp": 30, "sys": "muscles", "why": "Without weight, bone and muscle waste away. Daily exercise is the main defence."},
-    {"id": "water", "area": "physical", "xp": 10, "sys": "kidneys", "title": "Drink 2.5 L of water", "why": "Thirst fades in space but your kidneys still need it."},
-    {"id": "vitals", "area": "physical", "xp": 10, "sys": "heart", "title": "Measure pressure, pulse and temperature", "why": "Canary spots change early by comparing you with your own normal.", "action": "vitals"},
-    {"id": "mobility", "area": "physical", "xp": 10, "sys": "muscles", "title": "10 min of mobility and stretching", "why": "Spine and hips stiffen without load."},
-    {"id": "calcium", "area": "physical", "xp": 10, "sys": "skeleton", "title": "Calcium and vitamin D with breakfast", "why": "No sunlight on board: bones depend on what you eat."},
-    {"id": "amsler", "area": "physical", "xp": 15, "sys": "eyes", "title": "Vision check (Amsler grid, 1 min)", "why": "A quick screen for eye changes caused by fluid shift.", "action": "amsler", "space_only": True},
-    {"id": "sleep", "area": "mental", "xp": 20, "sys": "brain", "title": "Sleep at least 7 h", "why": "Short sleep slows your reactions before you feel it."},
-    {"id": "pvt", "area": "mental", "xp": 10, "sys": "brain", "title": "Reaction test (1 min)", "why": "It measures the tiredness you do not feel.", "action": "pvt"},
-    {"id": "mood", "area": "mental", "xp": 10, "sys": "brain", "title": "Mood check-in (30 s)", "why": "Only you and the medical team see it. Honest answers earn the same XP as good ones.", "action": "mood"},
-    {"id": "meditate", "area": "mental", "xp": 15, "sys": "brain", "title": "10 min of meditation, prayer or slow breathing", "why": "A moment that is yours. Fill it with what gives you meaning."},
-    {"id": "read", "area": "mental", "xp": 15, "sys": "brain", "title": "Read for 20 min, not work", "why": "Deep attention on something that is not the mission."},
-    {"id": "social", "area": "mental", "xp": 15, "sys": "brain", "title": "30 min with the crew, off duty", "why": "Time together off the clock is what keeps a crew a team."},
-    {"id": "leisure", "area": "mental", "xp": 10, "sys": "brain", "title": "A film, series or album you enjoy", "why": "Rest the part of you that is always on watch."},
-    {"id": "home", "area": "mental", "xp": 15, "sys": "brain", "why": "Staying close to people at home protects you most on long missions."},
-    {"id": "window", "area": "mental", "xp": 10, "sys": "brain", "why": "Looking far away reminds you why you are here."},
-    {"id": "journal", "area": "mental", "xp": 10, "sys": "brain", "title": "Write three lines in your journal", "why": "Naming the day makes it lighter."},
+    {"id": "exercise", "area": "physical", "sys": "muscles", "why": "Without weight, bone and muscle waste away. Daily exercise is the main defence."},
+    {"id": "water", "area": "physical", "sys": "kidneys", "title": "Drink 2.5 L of water", "why": "Thirst fades in space but your kidneys still need it."},
+    {"id": "vitals", "area": "physical", "sys": "heart", "title": "Measure pressure, pulse and temperature", "why": "Canary spots change early by comparing you with your own normal.", "action": "vitals"},
+    {"id": "mobility", "area": "physical", "sys": "muscles", "title": "10 min of mobility and stretching", "why": "Spine and hips stiffen without load."},
+    {"id": "calcium", "area": "physical", "sys": "skeleton", "title": "Calcium and vitamin D with breakfast", "why": "No sunlight on board: bones depend on what you eat."},
+    {"id": "amsler", "area": "physical", "sys": "eyes", "title": "Vision check (Amsler grid, 1 min)", "why": "A quick screen for eye changes caused by fluid shift.", "action": "amsler", "space_only": True},
+    {"id": "sleep", "area": "mental", "sys": "brain", "title": "Sleep at least 7 h", "why": "Short sleep slows your reactions before you feel it."},
+    {"id": "pvt", "area": "mental", "sys": "brain", "title": "Reaction test (1 min)", "why": "It measures the tiredness you do not feel.", "action": "pvt"},
+    {"id": "mood", "area": "mental", "sys": "brain", "title": "Mood check-in (30 s)", "why": "Only you and the medical team see it. A hard day counts the same as a good one.", "action": "mood"},
+    {"id": "meditate", "area": "mental", "sys": "brain", "title": "10 min of meditation, prayer or slow breathing", "why": "A moment that is yours. Fill it with what gives you meaning."},
+    {"id": "read", "area": "mental", "sys": "brain", "title": "Read for 20 min, not work", "why": "Deep attention on something that is not the mission."},
+    {"id": "social", "area": "mental", "sys": "brain", "title": "30 min with the crew, off duty", "why": "Time together off the clock is what keeps a crew a team."},
+    {"id": "leisure", "area": "mental", "sys": "brain", "title": "A film, series or album you enjoy", "why": "Rest the part of you that is always on watch."},
+    {"id": "home", "area": "mental", "sys": "brain", "why": "Staying close to people at home protects you most on long missions."},
+    {"id": "window", "area": "mental", "sys": "brain", "why": "Looking far away reminds you why you are here."},
+    {"id": "journal", "area": "mental", "sys": "brain", "title": "Write three lines in your journal", "why": "Naming the day makes it lighter."},
 ]
 PERSONAL_BY_ID = {g["id"]: g for g in PERSONAL_GOALS}
 
 # Weekly crew missions. `metric` says how progress is counted from the last 7 days.
 TEAM_GOALS: List[dict] = [
-    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 2,400 minutes this week", "target": 2400, "unit": "min", "metric": "sum_exer", "xp": 120},
-    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social", "xp": 100},
-    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood", "xp": 100},
-    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure", "xp": 60},
-    {"id": "team_mind", "area": "mental", "title": "Crew mind: 20 meditation sessions", "target": 20, "unit": "sessions", "metric": "count:meditate", "xp": 100},
-    {"id": "team_books", "area": "mental", "title": "Book club: 10 hours of reading", "target": 600, "unit": "min", "metric": "count20:read", "xp": 80},
-    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "unit": "days", "metric": "all_done:water", "xp": 80},
+    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 2,400 minutes this week", "target": 2400, "unit": "min", "metric": "sum_exer"},
+    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social"},
+    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood"},
+    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure"},
+    {"id": "team_mind", "area": "mental", "title": "Crew mind: 20 meditation sessions", "target": 20, "unit": "sessions", "metric": "count:meditate"},
+    {"id": "team_books", "area": "mental", "title": "Book club: 10 hours of reading", "target": 600, "unit": "min", "metric": "count20:read"},
+    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "unit": "days", "metric": "all_done:water"},
 ]
 
 BADGES: List[dict] = [
@@ -175,18 +175,6 @@ BADGES: List[dict] = [
     {"id": "fortnight", "name": "Fortnight", "desc": "14-day streak", "streak": 14, "area": "both"},
     {"id": "first_responder", "name": "First Responder", "desc": "Took part in a guided response", "emergency": True, "area": "both"},
 ]
-
-LEVEL_STEP = 400  # xp per level, grows linearly
-
-
-def level_for(xp: int) -> dict:
-    lvl, need, acc = 1, LEVEL_STEP, 0
-    while xp >= acc + need:
-        acc += need
-        lvl += 1
-        need = LEVEL_STEP + 50 * (lvl - 1)
-    return {"level": lvl, "into": xp - acc, "need": need}
-
 
 # ---------------------------------------------------------------- demo story
 STORY: List[dict] = [

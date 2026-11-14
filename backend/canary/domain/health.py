@@ -121,9 +121,9 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                           f"you react {inds['react']['value'] - c['base']['react']:.0f} ms slower and spend less time with the crew."),
                   "todo": ["Hand over any critical task today", "Retake the reaction test before any decision", "Follow the 3-night sleep plan"],
                   "sources": [inds[i]["source"] for i in ("sleep", "mood", "react")],
-                  "goals": [{"id": "al_light", "area": "mental", "title": "Bright light on waking, amber light 2 h before bed", "xp": 20},
-                            {"id": "al_screens", "area": "mental", "title": "No screens after 21:00 for 3 nights", "xp": 20},
-                            {"id": "al_psy", "area": "mental", "title": "Record a private message for the mission psychologist", "xp": 25}]})
+                  "goals": [{"id": "al_light", "area": "mental", "title": "Bright light on waking, amber light 2 h before bed"},
+                            {"id": "al_screens", "area": "mental", "title": "No screens after 21:00 for 3 nights"},
+                            {"id": "al_psy", "area": "mental", "title": "Record a private message for the mission psychologist"}]})
 
     if ms["location"] == "rocket" and lv("hr") and lv("water"):
         used.update(["hr", "water", "exer", "mood"])
@@ -133,8 +133,8 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "todo": ["Take a small sip of water every 15 minutes", "Move your head slowly and fix your eyes on one point",
                            "Tell the medical officer if you vomit more than twice"],
                   "sources": [inds["hr"]["source"], inds["water"]["source"]],
-                  "goals": [{"id": "al_sip", "area": "physical", "title": "A sip of water every 15 minutes until dinner", "xp": 15},
-                            {"id": "al_head", "area": "physical", "title": "Slow head movements, 5 min, three times today", "xp": 10}]})
+                  "goals": [{"id": "al_sip", "area": "physical", "title": "A sip of water every 15 minutes until dinner"},
+                            {"id": "al_head", "area": "physical", "title": "Slow head movements, 5 min, three times today"}]})
 
     if place["gravity_key"] == "gp" and lv("bp") and lv("hr"):
         used.update(["bp", "hr"])
@@ -143,8 +143,8 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g.",
                   "todo": ["Stand up in two steps: sit, wait, then stand", "Salted water in the morning", "No solo suited walks this week"],
                   "sources": [inds["bp"]["source"], inds["hr"]["source"]],
-                  "goals": [{"id": "al_salt", "area": "physical", "title": "500 mL of salted water on waking", "xp": 10},
-                            {"id": "al_stand", "area": "physical", "title": "Measure pressure lying down and standing", "xp": 10}]})
+                  "goals": [{"id": "al_salt", "area": "physical", "title": "500 mL of salted water on waking"},
+                            {"id": "al_stand", "area": "physical", "title": "Measure pressure lying down and standing"}]})
 
     am = latest_checkin(crew_id, "amsler", ms["day"])
     if am and am.get("distortion"):

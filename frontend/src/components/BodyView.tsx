@@ -1,16 +1,14 @@
-// Today, as a dashboard: the body and the verdict first, then the physical and mental
-// systems as tiles, then goals and the mission leg. Click any part of the body or any tile
-// and the verdict area becomes that system.
+// Health: the body and the verdict first, then the physical and mental systems as number
+// tiles (charts live on the Dashboard tab). Click any part of the body or any tile and the
+// verdict area becomes that system.
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { CrewDetail, Indicator } from '../api/types'
 import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
 import BodyHologram from '../hologram/BodyHologram'
 import type { Lens } from '../hologram/scene'
 import { useSession } from '../state/session'
-import { GoalRow } from './GoalItems'
-import { CountUp, Icon, Spark, Status } from './ui'
+import { CountUp, Icon, Status } from './ui'
 
 const fmt = (i: Indicator) => i.value.toFixed(i.dp)
 const PHYSICAL: SystemId[] = ['heart', 'lungs', 'skeleton', 'muscles', 'eyes', 'kidneys', 'gut', 'immune', 'skin']
@@ -63,7 +61,6 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
                 <div className="foot">
                   <div><div className="tv">{ind ? fmt(ind) : s === 'skin' ? d.dose.mission_msv : st.status}<small>{ind ? ind.unit : s === 'skin' ? 'mSv' : ''}</small></div>
                     <div className="small dim" style={{ marginTop: 6 }}>{ind ? `normal ${ind.baseline.toFixed(ind.dp)}` : s === 'skin' ? `${d.dose.pct_of_limit}% of career limit` : st.note ?? 'Self-check'}</div></div>
-                  {ind && <Spark data={d.trends[ind.id].slice(-14)} base={ind.baseline} color="var(--physical)" w={70} h={28} />}
                 </div>
               </button>
             )
@@ -81,7 +78,6 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
                 <div className="top"><span className="dot" />{ind.facet}<span className="small dim right">{ind.name}</span></div>
                 <div className="foot">
                   <div><div className="tv">{fmt(ind)}<small>{ind.unit}</small></div><div className="small dim" style={{ marginTop: 6 }}>normal {ind.baseline.toFixed(ind.dp)}</div></div>
-                  <Spark data={d.trends[k].slice(-14)} base={ind.baseline} color="var(--mental)" w={70} h={28} />
                 </div>
               </button>
             )
@@ -89,7 +85,6 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
         </div>
       </section>
 
-      {self && <TodayBottom d={d} onCheck={onCheck} />}
     </>
   )
 }
@@ -129,11 +124,10 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
 function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId; onBack: () => void; onCheck?: (k: CheckKind) => void }) {
   const st = d.systems[sys], info = d.system_info[sys]
   const alert = d.alerts.find(a => a.sys === sys)
-  const col = st.area === 'mental' ? 'var(--mental)' : 'var(--physical)'
   const action: Record<string, [CheckKind, string]> = { eyes: ['amsler', 'Do the Amsler grid'], heart: ['vitals', 'Enter vital signs'], brain: ['pvt', 'Take the reaction test'] }
   return (
     <div className="col" style={{ gap: 20 }}>
-      <button className="back rise" onClick={onBack}><Icon name="back" />Back to today</button>
+      <button className="back rise" onClick={onBack}><Icon name="back" />Back to overview</button>
       <div className="rise" style={{ ['--d' as string]: 1 }}>
         <h1>{st.name}</h1>
         <p className="meta" style={{ textTransform: 'capitalize' }}>{st.area} · {info.hazard}</p>
@@ -153,13 +147,11 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
             return (
               <div key={k} className="metric">
                 <div><div className="lbl">{i.name}</div><div className="big">{fmt(i)}<small>{i.unit}</small></div><div className="small dim">normal {i.baseline.toFixed(i.dp)} · <span className={`s${i.level} c`}>{['on track', 'watch', 'act'][i.level]}</span></div></div>
-                <Spark data={d.trends[k]} base={i.baseline} color={col} w={150} h={44} />
               </div>
             )
           })}
         </div>
       )}
-      {sys === 'immune' && <Blood d={d} />}
       <p className="muted rise" style={{ ['--d' as string]: 4 }}>{info.space}</p>
       {onCheck && (action[sys] || sys === 'brain') && (
         <div className="row wrap rise" style={{ ['--d' as string]: 5 }}>
@@ -171,22 +163,7 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
   )
 }
 
-function TodayBottom({ d, onCheck }: { d: CrewDetail; onCheck?: (k: CheckKind) => void }) {
-  const open = d.goals.filter(g => !g.done)
-  const done = d.goals.length - open.length
-  return (
-    <section>
-      <div className="detail-card rise">
-        <div className="section-head"><h2>Today's goals</h2><span className="sub">{done} of {d.goals.length} done</span><Link to="/goals" className="link right">All goals</Link></div>
-        <div className="bar-track" style={{ marginBottom: 10, ['--pc' as string]: 'var(--ok)' }}><i style={{ width: `${(100 * done) / d.goals.length}%` }} /></div>
-        <div className="goal-cols">{open.slice(0, 6).map(g => <GoalRow key={g.id} g={g} crewId={d.crew.id} onCheck={onCheck} compact />)}</div>
-        {!open.length && <p className="muted">Everything done. Rest is a goal too.</p>}
-      </div>
-    </section>
-  )
-}
-
-function Blood({ d }: { d: CrewDetail }) {
+export function Blood({ d }: { d: CrewDetail }) {
   const b = d.blood, w = 360, h = 120
   const lo = Math.min(b.range.min, ...b.lymphocytes) * 0.9, hi = Math.max(b.range.max, ...b.lymphocytes) * 1.05
   const X = (i: number) => 14 + (i / (b.lymphocytes.length - 1)) * (w - 28), Y = (v: number) => h - 20 - ((v - lo) / (hi - lo)) * (h - 30)
