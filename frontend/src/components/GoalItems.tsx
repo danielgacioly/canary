@@ -28,7 +28,7 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
 
 export function TeamRow({ t, names }: { t: TeamGoal; names: Record<string, string> }) {
   return (
-    <div className="card pad-sm col" style={{ gap: 12 }}>
+    <div className="team-row col" style={{ gap: 10 }}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="grow"><div style={{ fontWeight: 600 }}>{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · {t.xp} XP for everyone</div></div>
         {t.done && <span className="status s0"><span className="dot" />Done</span>}

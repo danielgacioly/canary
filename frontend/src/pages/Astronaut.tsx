@@ -73,13 +73,13 @@ function PublicCard({ p }: { p: Person }) {
       <section className="detail-card public rise">
         <Dot p={p} size="xl" />
         <div className="col" style={{ gap: 6 }}>
-          <span className="eyebrow">{p.role} · {p.home}</span>
           <h1>{p.name}</h1>
+          <p className="muted">{p.role} · {p.home}</p>
         </div>
       </section>
       <section className="grid g2">
         <div className="detail-card rise" style={{ ['--d' as string]: 1 }}>
-          <span className="eyebrow">Today's routine</span>
+          <h2>Today's routine</h2>
           <div className="big-num num" style={{ margin: '10px 0' }}>{p.today.done}<small>of {p.today.total} goals</small></div>
           <div className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></div>
           <p className="small muted" style={{ marginTop: 10 }}>{p.today.streak ? `${p.today.streak}-day streak.` : 'No streak running.'} Participation is shared; results are not.</p>

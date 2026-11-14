@@ -12,7 +12,7 @@ export default function Ranking() {
   const medal = ['var(--gold)', '#c9ccd4', '#c08457']
   return (
     <div className="page">
-      <div className="head rise"><div><span className="eyebrow">Weekly ranking</span><h1 style={{ marginTop: 6 }}>Effort, not vital signs.</h1>
+      <div className="head rise"><div><h1>Effort, not vital signs.</h1>
         <p className="sub">XP comes from goals and check-ins, never from health numbers, so nobody gains by hiding a symptom.</p></div></div>
 
       <div className="grid g3">

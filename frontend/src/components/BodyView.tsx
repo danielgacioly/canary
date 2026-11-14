@@ -105,9 +105,9 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
   return (
     <>
       <div>
-        <span className="eyebrow rise">{self ? `Hello, ${first}` : d.crew.name} · {d.mission.day_label} · {d.mission.place.name}</span>
-        <h1 className="rise" style={{ ['--d' as string]: 1 }}>{headline}</h1>
-        <p className="why rise" style={{ ['--d' as string]: 2 }}>{why}</p>
+        <h1 className="rise">{headline}</h1>
+        <p className="why rise">{why}</p>
+        <p className="meta rise">{self ? `Hello, ${first}` : d.crew.name} · {d.mission.day_label} · {d.mission.place.name}</p>
       </div>
       {top && (
         <div className="col rise" style={{ gap: 14, ['--d' as string]: 3 }}>
@@ -135,8 +135,8 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
     <div className="col" style={{ gap: 20 }}>
       <button className="back rise" onClick={onBack}><Icon name="back" />Back to today</button>
       <div className="rise" style={{ ['--d' as string]: 1 }}>
-        <span className="eyebrow">{st.area} · {info.hazard}</span>
         <h1>{st.name}</h1>
+        <p className="meta" style={{ textTransform: 'capitalize' }}>{st.area} · {info.hazard}</p>
         <div style={{ marginTop: 10 }}><Status level={st.level} /></div>
         {st.note && <p className="why">{st.note}</p>}
       </div>
@@ -183,8 +183,8 @@ function TodayBottom({ d, onCheck }: { d: CrewDetail; onCheck?: (k: CheckKind) =
         {open.slice(0, 4).map(g => <GoalRow key={g.id} g={g} crewId={d.crew.id} onCheck={onCheck} compact />)}
         {!open.length && <p className="muted">Everything done. Rest is a goal too.</p>}
       </div>
-      <div className={`detail-card rise p-${d.mission.location}`} style={{ ['--d' as string]: 1, borderLeft: '3px solid var(--pc)' }}>
-        <div className="section-head"><h2>{d.mission.place.name}</h2><span className="sub">{leg.label}</span><Link to="/plan" className="link right">Mission plan</Link></div>
+      <div className={`detail-card rise p-${d.mission.location}`}>
+        <div className="section-head"><span className="pc-dot" /><h2>{d.mission.place.name}</h2><span className="sub">{leg.label}</span><Link to="/plan" className="link right">Mission plan</Link></div>
         <dl className="adapt">
           <dt>This leg</dt><dd>Day {leg.day_in_leg} of {leg.length}</dd>
           <dt>Next</dt><dd>{leg.next ? `${leg.next.label || leg.next.location} in ${leg.days_to_next} days` : 'End of plan'}</dd>

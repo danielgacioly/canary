@@ -58,7 +58,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
         <div key={c.id} className="card col" style={{ gap: 8 }}>
           <div className="row"><b>{c.name}</b></div>
           <span className="small muted">{c.role}</span>
-          <div className="ops-line"><span className="eyebrow">Operational status</span>
+          <div className="ops-line"><span className="lbl">Operational status</span>
             <span className={`status s${c.ops.level}`}><span className="dot" />{c.ops.label}</span></div>
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}

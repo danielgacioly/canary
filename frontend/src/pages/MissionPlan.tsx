@@ -41,12 +41,12 @@ export default function MissionPlan() {
   return (
     <div className="page">
       <div className="head rise">
-        <div><span className="eyebrow">Mission plan</span><h1 style={{ marginTop: 6 }}>{plan.name}</h1>
+        <div><h1>{plan.name}</h1>
           <p className="sub">Day {lo} to {hi} · {plan.legs.length} legs. Canary adapts to wherever the plan puts the crew.</p></div>
         <div className="row right wrap">
           <span className="small muted">Start from</span>
           {Object.entries(plan.presets).map(([k, n]) => <button key={k} className={`btn sm ${plan.preset === k ? '' : 'ghost'}`} onClick={() => preset(k)}>{n}</button>)}
-          <Link to="/setup" className="btn sm">Run mission setup again</Link>
+          <Link to="/setup" className="btn sm ghost" title="Preview of the future mission-admin flow">Admin setup (preview)</Link>
         </div>
       </div>
 
@@ -71,9 +71,9 @@ export default function MissionPlan() {
       </section>
 
       <section className="grid g2">
-        <div className={`detail-card rise p-${mission.location}`} style={{ ['--d' as string]: 2, borderLeft: '3px solid var(--pc)' }}>
-          <span className="eyebrow">{mission.day_label}{mission.location_override ? ' · simulated place' : ''}</span>
-          <h2 style={{ marginTop: 6 }}>{place.name}: {mission.leg.label}</h2>
+        <div className={`detail-card rise p-${mission.location}`}>
+          <h2 className="row" style={{ gap: 10 }}><span className="pc-dot" />{place.name}: {mission.leg.label}</h2>
+          <p className="meta">{mission.day_label}{mission.location_override ? ' · simulated place' : ''}</p>
           <dl className="adapt" style={{ marginTop: 16 }}>
             <dt>Gravity</dt><dd>{place.gravity}</dd>
             <dt>Earth replies</dt><dd>{place.reply}</dd>

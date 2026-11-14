@@ -11,7 +11,7 @@ export default function About() {
     <div className="page" style={{ maxWidth: 1180 }}>
       <div className="head"><div><h1>A health watch-keeper for when Earth is too far to answer.</h1><p className="sub">About Canary, its data and how it is built</p></div>
         <div className="row right"><button className="btn" onClick={() => nav('/welcome')}>Replay intro</button>
-          <button className="btn" onClick={async () => { await api.reset(); await setStep(0); toast('Demo reset. Mission setup starts again.') }}>Reset demo</button></div></div>
+          <button className="btn" onClick={async () => { await api.reset(); await setStep(0); toast('Demo reset.') }}>Reset demo</button></div></div>
 
       <div className="grid g3">
         {[['Goals', 'Personal and crew goals for body and mind: exercise, water, sleep, meditation, reading, crew time, films, calls home. XP, levels, streaks and mission patches.'],

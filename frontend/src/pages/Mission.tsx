@@ -12,7 +12,7 @@ export function SpaceWeather() {
   const kp = sw.kp.map(([t, v]) => [(Date.parse(t) - t0) / 36e5, v] as [number, number])
   return (
     <div className="page">
-      <div className="head rise"><div><span className="eyebrow">NASA open data</span><h1 style={{ marginTop: 6 }}>{sw.active ? sw.headline : 'Space weather is calm'}</h1>
+      <div className="head rise"><div><h1>{sw.active ? sw.headline : 'Space weather is calm'}</h1>
         <p className="sub">The storms Canary replays really happened. These are NASA's records.</p></div></div>
 
       <div className="stats">
@@ -43,7 +43,7 @@ export function LinkToEarth() {
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   return (
     <div className="page">
-      <div className="head rise"><div><span className="eyebrow">Link to Earth</span><h1 style={{ marginTop: 6 }}>Earth replies {mission?.place.reply === 'Live' ? 'live' : `in ${mission?.place.reply}`}</h1>
+      <div className="head rise"><div><h1>Earth replies {mission?.place.reply === 'Live' ? 'live' : `in ${mission?.place.reply}`}</h1>
         <p className="sub">Messages, briefings and emergency reports wait for the real delay from {mission?.place.name}. 20 times faster in the demo.</p></div></div>
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 24, alignItems: 'start' }}>
         <section className="detail-card rise">

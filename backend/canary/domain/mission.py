@@ -38,7 +38,7 @@ def state() -> dict:
         "custom_day": s["day"] is not None,
         "location_override": s["location"] is not None,
         "plan_name": plan.get()["name"],
-        "setup_done": bool(db.get_setting("setup_done", False)),
+        "setup_done": bool(db.get_setting("setup_done", True)),  # the mission admin (future flow) ships it configured
     }
 
 

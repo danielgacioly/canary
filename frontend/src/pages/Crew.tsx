@@ -31,9 +31,8 @@ export default function Crew() {
     <div className="page">
       <div className="head rise">
         <div>
-          <span className="eyebrow">{ms.day_label} · {ms.place.name}</span>
-          <h1 style={{ marginTop: 6 }}>{headline}</h1>
-          <p className="sub">No one's health is shown here. Each person's status goes only to the medical team.</p>
+          <h1>{headline}</h1>
+          <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; each person's status goes only to the medical team.</p>
         </div>
         <button className="btn right" onClick={() => nav('/today')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my health' : 'Enter my space'}</button>
       </div>
@@ -66,6 +65,7 @@ export default function Crew() {
         <div className="detail-card rise" style={{ ['--d' as string]: 7 }}>
           <div className="section-head"><h2>Hazards now</h2><span className="sub">The same for everyone on board</span></div>
           <div className="list">
+            {!data.hazards.length && <p className="muted" style={{ padding: '10px 0' }}>Nothing beyond normal training on Earth. Hazards appear here once the mission leaves.</p>}
             {data.hazards.map(h => (
               <div key={h.title} className="item" style={{ alignItems: 'flex-start' }}>
                 <span className={`dot s${h.level}`} style={{ marginTop: 8 }} />

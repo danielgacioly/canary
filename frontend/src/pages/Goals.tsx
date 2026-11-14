@@ -24,7 +24,7 @@ function MyGoals({ me }: { me: string }) {
   const done = data.personal.filter(g => g.done).length
   return (
     <div className="page">
-      <div className="head rise"><div><span className="eyebrow">Goals</span><h1 style={{ marginTop: 6 }}>{done} of {data.personal.length} done today</h1>
+      <div className="head rise"><div><h1>{done} of {data.personal.length} done today</h1>
         <p className="sub">Small wins, every day, as a crew. A hard day reported honestly earns the same as a good one.</p></div></div>
 
       <div className="stats">

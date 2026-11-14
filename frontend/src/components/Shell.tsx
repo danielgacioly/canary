@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
@@ -21,7 +21,6 @@ export default function Shell() {
   const { data: crew } = useApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
   // First run (and after a demo reset): the mission is set up before anything else.
-  if (mission && !mission.setup_done) return <Navigate to="/setup" replace />
 
   return (
     <div className="shell">
@@ -145,8 +144,8 @@ export function PlaceGrid({ onPick, current }: { onPick: (k: string, name: strin
   return (
     <div className="places">
       {Object.entries(catalog.locations).map(([k, p], i) => (
-        <button key={k} className={`place rise p-${k} ${current === k ? 'on' : ''}`} style={{ ['--d' as string]: i, borderLeft: '3px solid var(--pc)' }} onClick={() => onPick(k, p.name)}>
-          <div><h3>{p.name}</h3><span className="small muted">{p.sub}</span></div>
+        <button key={k} className={`place rise p-${k} ${current === k ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => onPick(k, p.name)}>
+          <div><h3 className="row" style={{ gap: 8 }}><span className="pc-dot" />{p.name}</h3><span className="small muted">{p.sub}</span></div>
           <dl><dt>Gravity</dt><dd>{p.gravity}</dd><dt>Earth replies</dt><dd>{p.reply}</dd><dt>Hospital</dt><dd>{p.hospital}</dd><dt>Radiation</dt><dd>{p.dose_rate} mSv/day</dd></dl>
           <span className="small muted">{p.what}</span>
         </button>

@@ -49,7 +49,6 @@ export function EnterGate({ what = 'your health', preselect = null }: { what?: s
     <div className="page">
       <section className="gate detail-card rise">
         <span className="lock"><Icon name="lock" size={22} /></span>
-        <span className="eyebrow">Private space</span>
         <h1>Enter to see {what}.</h1>
         <p className="muted">Your numbers, alerts, advice and operational status are yours. The crew sees only whether you kept your routine. Only you and the medical team see the rest, unless you choose to share your data.</p>
         <div className="gate-people">

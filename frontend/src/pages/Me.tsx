@@ -58,7 +58,7 @@ function ChangePin({ me, first, onClose, onDone }: { me: string; first: string; 
   const stepNo = { current: 1, new: 2, confirm: 3 }[step]
   return (
     <PinModal onCancel={onClose}>
-      <span className="eyebrow" style={{ display: 'block', textAlign: 'center', marginBottom: 8 }}>Change PIN · step {stepNo} of 3</span>
+      <span className="lbl" style={{ display: 'block', textAlign: 'center', marginBottom: 8 }}>Change PIN, step {stepNo} of 3</span>
       {step === 'current' && <PinPad key="c" title="Current PIN" subtitle={`${first}, enter the PIN you use now`} onCancel={onClose}
         onSubmit={async pin => { await api.crewSignIn(me, pin); setCurrent(pin); setStep('new') }} />}
       {step === 'new' && <PinPad key="n" title="New PIN" subtitle={mismatch ? 'The two did not match. Choose again.' : 'Choose 4 digits you will remember'} onCancel={onClose}

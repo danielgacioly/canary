@@ -36,7 +36,7 @@ make setup     # backend venv + npm install
 make dev       # API on :8000 and web app on :5173
 ```
 
-Open <http://localhost:5173>. The intro plays once, then **mission setup** (destination, how many days, the crew) and a short launch, and Canary opens on the **crew**: goals, hazards and crew missions, never anyone's health or status. To see your own health, enter your space under **My health**: tap your name and type your **4-digit PIN**. Setup shows again after **Reset demo** (About & data) or from the **Mission plan** page. The **Demo story** bar at the bottom walks through the six scenes and offers "Enter as …", which opens the PIN pad for the person each scene follows (it never skips the PIN).
+Open <http://localhost:5173>. The intro plays once and ends on the mission as mission control configured it (itinerary drawn in, crew introduced), then Canary opens on the **crew**: goals, hazards and crew missions, never anyone's health or status. To see your own health, enter your space under **My health**: tap your name and type your **4-digit PIN**. Mission setup and astronaut registration belong to a future **mission-admin flow**; a preview of setup lives at `/setup` (linked from the Mission plan page as Admin setup). The **Demo story** bar at the bottom walks through the six scenes and offers "Enter as …", which opens the PIN pad for the person each scene follows (it never skips the PIN).
 
 Demo PINs (public, for the demo only): Helena `1001`, Kenji `1002`, Amara `1003`, Tomás `1004`; medical console `1961`.
 
@@ -81,13 +81,13 @@ A sidebar with seven pages in three groups, **crew first**: the system always op
 
 | Page | What you see |
 | --- | --- |
-| **Intro** | Four beats of the canary story over a starfield while the body assembles, then mission setup |
-| **Setup** (`/setup`, first run) | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
+| **Intro** | Four beats of the canary story over a starfield while the body assembles, then **Your mission**: the configured itinerary draws itself in and the crew is introduced. Nothing to fill in |
+| **Admin setup preview** (`/setup`) | Not part of the crew flow; a preview of the future mission-admin flow. | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
 | **Crew** (home) | The four astronauts as neutral dots (no status colour), today's routine and shared streak, outside-activity status for the place, hazards for everyone, crew missions and the **Who sees what** table. No status, no scores, no vitals, no averages. A dot opens that person's public card |
 | **My health** (private) | Behind a gate: tap your name and enter your 4-digit PIN, Lock to leave (closing the tab also locks). A privacy bar says what the crew sees of you (only goal participation), your own medical status, who receives your alerts, and has the **Share data with the crew** switch and **Change PIN**. Then, top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals and the current mission leg. Click any part of the body or any tile and the top area becomes that system. |
 | **My goals** (private) | Level, XP, streak and 7-day completion; physical and mental goals side by side; crew missions; patches |
 | **Ranking** | Podium and weekly table by effort |
-| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, the leg editor and **Run mission setup again** |
+| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, the leg editor and a link to the admin setup preview |
 | **Space weather** | NASA DONKI storm (Kp) and Curiosity RAD dose on Mars |
 | **Link to Earth** | Messages, briefings and reports with the real delay |
 
@@ -135,11 +135,15 @@ The slider jumps to any day; every screen follows. The demo story bar returns to
 
 ### Design rules
 
+Informed by the Impeccable (Operate mode: quieter, distill, craft floor), Emil Kowalski design-engineering and Taste skills.
+
 - Flat surfaces, no gradients, no glow, no glass. The hologram is the only luminous thing on screen.
-- Colour means state: green on track, amber watch, red act. One accent colour (blue) for what you can press.
-- Hierarchy by size, weight and space: one headline per screen, then the steps, then the details.
-- Read top to bottom: the body and the verdict first, tiles next, details last. Clicking swaps the top area instead of opening more panels.
-- Motion has a job: an intro that tells the story, and content that arrives in order when a page opens.
+- Space instead of boxes: sections are separated by space and hairlines; filled cards only where something is pressable or private.
+- No labels above headings. The heading speaks; context goes in a quiet line below it.
+- Colour means state: green on track, amber watch, red act, slightly desaturated. One accent colour (blue) for what you can press. Places get a small coloured dot, never a coloured edge.
+- Facts sit in a single strip with hairline dividers, not a row of big-number cards.
+- Motion has a job: the intro is the one authored moment; pages fade in once in under 300 ms with a strong ease-out; buttons press to 97%.
+- Browser surfaces are themed too: selection, caret, focus ring, scrollbars, tabular numerals.
 
 ### The three ideas behind it
 
@@ -326,7 +330,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | --- | --- |
 | `GET /api/mission` · `PUT /api/mission` | Mission clock (story step or any day), place, current leg, `setup_done` |
 | `GET /api/plan` · `PUT /api/plan` · `POST /api/plan/preset` | Mission plan: itinerary legs, presets |
-| `POST /api/setup` | First-run mission setup: validates and saves the plan, marks setup done, restarts the story |
+| `POST /api/setup` | Mission-admin setup (future admin flow): validates and saves the plan, restarts the story. The demo mission ships configured |
 | `POST /api/crew/{id}/session` · `PUT /api/crew/{id}/pin` | Sign in with the 4-digit PIN (returns the session token) · change your PIN |
 | `GET /api/crew/overview` | What everyone may see: participation, hazards, crew missions, the visibility contract. Never status |
 | `GET /api/crew/{id}` · `PUT /api/crew/{id}/sharing` | One astronaut in full (self, medical team, or crew if shared; `ops` only for the first two) · the astronaut's share switch |

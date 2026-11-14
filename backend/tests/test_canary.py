@@ -274,16 +274,15 @@ def test_medical_pin_is_four_digits():
 
 # ---------------------------------------------------------------- mission setup
 def test_setup_saves_the_plan_and_marks_it_done():
-    assert client.get("/api/mission").json()["setup_done"] is False
+    assert client.get("/api/mission").json()["setup_done"] is True  # configured by the mission admin
     legs = [{"location": "earth", "start": -60, "end": -1, "label": "Training"},
             {"location": "rocket", "start": 0, "end": 4, "label": "Transfer"},
             {"location": "moon", "start": 5, "end": 34, "label": "Surface"}]
     bad = client.post("/api/setup", json={"name": "x", "legs": [legs[1], {**legs[2], "start": 3}]})
-    assert bad.status_code == 400 and client.get("/api/mission").json()["setup_done"] is False
+    assert bad.status_code == 400
     ms = client.post("/api/setup", json={"name": "Artemis", "legs": legs}).json()
     assert ms["setup_done"] and ms["plan_name"] == "Artemis" and ms["step"] == 0
     assert client.put("/api/mission", json={"day": 10}).json()["location"] == "moon"
     client.post("/api/demo/reset")
-    assert client.get("/api/mission").json()["setup_done"] is False  # a reset shows the setup again
-    client.post("/api/plan/preset", json={"preset": "iss"})
-    assert client.get("/api/mission").json()["setup_done"] is True
+    ms = client.get("/api/mission").json()
+    assert ms["setup_done"] is True and ms["plan_name"] == "Mars reference mission"  # reset restores the demo mission
