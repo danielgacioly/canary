@@ -426,19 +426,13 @@
       "assumption": "Estimated % change of weight-bearing bone density since launch from the bone_loss state, plus 0.3 % of measurement noise (0.4 % before launch). The catalog's sd of 1.5 is the alert scale, not this noise. Daily because it is a model estimate, not a scan."
     },
     "dsst": {
-      "unit": "correct/90s",
+      "unit": "correct/60s",
       "method": "test",
       "decimals": 0,
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 62,
-          "k": 58,
-          "a": 66,
-          "t": 55
-        }
+        "kind": "catalog"
       },
-      "sd": 4,
+      "sd": "catalog",
       "states": {
         "fatigue": -12
       },
@@ -449,22 +443,16 @@
       "gaps": 0.05,
       "source": "prototype assumption",
       "verified": false,
-      "assumption": "Digit-symbol substitution task. Baselines, spread and fatigue effect (-12 per unit) are prototype choices; no real distribution was checked."
+      "assumption": "Digit-symbol substitution task, 60 s as in the app. Baselines, spread and fatigue effect (-12 per unit) are prototype choices; no real distribution was checked."
     },
     "span": {
       "unit": "digits",
       "method": "test",
       "decimals": 1,
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 7.0,
-          "k": 6.8,
-          "a": 7.2,
-          "t": 6.5
-        }
+        "kind": "catalog"
       },
-      "sd": 0.5,
+      "sd": "catalog",
       "states": {
         "fatigue": -1.0
       },
@@ -482,15 +470,9 @@
       "method": "manual",
       "decimals": 1,
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 3.0,
-          "k": 3.3,
-          "a": 2.8,
-          "t": 3.5
-        }
+        "kind": "catalog"
       },
-      "sd": 0.5,
+      "sd": "catalog",
       "states": {
         "fatigue": 2.0
       },
@@ -512,15 +494,9 @@
       "method": "manual",
       "decimals": 0,
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 40,
-          "k": 45,
-          "a": 38,
-          "t": 48
-        }
+        "kind": "catalog"
       },
-      "sd": 6,
+      "sd": "catalog",
       "states": {
         "fatigue": 14
       },

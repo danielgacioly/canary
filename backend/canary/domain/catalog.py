@@ -44,19 +44,19 @@ CREW: List[dict] = [
     {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
      "cbc_subject": "C001", "age": 46,
      "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
-              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0}},
+              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40}},
     {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
      "cbc_subject": "C002", "age": 41,
      "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
-              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0}},
+              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45}},
     {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
      "cbc_subject": "C003", "age": 38,
      "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
-              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0}},
+              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38}},
     {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
      "cbc_subject": "C004", "age": 44,
      "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
-              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0}},
+              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48}},
 ]
 CREW_BY_ID = {c["id"]: c for c in CREW}
 
@@ -68,6 +68,10 @@ INDICATORS: Dict[str, dict] = {
     "mood": {"name": "Mood", "unit": "/5", "area": "mental", "facet": "Mood", "dir": "low", "sd": 0.35, "dp": 1},
     "stress": {"name": "Stress", "unit": "/5", "area": "mental", "facet": "Stress", "dir": "high", "sd": 0.4, "dp": 1},
     "social": {"name": "Time with crew", "unit": "min", "area": "mental", "facet": "Connection", "dir": "low", "sd": 15, "dp": 0},
+    "dsst": {"name": "Processing speed", "unit": "correct", "area": "mental", "facet": "Speed", "dir": "low", "sd": 4, "dp": 0},
+    "span": {"name": "Working memory", "unit": "digits", "area": "mental", "facet": "Memory", "dir": "low", "sd": 0.5, "dp": 1},
+    "kss": {"name": "Sleepiness", "unit": "/9", "area": "mental", "facet": "Alertness", "dir": "high", "sd": 0.5, "dp": 1},
+    "tlx": {"name": "Workload", "unit": "/100", "area": "mental", "facet": "Workload", "dir": "high", "sd": 6, "dp": 0},
     "hr": {"name": "Resting pulse", "unit": "bpm", "area": "physical", "dir": "both", "sd": 3, "dp": 0},
     "bp": {"name": "Blood pressure", "unit": "mmHg", "area": "physical", "dir": "both", "sd": 5, "dp": 0},
     "spo2": {"name": "Blood oxygen", "unit": "%", "area": "physical", "dir": "low", "sd": 0.7, "dp": 0},
@@ -79,9 +83,21 @@ INDICATORS: Dict[str, dict] = {
     "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
 }
 
+# Where each cognitive or self-report indicator comes from. None of the numbers is a published value.
+INDICATOR_NOTES: Dict[str, dict] = {
+    "dsst": {"source": "prototype assumption", "verified": False,
+             "note": "Correct answers in 60 s of a digit-symbol task. Baseline and spread are fictional, same as data/recipes.json."},
+    "span": {"source": "prototype assumption", "verified": False,
+             "note": "Longest forward digit span. Baseline and spread are fictional, same as data/recipes.json."},
+    "kss": {"source": "prototype assumption", "verified": False,
+            "note": "Karolinska Sleepiness Scale, 1 to 9. The scale is published; the personal baseline and spread are fictional."},
+    "tlx": {"source": "prototype assumption", "verified": False,
+            "note": "NASA-TLX raw score, 0 to 100. The scale is published; the personal baseline and spread are fictional."},
+}
+
 # ---------------------------------------------------------------- body systems (what the 3D body shows)
 SYSTEMS: Dict[str, dict] = {
-    "brain": {"name": "Brain & mind", "area": "mental", "indicators": ["sleep", "react", "mood", "stress", "social"],
+    "brain": {"name": "Brain & mind", "area": "mental", "indicators": ["sleep", "react", "mood", "stress", "social", "dsst", "span", "kss", "tlx"],
               "space": "Isolation, confinement, noise and shifted light cycles erode sleep, mood and focus. NASA lists behavioural health among the top risks of long missions.",
               "hazard": "Isolation & confinement"},
     "eyes": {"name": "Eyes & vision", "area": "physical", "indicators": [],
