@@ -440,7 +440,7 @@ question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagn
 | `assistant/guard.py` + `data/guard_rules.json` | English rule bank with ids (`G-DOSE-02`, `G-PRIV-01`…): precheck before the model, postcheck after |
 | `assistant/kb/` | Knowledge base in `kb.db`: protocols, body-system cards, places, NASA sources, hazards, the privacy contract, self-tests. Hybrid BM25 (FTS5) + vectors (sqlite-vec), filtered by gravity and place; BM25 only when no embedder is available |
 | `assistant/contracts.py` | `ToolContext`, the tool result envelope, `AssistantResponse`, `BriefingDraft`, source-id and action formats |
-| `assistant/prompts/` | Versioned system prompts (`system_v1.md`, `briefing_v1.md`); the version is logged with every answer |
+| `assistant/prompts/` | Versioned system prompts (`system_v2.md` active, `system_v1.md` kept for history, `briefing_v1.md`); the version is logged with every answer |
 
 Both cloud providers use native REST APIs through the existing `httpx` dependency and share one guarded tool executor. With `CANARY_LLM_PROVIDER=auto` (the default), only `GEMINI_API_KEY` selects Gemini, only `ANTHROPIC_API_KEY` selects Anthropic, and neither key selects offline rules. If both keys are set, Gemini wins. Explicit `gemini` or `anthropic` selects that provider; `none` forces offline mode. HTTP 503 responses get at most two retries per model round, with 1 s / 2 s backoff (or a longer numeric `Retry-After`) within the remaining question deadline. Timeouts and other errors are not retried. A persistent API failure uses deterministic fallback, never another cloud provider.
 

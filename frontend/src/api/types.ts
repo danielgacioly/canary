@@ -181,7 +181,7 @@ export interface AssistantAnswer {
   answer: string; claims: Claim[]; sources: string[]; tools_used: { tool: string; args: Record<string, string> }[]; dropped: number
   question?: string
   model?: string | null            // model id when the answer came from a provider
-  prompt_version?: string          // e.g. system_v1
+  prompt_version?: string          // e.g. system_v2
   status?: AssistantStatusValue
   observations?: Observation[]   // facts from data (telemetry, status, checkin, goals, summary, nasa)
   explanations?: Explanation[]   // possible explanations from approved knowledge (kb:)

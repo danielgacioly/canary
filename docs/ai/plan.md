@@ -400,6 +400,13 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 - Cross-boundary fixes: frontend `GuardReport.dropped_claims` is a list (was typed as a number), `rule_ids` added; `SourceMeta.version` is a number; `model` / `prompt_version` typed on `AssistantAnswer`; rule-based answers no longer print the same claims twice in Ask Canary; audit shows a short kb hash.
 - Not run: the paid eval (`python -m evals.run --yes`), pending approval.
 
+### Decisions taken after the merge of `main` (risk layer)
+
+1. **Prompt versioning.** `system_v1.md` is back to its pre-merge text; the text that also lets explanations cite `get_risks` is `system_v2.md`, the active prompt (`chat.PROMPT_VERSION = "system_v2"`, logged and returned as `prompt_version`).
+2. **`goal:` only means an action id.** The mood check-in evidence of the risk layer is `goals:{crew}:mood:day{n}` (was `goal:{crew}:mood:day{n}`); `goal` is no longer a source prefix (schema.md §2).
+3. **Risk cards and care windows in `kb.db`.** New kinds `risk` (`RISK-{ID}`) and `care_window` (`CARE-{PID}`, its own document so `PROTO-*@{version}` text is unchanged); `card:risk:*` and `card:hazard:*` are legacy aliases in `kb_map.json` (schema.md §3).
+4. **`frontend/.vite/`** (Vite's dependency cache) is untracked and ignored.
+
 ### Brief template for each subagent
 
 Every subagent gets the same structure, so its report comes back in a shape the main session can check:

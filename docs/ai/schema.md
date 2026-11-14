@@ -48,7 +48,8 @@ Every fact the assistant may state carries a source id. The guard only accepts i
 | --- | --- | --- | --- | --- |
 | `telemetry` | `telemetry:{crew}:{indicator}:day{n}` | `telemetry:h:sleep:day147` | `health.indicator` | existing |
 | `status` | `status:{crew}:day{n}` | `status:t:day2` | `tools.get_status` | existing |
-| `goals` | `goals:{crew}:day{n}` | `goals:h:day147` | `tools.list_goals` | existing |
+| `goals` | `goals:{crew}:day{n}`, `goals:{crew}:mood:day{n}` | `goals:h:day147`, `goals:h:mood:day147` | `tools.list_goals`; `risk.py` / `health.py` (mood check-in goal not done for 3 days) | existing; the mood form comes from `main` (was `goal:{crew}:mood:day{n}`, renamed so `goal:` only means an action id) |
+
 | `checkin` | `checkin:{crew}:{kind}:day{n}` | `checkin:a:amsler:day150` | `health.latest_checkin` | existing |
 | `nasa` | `nasa:{dataset}:{key}` | `nasa:rad:2024-05-20` | `domain/nasa` | existing |
 | `card` | `card:{system}` | `card:brain` | `tools.explain_system` | existing, legacy alias of `kb:CARD-*` (still returned) |
@@ -56,18 +57,18 @@ Every fact the assistant may state carries a source id. The guard only accepts i
 | `kb` | `kb:{doc_id}@{version}#{chunk}` | `kb:PROTO-NEURO-001@1#s2` | `tools.search_knowledge` | **new** |
 | `summary` | `summary:{crew}:day{n}:7d` | `summary:h:day147:7d` | `tools.get_weekly_summary` | **new** |
 | `risk` | `risk:{crew}:day{n}` | `risk:h:day147` | `tools.get_risks` (no evidence) | from `main` (risk layer) |
-| `goal` | `goal:{crew}:mood:day{n}` | `goal:h:mood:day147` | `risk.py` / `health.py` (mood log missing) | from `main`; not an action id (`goal:{goal_id}` in §6 has no crew segment) |
 | `dose` | `dose:day{n}` | `dose:day147` | `risk.py` (mission dose, same for everyone) | from `main` |
 | `recipe` | `recipe:{indicator}` | `recipe:urine_volume` | `telemetry` (simulated observation) | from `main` |
 | `emergency` | `emergency:{id}` | `emergency:3` | `care.py` (care window after Guided Response) | from `main` |
-| `card` (risk, hazard) | `card:risk:{risk}`, `card:hazard:{R,I,D,G,E}` | `card:risk:fatigue` | `tools.get_risks` (`knowledge.risk_cards`, `hazard_cards`) | from `main`; knowledge, not in `kb.db` |
+| `card` (risk, hazard) | `card:risk:{risk}`, `card:hazard:{R,I,D,G,E}` | `card:risk:fatigue` | `tools.get_risks` (`knowledge.risk_cards`, `hazard_cards`) | from `main`; legacy alias of `kb:RISK-*` / `kb:HAZARD-*` (`kb_map.json`) |
 
 Rules:
 
 - `kb:` ids are always versioned (`@1`), so an audit can tell which protocol text an answer used.
 - `card:` and `protocol:` stay valid as aliases of the matching `kb:` document (`kb_map.json` `legacy`): `explain_system` and `get_protocol` still return them, the guard accepts them in `explanations`, and `source_meta` covers only `kb:` ids.
 - An id the model writes that no tool returned is dropped, and the claim with it.
-- `contracts.PERSONAL_SOURCE_PREFIXES` (`telemetry`, `status`, `goals`, `checkin`, `summary`, `risk`, `goal`) carry the crew id second: a result or claim with another person's id is withheld.
+- `goal:` is never a source id; it only means an action id `goal:{goal_id}` (§6). No tool result source starts with `goal:` (`tests/test_tools.py`).
+- `contracts.PERSONAL_SOURCE_PREFIXES` (`telemetry`, `status`, `goals`, `checkin`, `summary`, `risk`) carry the crew id second: a result or claim with another person's id is withheld.
 - `checkin` kinds are the 13 tests and logs of `domain/selftests.TESTS`: `pvt`, `dsst`, `span`, `mood`, `kss`, `tlx`, `wellbeing`, `vitals`, `amsler`, `symptoms`, `sleep`, `reading`, `journal`. A journal check-in stores only a line count, never the text. Alerts `wellbeing`, `sleepy` (KSS ≥ 7) and `symptoms` (severity ≥ 3) cite `checkin:` ids (`domain/health.py`).
 - Knowledge document ids (§3) are `PROTO-*`, `CARD-*`, `LOC-*`, `NASA-*`, `HAZARD-{R,I,D,G,E}`, `PRIVACY-CONTRACT` and `TEST-{id}` (e.g. `kb:TEST-KSS@1#summary`).
 
@@ -83,11 +84,11 @@ erDiagram
     kb_meta ||--|| kb_documents : describes
 
     kb_documents {
-        TEXT doc_id PK "PROTO-NEURO-001, CARD-BRAIN"
+        TEXT doc_id PK "PROTO-NEURO-001, CARD-BRAIN, RISK-FATIGUE, CARE-SEIZURE"
         INTEGER version PK "1, 2, ..."
-        TEXT kind "protocol | system_card | location | nasa_source | hazard | privacy | self_test"
+        TEXT kind "protocol | system_card | location | nasa_source | hazard | privacy | self_test | risk | care_window"
         TEXT title
-        TEXT legacy_id "protocol:seizure, card:brain"
+        TEXT legacy_id "protocol:seizure, card:brain, card:risk:fatigue"
         TEXT reviewed "illustrative | flight_surgeon"
         TEXT source_ref "where the text comes from"
         TEXT content_hash "sha256 of the source text"
@@ -129,12 +130,19 @@ erDiagram
 | Hazard | `HAZARD-{R,I,D,G,E}` | `privacy.RIDGE` + place-only level from `privacy._level` (`RIDGE_CUTS`), `privacy.HAZARD_BY_GRAVITY` | `G` → `HAZARD-G` (Gravity) |
 | Privacy contract | `PRIVACY-CONTRACT` | `privacy.CONTRACT` (who sees what) and the `privacy.py` docstring | `PRIVACY-CONTRACT` |
 | Self-test | `TEST-{ID}` | `selftests.TESTS` (one per test or log; scales KSS, NASA-TLX, PHQ-2 / GAD-2) | `kss` → `TEST-KSS` |
+| Risk card | `RISK-{ID}` (`_` → `-`) | `domain/risk.SPECS` (name, systems, clock, NASA red risk, inputs), `assistant/knowledge.RISK_CARDS` (what the risk reads), hazards linked to its inputs (`catalog.HAZARDS_BY_INDICATOR`); kind `risk` | `bone_muscle` → `RISK-BONE-MUSCLE` |
+| Care window | `CARE-{PID}` | `data/protocols.json` `window_days`, `ops`, `after_days` via `protocols.care`; `care.SENSITIVITY`; kind `care_window`; only protocols that leave a window or aftercare (not `triage`); version follows the protocol's | `seizure` → `CARE-SEIZURE` |
 
 The legacy-to-new mapping lives in `backend/canary/data/kb_map.json` (one place, reviewed by hand):
 
 ```json
-{ "protocol:seizure": "PROTO-NEURO-001", "protocol:cpr": "PROTO-CARDIO-001", "card:brain": "CARD-BRAIN" }
+{ "protocol:seizure": "PROTO-NEURO-001", "protocol:cpr": "PROTO-CARDIO-001", "card:brain": "CARD-BRAIN",
+  "card:risk:bone_muscle": "RISK-BONE-MUSCLE", "card:hazard:G": "HAZARD-G" }
 ```
+
+The risk layer's `card:risk:{id}` and `card:hazard:{H}` (returned by `get_risks`) are legacy aliases of `RISK-*` and `HAZARD-*`, so the guard accepts them in `explanations` like `card:{system}`.
+
+Care windows are separate `CARE-*` documents rather than extra chunks of the protocol document: adding them leaves the text behind every existing `PROTO-*@{version}` id unchanged, so past audits still point at the same protocol text. They have no legacy alias (the closed emergency itself is data, `emergency:{id}`).
 
 ### Chunking
 
@@ -147,6 +155,8 @@ The legacy-to-new mapping lives in `backend/canary/data/kb_map.json` (one place,
 | Hazard | `#summary` (what it is, systems it affects) · `#{place}` level and "here" text per place |
 | Privacy contract | `#summary` · one chunk per `CONTRACT` row |
 | Self-test | `#summary` (what it measures, how long, what a high or low score means; never a diagnosis) |
+| Risk card | `#summary` (what it reads, body systems, clock, exam cadence, NASA red risk, hazards as possible factors; never a diagnosis); gravity and place `any` |
+| Care window | `#summary` (window days, minimum operational status, closer alert thresholds) · `#items` (each `after` item with its days, section `after`); gravity and place `any` |
 
 Chunks are short (one step or one card) so a search result is a quotable unit, not a page.
 
@@ -241,7 +251,7 @@ One row per tool call, for audit and for the demo ("show me what Canary looked a
 | `list_goals` | `{}` | today's goals (`id`, `area`, `title`, `by`: routine · alert · medical · suggestion) and whether done; no XP, levels or points | existing (drop `crew_id`) |
 | `get_checkins` | `{kind: enum[pvt, dsst, span, mood, kss, tlx, wellbeing, vitals, amsler, symptoms, sleep, reading, journal, any], days: integer 1..14}` | test and log history (journal: line count only) | **new** |
 | `get_weekly_summary` | `{}` | 7-day means, trends and deltas computed by the backend (`briefing.facts`) | **new** |
-| `search_knowledge` | `{query: string ≤200, kind: enum[protocol, system_card, location, nasa_source, hazard, privacy, self_test, any], k: integer 1..6}` | chunks `{chunk_id, title, text, score}`, filtered to the current gravity and place | **new** |
+| `search_knowledge` | `{query: string ≤200, kind: enum[protocol, system_card, location, nasa_source, hazard, privacy, self_test, risk, care_window, any], k: integer 1..6}` | chunks `{chunk_id, title, text, score}`, filtered to the current gravity and place | **new** |
 
 Every tool result has the same envelope:
 
@@ -299,7 +309,7 @@ Allowed actions (the model picks one, it never invents one):
 | `answer`, `claims`, `sources`, `tools_used`, `dropped`, `provider`, `provider_error`, `id` | existing | `claims` = observations + explanations that survived the guard |
 | `status`, `observations`, `explanations`, `limitations`, `recommended_action` | **new** | from `AssistantResponse`; `recommended_action` is resolved to `{id, label}` |
 | `guard` | **new** | `{dropped_claims: [{field, statement, rule_id}], rejected_numbers: string[], reason, rule_ids: string[]}` for the reliability demo; `reason` is a rule id (precheck), a postcheck reason, or a loop/API exit such as `loop:max_steps: …` |
-| `model`, `prompt_version` | **new** | model id that answered (null without a provider) and the system prompt version (`system_v1`) |
+| `model`, `prompt_version` | **new** | model id that answered (null without a provider) and the system prompt version (`system_v2`; `system_v1` is the pre-risk-layer prompt) |
 | `source_meta` | **new** | `{kb id: {title, version (int), text}}` for every `kb:` id `search_knowledge` returned this turn and the answer cites |
 
 `mode` values: `ai` (model answer that passed postcheck) · `grounded` (no provider set, or the provider is not configured: rule answer from `route()`) · `fallback` (a set provider failed, hit a loop guard, or its answer failed postcheck: rule answer from `route()`) · `unknown` (no provider and `route()` found nothing) · `refused` / `emergency` (precheck, no model call).
