@@ -2,7 +2,7 @@
 
 Only what people do is stored here (check-ins, goals, messages, emergencies,
 briefings, settings). Sensor telemetry comes from a TelemetrySource
-(see domain/telemetry.py), which today is a deterministic simulator.
+(see domain/telemetry.py), which today reads the observation table (see domain/simdata.py).
 """
 import json
 import sqlite3

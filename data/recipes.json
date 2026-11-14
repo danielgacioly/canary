@@ -1,0 +1,960 @@
+{
+  "version": 1,
+  "about": "Recipes for the ship's observation table (backend/canary/data/observations.csv). One recipe per indicator, kept apart from the code. Anything that is not a published number is labelled 'prototype assumption' with verified=false and is listed in data/DATASET.md. Edit this file, run `python data/generate_dataset.py`, commit the result.",
+  "methods": {
+    "wearable": {
+      "label": "Wristband",
+      "how": "A medical-grade wristband worn day and night. Photoplethysmography gives pulse, heart-rate variability, blood oxygen and sleep stages; skin temperature comes from a thermistor; an accelerometer and a proximity beacon give exercise minutes and time spent near crewmates. It syncs to the ship server over the cabin network every few minutes, with no action from the astronaut. Gaps appear when the band is charging or taken off."
+    },
+    "manual": {
+      "label": "Cuff, scale and app questionnaires",
+      "how": "The astronaut does it and types or confirms the number in the app: blood pressure with an arm cuff, body mass on the ship's mass-measurement device (a scale does not work in 0 g), fasting glucose with a fingerstick meter, water from the dispenser log, mood, stress and sleepiness scales, workload questionnaire. Each takes under a minute. Missing days are normal and are never filled in silently."
+    },
+    "test": {
+      "label": "Test in the app",
+      "how": "A short task on the tablet: a one-minute reaction test, a digit-symbol and a digit-span task, a grip-strength reading from a Bluetooth dynamometer. The app times the answers itself, so nothing is typed. Bone density has no scanner on board: the bone row is a model estimate until an onboard measurement exists."
+    },
+    "blood": {
+      "label": "Onboard blood analyser",
+      "how": "A fingerstick sample (about 100 µL) goes into a compact point-of-care analyser that returns a blood count and a chemistry panel in minutes. The crew medical officer runs it on a fixed calendar, about every 30 days, and the results go to the crew member's record. Hormones and vitamin D need a cartridge test or a sample returned to Earth."
+    },
+    "urine": {
+      "label": "Urine analysis",
+      "how": "A 24-hour collection with a urine volume gauge and a dipstick or cartridge reader for calcium. Done about every 15 days. It is the early warning for kidney stones and for bone mineral leaving the body."
+    },
+    "environment": {
+      "label": "Cabin sensors",
+      "how": "Fixed sensors in the habitat measure carbon dioxide continuously and report to the environment-control system. The numbers belong to the cabin, not to a person, so the rows use the crew id 'cabin'."
+    }
+  },
+  "states": {
+    "fatigue": {
+      "label": "Fatigue",
+      "about": "Tiredness that shows up in sleep, reaction time, mood, stress, time with the crew, cognition, sleepiness and workload at once.",
+      "amp": 0.05,
+      "period": 21,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Slow personal wobble of 0.05 units with a 21-day period, so the state is never perfectly flat. The size is a prototype choice, small enough not to change any alert."
+    },
+    "hydration": {
+      "label": "Hydration",
+      "about": "How well watered the body is. Negative means dehydrated.",
+      "amp": 0.05,
+      "period": 21,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Same slow wobble as fatigue (0.05 units, 21 days)."
+    },
+    "energy": {
+      "label": "Energy balance",
+      "about": "Food intake against use. Moves body mass and fasting glucose together.",
+      "amp": 0.05,
+      "period": 21,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Same slow wobble as fatigue. No dated event pushes this state yet."
+    },
+    "bone_loss": {
+      "label": "Bone loss",
+      "kind": "bone_loss",
+      "about": "Cumulative % of weight-bearing bone density lost since launch. It grows day by day with the gravity of the mission plan.",
+      "max_pct_per_month": 1.0,
+      "exercise_gain": 0.65,
+      "exercise_full_min": 110,
+      "gravity_rate": {
+        "g0": 1.0,
+        "gp": 0.4,
+        "g1": -0.25
+      },
+      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "verified": false,
+      "assumption": "0.35% a month with full exercise (110 min a day) up to 1% a month without; full rate in 0 g, 40% in partial gravity, slow recovery (-25%) on Earth. Order of magnitude only, to verify before quoting."
+    }
+  },
+  "events": [
+    {
+      "id": "helena_slide",
+      "state": "fatigue",
+      "crew": "h",
+      "points": [
+        [
+          132,
+          0
+        ],
+        [
+          152.8,
+          1.3
+        ],
+        [
+          153,
+          1.3
+        ],
+        [
+          168.6,
+          0
+        ]
+      ],
+      "label": "Helena's slow slide on the way to Mars (days 132 to 153), then recovery",
+      "source": "demo story (STORY step 3 in catalog.py)",
+      "verified": false,
+      "assumption": "Written to drive the demo, not taken from data."
+    },
+    {
+      "id": "tomas_space_sickness",
+      "state": "hydration",
+      "crew": "t",
+      "points": [
+        [
+          1,
+          -1
+        ],
+        [
+          7,
+          0
+        ]
+      ],
+      "label": "Tomás has space sickness on days 1 to 6: dehydrated, fast pulse, little exercise",
+      "source": "demo story (STORY step 2 in catalog.py)",
+      "verified": false,
+      "assumption": "Written to drive the demo, not taken from data."
+    }
+  ],
+  "indicators": {
+    "sleep": {
+      "unit": "h",
+      "method": "wearable",
+      "decimals": 2,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "fatigue": -1.5
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional personal baseline and day-to-day spread from catalog.py; fatigue effect (-1.5 h per unit) chosen for the demo story."
+    },
+    "react": {
+      "unit": "ms",
+      "method": "test",
+      "decimals": 1,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "fatigue": 70
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; fatigue effect (+70 ms per unit) chosen for the demo story."
+    },
+    "mood": {
+      "unit": "/5",
+      "method": "manual",
+      "decimals": 2,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "fatigue": -1.2,
+        "hydration": 0.6
+      },
+      "clamp": [
+        1,
+        5
+      ],
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; fatigue (-1.2) and hydration (+0.6) effects chosen for the demo story."
+    },
+    "stress": {
+      "unit": "/5",
+      "method": "manual",
+      "decimals": 2,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "fatigue": 1.1
+      },
+      "clamp": [
+        1,
+        5
+      ],
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; fatigue effect (+1.1 per unit) chosen for the demo story."
+    },
+    "social": {
+      "unit": "min",
+      "method": "wearable",
+      "decimals": 0,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "fatigue": -38
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; fatigue effect (-38 min per unit) chosen for the demo story."
+    },
+    "hr": {
+      "unit": "bpm",
+      "method": "wearable",
+      "decimals": 1,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "hydration": -12
+      },
+      "regravity": {
+        "days": 30,
+        "delta": 12
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; +12 bpm that fades over the 30 days after arriving in partial gravity, and a hydration effect (-12 bpm per unit) chosen for the demo story."
+    },
+    "bp": {
+      "unit": "mmHg",
+      "method": "manual",
+      "decimals": 0,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "regravity": {
+        "days": 30,
+        "delta": -14
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; -14 mmHg that fades over the 30 days after arriving in partial gravity. Daily, not every few days: the alert engine blends three days, and with a cuff reading every 3 days the demo's day-222 alerts changed."
+    },
+    "spo2": {
+      "unit": "%",
+      "method": "wearable",
+      "decimals": 1,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py."
+    },
+    "temp": {
+      "unit": "°C",
+      "method": "wearable",
+      "decimals": 2,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py."
+    },
+    "gluc": {
+      "unit": "mg/dL",
+      "method": "manual",
+      "decimals": 0,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "energy": 3
+      },
+      "frequency": {
+        "every": 3,
+        "label": "every 3 days"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; energy effect (+3 mg/dL per unit) is a prototype choice. Open real data exists (Inspiration4 metabolic panel) and can replace these rows through data/real/."
+    },
+    "water": {
+      "unit": "L",
+      "method": "manual",
+      "decimals": 2,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "hydration": 1.1
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; hydration effect (+1.1 L per unit) chosen for the demo story."
+    },
+    "exer": {
+      "unit": "min",
+      "method": "wearable",
+      "decimals": 0,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "states": {
+        "hydration": 50
+      },
+      "cap": {
+        "location": "rocket",
+        "base": 25,
+        "spread": 10,
+        "key": "x{crew}{day}"
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; hydration effect (+50 min per unit); during launch days exercise is capped at 25 to 35 min because there is little room to train."
+    },
+    "grip": {
+      "unit": "kg",
+      "method": "test",
+      "decimals": 1,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "regravity": {
+        "days": 30,
+        "delta": -3
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Fictional baseline and spread from catalog.py; -3 kg that fades over the 30 days after arriving in partial gravity. Daily, not weekly, for the same reason: a weekly reading changes the day-222 alerts."
+    },
+    "bone": {
+      "unit": "%",
+      "method": "test",
+      "decimals": 2,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 0,
+          "k": 0,
+          "a": 0,
+          "t": 0
+        }
+      },
+      "sd": 0.1875,
+      "sd_pre": 0.25,
+      "noise_key": "b{crew}{day}",
+      "states": {
+        "bone_loss": -1
+      },
+      "row_note": "model estimate, no scanner on board",
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.05,
+      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "verified": false,
+      "assumption": "Estimated % change of weight-bearing bone density since launch from the bone_loss state, plus 0.3 % of measurement noise (0.4 % before launch). The catalog's sd of 1.5 is the alert scale, not this noise. Daily because it is a model estimate, not a scan."
+    },
+    "dsst": {
+      "unit": "correct/90s",
+      "method": "test",
+      "decimals": 0,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 62,
+          "k": 58,
+          "a": 66,
+          "t": 55
+        }
+      },
+      "sd": 4,
+      "states": {
+        "fatigue": -12
+      },
+      "frequency": {
+        "every": 3,
+        "label": "every 3 days"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Digit-symbol substitution task. Baselines, spread and fatigue effect (-12 per unit) are prototype choices; no real distribution was checked."
+    },
+    "span": {
+      "unit": "digits",
+      "method": "test",
+      "decimals": 1,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 7.0,
+          "k": 6.8,
+          "a": 7.2,
+          "t": 6.5
+        }
+      },
+      "sd": 0.5,
+      "states": {
+        "fatigue": -1.0
+      },
+      "frequency": {
+        "every": 3,
+        "label": "every 3 days"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Digit span task. Baselines, spread and fatigue effect (-1 digit per unit) are prototype choices."
+    },
+    "kss": {
+      "unit": "/9",
+      "method": "manual",
+      "decimals": 1,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 3.0,
+          "k": 3.3,
+          "a": 2.8,
+          "t": 3.5
+        }
+      },
+      "sd": 0.5,
+      "states": {
+        "fatigue": 2.0
+      },
+      "clamp": [
+        1,
+        9
+      ],
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Karolinska Sleepiness Scale (1 to 9). Baselines, spread and fatigue effect (+2 per unit) are prototype choices."
+    },
+    "tlx": {
+      "unit": "/100",
+      "method": "manual",
+      "decimals": 0,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 40,
+          "k": 45,
+          "a": 38,
+          "t": 48
+        }
+      },
+      "sd": 6,
+      "states": {
+        "fatigue": 14
+      },
+      "clamp": [
+        0,
+        100
+      ],
+      "frequency": {
+        "every": 7,
+        "label": "weekly"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "NASA-TLX workload questionnaire. Baselines, spread and fatigue effect (+14 per unit) are prototype choices."
+    },
+    "hrv": {
+      "unit": "ms",
+      "method": "wearable",
+      "decimals": 1,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 62,
+          "k": 52,
+          "a": 70,
+          "t": 45
+        }
+      },
+      "sd": 6,
+      "drift": {
+        "per_day": {
+          "g0": -0.02,
+          "gp": -0.01,
+          "g1": 0.04
+        },
+        "cap": -6
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.02,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Heart-rate variability (RMSSD). Baselines, spread and a slow drift down in space (up to -6 ms) are prototype choices."
+    },
+    "weight": {
+      "unit": "kg",
+      "method": "manual",
+      "decimals": 1,
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 62,
+          "k": 71,
+          "a": 66,
+          "t": 83
+        }
+      },
+      "sd": 0.4,
+      "states": {
+        "energy": 1.0
+      },
+      "drift": {
+        "per_day": {
+          "g0": -0.012,
+          "gp": -0.006,
+          "g1": 0.03
+        },
+        "cap": -4
+      },
+      "frequency": {
+        "every": 3,
+        "label": "every 3 days"
+      },
+      "gaps": 0.06,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Body mass. Baselines, spread, energy effect and a slow loss in space (up to -4 kg) are prototype choices; the catalog only says weight loss is common."
+    },
+    "wbc": {
+      "unit": "10^3/uL",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "lym": {
+      "unit": "cells/uL",
+      "method": "blood",
+      "decimals": 0,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "neu": {
+      "unit": "cells/uL",
+      "method": "blood",
+      "decimals": 0,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "hgb": {
+      "unit": "percent",
+      "method": "blood",
+      "decimals": 1,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "hct": {
+      "unit": "percent",
+      "method": "blood",
+      "decimals": 1,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "plt": {
+      "unit": "10^3/uL",
+      "method": "blood",
+      "decimals": 0,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "rbc": {
+      "unit": "10^6/uL",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd569",
+      "verified": true,
+      "assumption": ""
+    },
+    "creatinine": {
+      "unit": "mg/dL",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 0.85,
+          "k": 1.0,
+          "a": 0.8,
+          "t": 1.05
+        }
+      },
+      "sd": 0.07,
+      "states": {
+        "hydration": -0.12
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines, spread and hydration effect (-0.12 mg/dL per unit) are prototype choices. Open real data exists (Inspiration4 metabolic panel) and can replace these rows through data/real/."
+    },
+    "calcium": {
+      "unit": "mg/dL",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 9.4,
+          "k": 9.5,
+          "a": 9.3,
+          "t": 9.6
+        }
+      },
+      "sd": 0.25,
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Serum calcium. Baselines and spread are prototype choices; it stays flat on purpose, because the body keeps it stable while bone and urine change."
+    },
+    "cortisol": {
+      "unit": "ug/dL",
+      "method": "blood",
+      "decimals": 1,
+      "panel": "blood",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 11,
+          "k": 12,
+          "a": 10.5,
+          "t": 13
+        }
+      },
+      "sd": 2.5,
+      "states": {
+        "fatigue": 2.0
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines, spread and fatigue effect (+2 ug/dL per unit) are prototype choices."
+    },
+    "vitamin_d": {
+      "unit": "ng/mL",
+      "method": "blood",
+      "decimals": 1,
+      "panel": "blood",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 34,
+          "k": 30,
+          "a": 36,
+          "t": 28
+        }
+      },
+      "sd": 4,
+      "drift": {
+        "per_day": {
+          "g0": -0.04,
+          "gp": -0.04,
+          "g1": 0.05
+        },
+        "cap": -10
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines, spread and a slow fall without sunlight (up to -10 ng/mL) are prototype choices."
+    },
+    "tsh": {
+      "unit": "mIU/L",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 1.8,
+          "k": 2.2,
+          "a": 1.6,
+          "t": 2.4
+        }
+      },
+      "sd": 0.4,
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines and spread are prototype choices; no effect of the mission."
+    },
+    "urine_calcium": {
+      "unit": "mg/24h",
+      "method": "urine",
+      "decimals": 0,
+      "panel": "urine",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 190,
+          "k": 210,
+          "a": 170,
+          "t": 230
+        }
+      },
+      "sd": 35,
+      "states": {
+        "bone_loss": 40
+      },
+      "frequency": {
+        "every": 15,
+        "label": "every 15 days (urine panel)"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines, spread and the link to bone loss (+40 mg/24h per % lost) are prototype choices."
+    },
+    "urine_volume": {
+      "unit": "mL/24h",
+      "method": "urine",
+      "decimals": 0,
+      "panel": "urine",
+      "baseline": {
+        "kind": "crew",
+        "values": {
+          "h": 1900,
+          "k": 1800,
+          "a": 2100,
+          "t": 1700
+        }
+      },
+      "sd": 250,
+      "states": {
+        "hydration": 400
+      },
+      "frequency": {
+        "every": 15,
+        "label": "every 15 days (urine panel)"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Baselines, spread and hydration effect (+400 mL per unit) are prototype choices."
+    },
+    "co2": {
+      "unit": "ppm",
+      "method": "environment",
+      "decimals": 0,
+      "subject": "cabin",
+      "baseline": {
+        "kind": "location",
+        "values": {
+          "earth": 450,
+          "rocket": 2500,
+          "iss": 4000,
+          "transit": 3500,
+          "moon": 3000,
+          "mars": 3000
+        }
+      },
+      "sd": 150,
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.01,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Cabin carbon dioxide by place. Every level and the spread are prototype choices, not station or habitat specifications."
+    }
+  }
+}

@@ -187,7 +187,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    │  HTTP /api   (Vite proxies in dev; FastAPI serves the build in prod)
    ▼
  Canary API (FastAPI, one process)                 backend/canary/
-   ├─ domain/telemetry   TelemetrySource: SimulatedSource today, devices tomorrow
+   ├─ domain/telemetry   TelemetrySource: DatasetSource (observations.csv) today, devices tomorrow
    ├─ domain/health      baseline z-scores, alert rules, body systems, readiness scores
    ├─ domain/goals       daily goals, streaks, patches, crew missions, ranking
    ├─ domain/privacy     who sees what: operational status (medical only), profile photos, hazards, the day-0 contract
@@ -209,7 +209,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | --- | --- | --- |
 | One FastAPI process | Runs offline on board, one thing to deploy and test | Microservices: more failure points, no benefit at this size |
 | SQLite | A single file, no server, survives with no network | Postgres: belongs on the ground station later |
-| Telemetry behind `TelemetrySource` | Real devices plug in without touching alerts or goals | Hard-coding the simulator into the rules |
+| Telemetry behind `TelemetrySource`, fed by an observation file | Real data replaces simulated rows by dropping in a CSV, with no code change | Formulas inside the code that nobody can open and check |
 | Personal baseline (z-score) | Astronauts are fit outliers; population ranges miss their changes | Fixed clinical thresholds only |
 | Protocols as JSON | The medical team can review and replace them without code | Protocols in code |
 | No accounts for the crew, a 4-digit PIN per private space | A shared terminal in a cabin: a PIN is fast, and Guided Response needs no sign-in | Logins with passwords: friction in an emergency; trusting a plain id: anyone could open anyone's health |
@@ -274,6 +274,16 @@ Real-world parallel: NASA and Google are testing a Crew Medical Officer Digital 
 
 The snapshot lives in `backend/canary/data/nasa_snapshot.json`, so the ship never needs a network. `data/prepare_nasa_data.py` rebuilds the same data from the original downloads (checked: identical output) (needs `numpy` and `cdflib`). With `CANARY_LIVE_SPACE_WEATHER=1` the API also queries DONKI live and falls back to the snapshot on any error.
 
+### The crew observation file
+
+Every number the crew shows comes from one table, `backend/canary/data/observations.csv`: one row per measurement, `crew_id, day, indicator, value, unit, origin, method, source, note`. `origin` is `simulated` or `real`; `method` is `wearable`, `manual`, `test`, `blood`, `urine` or `environment`; cabin air uses the crew id `cabin`. A day without a row means nothing was measured, and the app shows the last observation (`telemetry.last_observation` also gives its age).
+
+- **Where the simulated rows come from.** `data/recipes.json` holds one recipe per indicator (baseline, day-to-day spread, slow drift by gravity and mission day, which hidden states move it, how often it is measured, chance of a missed measurement, and a `source` with `verified`). Four hidden states (fatigue, hydration, energy, bone loss) move related signals together; the demo story is two dated events that push them. `python data/generate_dataset.py` builds the file, deterministic and standard library only, and writes `data/DATASET.md` with one table per indicator, the assumptions without a source, and how each method would be collected on a real mission.
+- **What is real today.** The complete blood count (OSD-569, from the snapshot into `data/real/osd569_cbc.csv`, collections keep their label such as `R+45` in `note`; the pre-flight ones set each person's baseline). Everything else is simulated.
+- **Other plans.** With the default plan the backend reads the file. With any other plan it generates the same table in memory with the same generator (cached per plan).
+- **Swapping simulated for real.** Put a CSV with the same columns in `data/real/` (`crew_id, day, indicator, value` are enough) and run `python data/generate_dataset.py`. Those rows enter with `origin = real` and replace the simulated row with the same (crew_id, day, indicator). No code changes. A check-in made in the app still wins over the file for that day, and the file is never written to the `checkins` table.
+- Radiation dose by place is still the function in `telemetry.cumulative_dose`, not in the file.
+
 ---
 
 ## The 3D body
@@ -307,10 +317,10 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
+    domain/              catalog, plan, telemetry, simdata, health, goals, privacy, protocols, nasa, mission, selftests
     assistant/           the AI slot: chat, briefing, suggestions, guard
-    data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   40 tests
+    data/                protocols.json, nasa_snapshot.json, observations.csv (generated)
+  tests/test_canary.py   tests
   requirements.txt
 frontend/
   src/
@@ -323,6 +333,10 @@ frontend/
     pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, Settings), Tests, Settings, Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
+data/recipes.json        one recipe per indicator: baseline, spread, drift, hidden states, frequency, gaps, source
+data/real/               real observations (CSV), replace simulated rows with the same key
+data/generate_dataset.py builds observations.csv, data/DATASET.md and data/real/osd569_cbc.csv
+data/DATASET.md          what is in the file, where each part comes from, how it would be collected
 data/prepare_nasa_data.py
 tools/build_body_model.py
 Makefile
@@ -386,7 +400,8 @@ Full, interactive documentation at `/docs`. The main routes:
 
 ## Limits, honestly
 
-- **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such.
+- **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
+- **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.
 - **To verify before quoting:** daily dose by place, the 600 mSv career limit, bone loss of about 1% per month, delays to Mars.
 - **Demo shortcuts:** the PINs are public (crew `1001` to `1004`, medical `1961`, all in this README and shown as a hint on the pad), and a 4-digit PIN with a rate limit is a prototype lock, not real security; session tokens are signed with a random secret per start unless `CANARY_TOKEN_SECRET` is set; the communication delay runs 20× faster; fonts load from Google Fonts (bundle them for an offline ship).

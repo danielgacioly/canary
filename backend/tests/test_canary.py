@@ -342,3 +342,108 @@ def test_suggestions_are_personal_grounded_and_become_goals():
     assert next(x for x in s["items"] if x["id"] == "sleep")["accepted"]
     g = client.get("/api/goals/h", headers=h).json()["personal"]
     assert any(x["id"] == "sg_sleep" and x["by"] == "suggestion" for x in g)
+
+
+# ---------------------------------------------------------------- the observation table (DatasetSource)
+def _gen(legs=None, real_dir=None):
+    from canary.domain import plan as plan_mod, simdata
+    legs = legs or plan_mod.PRESETS["mars"]["legs"]
+    return simdata.Generator(legs, simdata.load_recipes(), real_dir)
+
+
+def _mean(g, crew, ind, a, b):
+    return sum(g.value(crew, ind, d) for d in range(a, b + 1)) / (b - a + 1)
+
+
+def test_states_move_related_signals_together_only_for_helena():
+    g = _gen()
+    # fatigue: sleep falls while reaction time, sleepiness and workload rise, from days 100-130 to 140-153
+    for ind, sign in (("sleep", -1), ("react", 1), ("kss", 1), ("tlx", 1), ("dsst", -1), ("mood", -1)):
+        shift = (_mean(g, "h", ind, 140, 153) - _mean(g, "h", ind, 100, 130)) * sign
+        sd = catalog.INDICATORS[ind]["sd"] if ind in catalog.INDICATORS else g.sd("h", ind)
+        assert shift > 1.5 * sd, ind
+        for other in ("k", "a", "t"):
+            assert abs(_mean(g, other, ind, 140, 153) - _mean(g, other, ind, 100, 130)) < 0.8 * sd, (other, ind)
+
+
+def test_real_csv_in_data_real_replaces_the_simulated_row(tmp_path):
+    (tmp_path / "mine.csv").write_text("crew_id,day,indicator,value\nh,10,gluc,77\n")
+    rows = {(r[0], r[1], r[2]): r for r in _gen(real_dir=tmp_path).observations()}
+    r = rows[("h", 10, "gluc")]
+    assert r[5] == "real" and r[3] == "77" and r[4] == "mg/dL" and r[6] == "manual"
+    assert rows[("h", 12, "sleep")][5] == "simulated"
+
+
+def test_panel_indicators_only_have_rows_on_collection_days_and_last_observation_has_an_age():
+    from canary.domain import telemetry
+    days = sorted(r["day"] for r in _rows_of("h", "cortisol"))
+    assert len(days) > 15 and all((b - a) % 30 == 0 for a, b in zip(days, days[1:]))
+    a = days[3]
+    assert telemetry.last_observation("h", "cortisol", a)["age"] == 0
+    mid = telemetry.last_observation("h", "cortisol", a + 11)
+    assert mid["age"] == 11 and mid["day"] == a and mid["origin"] == "simulated" and mid["method"] == "blood"
+    assert telemetry.SOURCE.value("h", "cortisol", a + 11) == telemetry.SOURCE.value("h", "cortisol", a)
+    assert telemetry.last_observation("h", "cortisol", days[0] - 1) is None
+
+
+def _rows_of(crew, ind):
+    from canary.domain import simdata
+    return [{"day": int(r["day"])} for r in simdata.read_csv(simdata.OBS_FILE) if r["crew_id"] == crew and r["indicator"] == ind]
+
+
+def test_every_recipe_has_a_source_and_unsourced_ones_are_listed():
+    from canary.domain import simdata
+    rec = simdata.load_recipes()
+    md = simdata.REPORT_FILE.read_text()
+    for name, r in rec["indicators"].items():
+        assert r["source"], name
+        if not r["verified"]:
+            assert r["source"] and f"`{name}`" in md.split("## Assumptions without a source")[1], name
+    for name, sd in ((k, v) for k, v in rec["indicators"].items() if k in catalog.INDICATORS and k != "bone"):
+        assert sd["sd"] == "catalog" and sd["baseline"] == {"kind": "catalog"}
+    assert {"dsst", "span", "kss", "tlx", "hrv", "weight", "creatinine", "cortisol", "urine_calcium", "co2"} <= set(rec["indicators"])
+
+
+def test_the_committed_file_is_what_the_generator_writes_and_is_small():
+    from canary.domain import plan as plan_mod, simdata
+    rec = simdata.load_recipes()
+    rows = simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations()
+    assert simdata.OBS_FILE.read_text() == simdata.csv_text(rows), "run: python data/generate_dataset.py"
+    assert simdata.REPORT_FILE.read_text() == simdata.report(rows, rec, plan_mod.PRESETS["mars"]["name"])
+    assert simdata.OBS_FILE.stat().st_size < 10_000_000
+    assert simdata.csv_text(rows) == simdata.csv_text(simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations())
+
+
+def test_osd569_rows_are_real_and_keep_the_original_label():
+    from canary.domain import nasa, simdata
+    rows = [r for r in simdata.read_csv(simdata.OBS_FILE) if r["origin"] == "real"]
+    assert len(rows) == 4 * 7 * 7 and {r["source"] for r in rows} == {"nasa:osd569"}
+    h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C001")["lymphocytes"]
+    assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
+    # pre-flight collections set the baseline of the simulated rows
+    pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
+    sim = [float(r["value"]) for r in simdata.read_csv(simdata.OBS_FILE)
+           if r["crew_id"] == "h" and r["indicator"] == "lym" and r["origin"] == "simulated"]
+    assert abs(sum(sim) / len(sim) - sum(pre) / len(pre)) < 600
+
+
+def test_simdata_follows_the_plan_the_same_way_plan_does():
+    from canary.domain import plan as plan_mod, simdata
+    for key in ("mars", "iss", "moon"):
+        client.post("/api/plan/preset", json={"preset": key})
+        legs = plan_mod.get()["legs"]
+        for d in range(-70, 800, 7):
+            assert simdata.location_at(legs, d) == plan_mod.location_at(d)
+            assert simdata.days_since_gravity_change(legs, d) == plan_mod.days_since_gravity_change(d)
+
+
+def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
+    from canary.domain import telemetry
+    good = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
+                                          {"location": "moon", "start": 3, "end": 40}]}
+    assert client.put("/api/plan", json=good).status_code == 200
+    assert telemetry.last_observation("h", "co2", 10) is None  # co2 belongs to "cabin"
+    assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
+    for d in (-500, 0, 20, 40, 41, 3000):
+        assert isinstance(telemetry.SOURCE.value("t", "hr", d), float)

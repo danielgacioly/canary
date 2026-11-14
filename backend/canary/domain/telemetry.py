@@ -1,81 +1,74 @@
 """Where sensor readings come from.
 
 `TelemetrySource` is the seam for real devices. Today the only implementation is
-`SimulatedSource`: deterministic (same input, same number), with the demo story
-written into it. A self check-in stored in the database overrides the simulated
-value for that day.
+`DatasetSource`, which reads the observation table (`data/observations.csv`, one row
+per measurement with its origin, built from `data/recipes.json` by
+`data/generate_dataset.py`). Real rows dropped into `data/real/` replace simulated ones.
+A self check-in stored in the database overrides the file value for that day.
 """
 import json
 from typing import Dict, Optional, Protocol
 
 from .. import db
-from . import plan
-from .catalog import CREW_BY_ID, INDICATORS, LOCATIONS
-
-
-def h01(key: str) -> float:
-    """Stable pseudo-random number in [0, 1) from a string (FNV-1a + avalanche)."""
-    h = 2166136261
-    for ch in key.encode():
-        h ^= ch
-        h = (h * 16777619) & 0xFFFFFFFF
-    h ^= h >> 15
-    h = (h * 2246822507) & 0xFFFFFFFF
-    h ^= h >> 13
-    return (h % 100000) / 100000
+from . import plan, simdata
+from .catalog import LOCATIONS
+from .simdata import h01  # noqa: F401  (re-exported: goals and suggestions use it)
 
 
 class TelemetrySource(Protocol):
     def value(self, crew_id: str, ind: str, day: int) -> float: ...
 
 
-class SimulatedSource:
-    """Personal baseline + day-to-day noise + place effects + the demo story."""
+class DatasetSource:
+    """Reads the observation table (backend/canary/data/observations.csv, built by data/generate_dataset.py).
+
+    With the default mission plan it reads the file. With any other plan it generates the same table in
+    memory with the same generator, once per plan (cached). On a day without a measurement it returns the
+    last observation; `last_observation` also says how old it is. A self check-in still wins on top of it
+    (see `overrides`).
+    """
+
+    def __init__(self, path=simdata.OBS_FILE):
+        self.path = path
+        self._tables: Dict[tuple, simdata.Table] = {}
+        self._ver: Optional[tuple] = None  # (plan version, plan signature)
+
+    def _table(self) -> simdata.Table:
+        v = plan.version()
+        if self._ver is None or self._ver[0] != v:
+            self._ver = (v, simdata.signature(plan.get()["legs"]))
+        sig = self._ver[1]
+        t = self._tables.get(sig)
+        if t is None:
+            default = sig == simdata.signature(plan.PRESETS[plan.DEFAULT]["legs"])
+            if default and self.path.exists():
+                rows = [(r["crew_id"], r["day"], r["indicator"], r["value"], r["unit"], r["origin"], r["method"], r["source"], r["note"])
+                        for r in simdata.read_csv(self.path)]
+            else:
+                rows = simdata.Generator(plan.get()["legs"]).observations()
+            t = self._tables[sig] = simdata.Table(rows)
+        return t
+
+    def last_observation(self, crew_id: str, ind: str, day: int) -> Optional[dict]:
+        return self._table().last(crew_id, ind, day)
 
     def value(self, crew_id: str, ind: str, day: int) -> float:
-        c = CREW_BY_ID[crew_id]
-        I = INDICATORS[ind]
-        if ind == "bone":
-            return self._bone(crew_id, day)
-        v = c["base"][ind] + (h01(f"{crew_id}{ind}{day}") - 0.5) * 1.6 * I["sd"]
-        # Story: Helena's slow slide on the way to Mars (days 132-153), then recovery
-        if crew_id == "h":
-            r = 0 if day < 132 else (day - 132) / 16 if day <= 153 else max(0.0, 1.3 - (day - 153) / 12)
-            v += {"sleep": -1.5, "mood": -1.2, "react": 70, "stress": 1.1, "social": -38}.get(ind, 0) * min(r, 1.3)
-        # Story: Tomás, space sickness in the first days
-        if crew_id == "t" and 1 <= day <= 6:
-            v += {"hr": 12, "water": -1.1, "exer": -50, "mood": -0.6}.get(ind, 0) * (1 - (day - 1) / 6)
-        # Everyone: readapting to gravity on Mars
-        # Everyone: readapting to partial gravity in the first 30 days after a 0 g cruise
-        since = plan.days_since_gravity_change(day)
-        if since is not None and since <= 30:
-            v += {"bp": -14, "hr": 12, "grip": -3}.get(ind, 0) * (1 - since / 30)
-        # Exercise target is lower in the first hours and on the surface
-        if ind == "exer" and plan.location_at(day) == "rocket":
-            v = min(v, 25 + 10 * h01(f"x{crew_id}{day}"))
-        if ind in ("mood", "stress"):
-            v = min(5.0, max(1.0, v))
-        return v
-
-    def _bone(self, crew_id: str, day: int) -> float:
-        """Estimated % change of weight-bearing bone density since launch."""
-        if day <= 0:
-            return (h01(f"b{crew_id}{day}") - 0.5) * 0.4
-        key = (crew_id, plan.version())
-        cum = _BONE.setdefault(key, [0.0])  # cum[d] = loss after day d
-        if len(cum) <= day:
-            c = CREW_BY_ID[crew_id]
-            # 0.35%/month with full exercise, up to 1%/month without (order of magnitude from NASA HRP; verify).
-            # Full rate in 0 g, 40% in partial gravity, slow recovery back on Earth.
-            per_day = (1.0 - 0.65 * min(1.0, c["base"]["exer"] / 110)) / 30
-            rate = {"g0": 1.0, "gp": 0.4, "g1": -0.25}
-            for d in range(len(cum), day + 1):
-                cum.append(max(0.0, cum[-1] + per_day * rate[LOCATIONS[plan.location_at(d)]["gravity_key"]]))
-        return -cum[day] + (h01(f"b{crew_id}{day}") - 0.5) * 0.3
+        t = self._table()
+        o = t.last(crew_id, ind, day)
+        if o is not None:
+            return o["value"]
+        first = t.first(crew_id, ind)  # before the first measurement: the first one is the best guess
+        if first is None:
+            raise KeyError(f"no observations for {crew_id}/{ind}")
+        return first
 
 
-_BONE: Dict[tuple, list] = {}
-SOURCE: TelemetrySource = SimulatedSource()
+SOURCE: TelemetrySource = DatasetSource()
+
+
+def last_observation(crew_id: str, ind: str, day: int) -> Optional[dict]:
+    """Last measurement of `ind` up to `day` with its age in days, origin, method, source and note; None if there is none."""
+    return SOURCE.last_observation(crew_id, ind, day)  # type: ignore[attr-defined]
 
 
 def overrides(crew_id: str, day: int) -> Dict[str, float]:
