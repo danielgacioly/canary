@@ -211,5 +211,7 @@ export interface SeatForm {
   seat: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
+  /** From the demo registration; no form field yet. The server checks both. */
+  eva?: string; prior_dose_msv?: number | null
 }
 export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string }

@@ -36,6 +36,8 @@ export interface FormApi {
   set(key: string, value: unknown): void
   touch(key: string): void
   focus(key: string): void
+  /** Shows the errors of the fields `include` accepts (a step of a long form) and focuses the first. Returns their keys. */
+  check(include: (key: string) => boolean): string[]
   submit(e?: FormEvent): Promise<boolean>
 }
 
@@ -107,6 +109,13 @@ export function useForm<T extends Record<string, unknown>>(opts: Options<T>): Fo
     'aria-describedby': `${idOf(key)}-err ${idOf(key)}-hint`,
   })
 
+  const check = (include: (key: string) => boolean): string[] => {
+    const keys = Object.keys(latest.current.all).filter(k => latest.current.all[k] && include(k))
+    setTouched(t => ({ ...t, ...Object.fromEntries(keys.map(k => [k, true])) }))
+    if (keys.length) focus(keys[0])
+    return keys
+  }
+
   const submit = async (e?: FormEvent): Promise<boolean> => {
     e?.preventDefault()
     if (busyRef.current) return false
@@ -143,5 +152,5 @@ export function useForm<T extends Record<string, unknown>>(opts: Options<T>): Fo
   const reset = (v?: T) => { setVals(v ?? opts.initial); setTouched({}); setSubmitted(false); setServer({}); setFormError(null) }
   const setValues = (patch: Partial<T> | ((v: T) => T)) => setVals(v => (typeof patch === 'function' ? patch(v) : { ...v, ...patch }))
 
-  return { values, busy, formError: formError ?? (submitted && all.form ? all.form : null), error, visible, bind, idOf, set: set as Form<T>['set'], setValues, touch, focus, submit, reset, setFormError }
+  return { values, busy, formError: formError ?? (submitted && all.form ? all.form : null), error, visible, bind, idOf, set: set as Form<T>['set'], setValues, touch, focus, check, submit, reset, setFormError }
 }
