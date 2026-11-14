@@ -11,7 +11,7 @@ from typing import Dict, List
 
 
 from .. import db
-from ..domain import goals, health, mission, risk, telemetry
+from ..domain import advice, goals, health, mission, risk, telemetry
 from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS
 from . import guard
 from .providers import ProviderRequest, get_provider
@@ -24,6 +24,14 @@ HOBBIES = {
            "Learn one song on the cabin keyboard", "Keep a field notebook of the sky: dust, clouds, sunsets"],
     "g1": ["Pick up an instrument for 15 minutes a day", "Walk outside without a phone, 20 minutes", "Cook a dish from a crewmate's home city"],
 }
+
+
+# What each suggestion is meant to move and after how many days it is checked (domain/advice.py).
+# Prototype assumptions: no published rule says how long a habit takes to show in a number.
+VERIFY = {sid: {"indicator": ind, "after_days": n} for sid, (ind, n) in {
+    "talk": ("mood", 7), "sleep": ("sleep", 7), "nap": ("kss", 1), "social": ("social", 7), "exercise": ("exer", 7),
+    "bone": ("bone", 7), "breathe": ("stress", 7), "water": ("water", 7), "read": ("mood", 7), "prepare": ("exer", 7),
+    "hobby": ("mood", 7), "home": ("mood", 7)}.items()}
 
 
 def _r(x: float, dp: int):
@@ -54,6 +62,7 @@ def facts(crew_id: str) -> dict:
                     "level": v["level"], "source": v["source"]} for k, v in ind.items()},
         "risk": {"fatigue": {"level": fat["level"], "trend": fat["trend"], "since_day": fat["since_day"],
                              "signals": [e.get("indicator") or e["checkin"] for e in fat["evidence"]]}},
+        "escalation": [{"risk": e["risk"], "key": e["key"], "alternative": e["alternative"]} for e in advice.escalation(crew_id, ms["day"])],
         "week": _week_counts(crew_id, ms["day"]),
         "exercise_target": EXERCISE_BY_PLACE[ms["location"]][1],
         "next_leg": {"location": nxt["location"], "label": nxt.get("label") or LOCATIONS[nxt["location"]]["name"],
@@ -75,7 +84,7 @@ def candidates(f: dict) -> List[dict]:
 
     def add(sid, area, priority, title, why, steps, goal, sources):
         out.append({"id": sid, "area": area, "priority": priority, "title": title, "why": why, "steps": steps,
-                    "goal": goal, "sources": sources})
+                    "goal": goal, "sources": sources, "verify": VERIFY.get(sid)})
 
     wb = f["wellbeing"]
     if wb and "wellbeing" in fat["signals"]:
@@ -166,6 +175,12 @@ def candidates(f: dict) -> List[dict]:
             ["Record a two-minute message tonight", "Ask a question they can answer at length", "Save the replies to play on hard days"],
             "Record a message for home", [])
 
+    for e in f["escalation"]:  # two rounds of advice in a row did not move the numbers: offer a different step
+        alt = e["alternative"]
+        out.append({"id": alt["id"], "area": alt["area"], "priority": 92, "title": alt["title"],
+                    "why": "The last two pieces of advice did not change your numbers, so here is a different kind of step.",
+                    "steps": alt["steps"], "goal": alt["goal"], "sources": [f"advice:{f['crew_id']}:{e['key']}"], "verify": alt["verify"]})
+
     if len(out) < 3:
         add("keep", "mental", 10, "Keep doing what works",
             "Everything is close to your own normal this week.",
@@ -206,8 +221,11 @@ def accept(crew_id: str, sid: str) -> dict:
         raise ValueError("no such suggestion today")
     allg = db.get_setting("suggested_goals", {})
     mine = [g for g in allg.get(crew_id, []) if g["id"] != f"sg_{sid}"]
-    mine.append({"id": f"sg_{sid}", "area": s["area"], "title": s["goal"], "from_day": f["day"], "to_day": f["day"] + 6})
+    mine.append({"id": f"sg_{sid}", "area": s["area"], "title": s["goal"], "from_day": f["day"], "to_day": f["day"] + 6,
+                 "verify": s.get("verify")})
     allg[crew_id] = mine
     db.set_setting("suggested_goals", allg)
+    advice.start(crew_id, f"sg_{sid}", "suggestion", s.get("verify"), f["day"])
+    advice.sync(crew_id, f["day"])
     return build(crew_id)
 
