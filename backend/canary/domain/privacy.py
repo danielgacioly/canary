@@ -1,9 +1,10 @@
 """Who sees what. Follows the team's data-use draft: a visibility contract signed on day 0.
 
 - The astronaut and the medical team see everything about that astronaut.
-- The rest of the crew sees only the operational status ("fit for EVA"), environment
-  hazards and crew goals. Raw data and history only if the astronaut chooses to share.
-- Earth gets operational status and, after a critical event, a delayed briefing.
+- Operational status ("fit for EVA", "off critical tasks") is a medical matter: only the astronaut
+  and the medical team see it. The crew sees environment hazards, crew goals and each person's
+  goal participation. Raw data and history only if the astronaut chooses to share.
+- Earth gets operational status through the medical team and, after a critical event, a delayed briefing.
 - Crew views show states, never averages: with four people an average reveals individuals.
 - If the medical officer is the patient, their alerts go to a substitute.
 """
@@ -24,7 +25,7 @@ OPS = {
 CONTRACT = [
     {"info": "Raw data and history", "self": "Yes", "doctor": "Yes", "crew": "Only if you share", "earth": "No"},
     {"info": "Personal risks and advice", "self": "Yes", "doctor": "Yes", "crew": "No", "earth": "No"},
-    {"info": "Operational status (e.g. fit for EVA)", "self": "Yes", "doctor": "Yes", "crew": "Yes", "earth": "Yes"},
+    {"info": "Operational status (e.g. fit for EVA)", "self": "Yes", "doctor": "Yes", "crew": "No", "earth": "Via the medical team"},
     {"info": "Critical alert", "self": "Immediately", "doctor": "Immediately", "crew": "No", "earth": "Delayed briefing"},
     {"info": "Hazards and crew goals", "self": "Yes", "doctor": "Yes", "crew": "Yes", "earth": "Yes"},
 ]
@@ -42,7 +43,7 @@ LIMITING = {"sickness", "regravity", "amsler", "ind_hr", "ind_bp", "ind_spo2", "
 
 
 def operational(snap: dict) -> dict:
-    """Status the whole crew may see. Built only from personal alerts; environment alerts are crew hazards."""
+    """Operational status: for the astronaut and the medical team only. Built from personal alerts; environment alerts are crew hazards."""
     personal = [a for a in snap["alerts"] if not a.get("env")]
     if any(a["level"] == 2 for a in personal):
         key = "rest"

@@ -10,6 +10,7 @@ import Medical from './pages/Medical'
 import { LinkToEarth, SpaceWeather } from './pages/Mission'
 import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
+import Setup from './pages/Setup'
 
 function seenIntro(): boolean {
   try { return sessionStorage.getItem('canary.intro') === '1' } catch { return true }
@@ -19,6 +20,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/welcome" element={<Intro />} />
+      <Route path="/setup" element={<Setup />} />
       <Route element={<Shell />}>
         <Route path="/today" element={<Me />} />
         <Route path="/me" element={<Navigate to="/today" replace />} />

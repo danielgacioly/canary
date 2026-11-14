@@ -13,7 +13,7 @@ export interface Plan { name: string; legs: Leg[]; preset: string | null; preset
 export interface Mission {
   step: number; steps: number; story: StoryStep; day: number; day_label: string
   location: string; place: Place; storm: string | null; suggested_user: string; learning: boolean
-  leg: LegNow; custom_day: boolean; location_override: boolean; plan_name: string
+  leg: LegNow; custom_day: boolean; location_override: boolean; plan_name: string; setup_done: boolean
 }
 export interface CrewInfo { id: string; name: string; role: string; initials: string; home: string; age: number }
 export interface IndicatorDef { name: string; unit: string; area: Area; facet?: string; dir: string; sd: number; dp: number }
@@ -54,7 +54,7 @@ export interface TeamGoal {
 export interface CrewSummary {
   id: string; name: string; role: string; initials: string; home: string
   areas: Record<Area, AreaState>; level: Level; status: string; top_alert: string | null; alerts: number
-  systems: Record<string, Level>; xp_week: number; level_xp: number; streak: number
+  ops: Ops; systems: Record<string, Level>; xp_week: number; level_xp: number; streak: number
 }
 export interface CrewList {
   mission: Mission; crew: CrewSummary[]; team: TeamGoal[]; dose: Dose
@@ -67,17 +67,17 @@ export interface CrewDetail {
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
-  ops: Ops; shared: boolean; care_by: string; access: 'self' | 'medical' | 'shared'
+  ops?: Ops; shared: boolean; care_by: string; access: 'self' | 'medical' | 'shared'  // ops: only for self and medical
 }
 export interface Ops { key: 'full' | 'limited' | 'rest'; label: string; level: Level }
 export interface Person {
   id: string; name: string; role: string; initials: string; home: string
-  ops: Ops; shared: boolean; today: { done: number; total: number; streak: number }
+  shared: boolean; today: { done: number; total: number; streak: number }
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
 export interface ContractRow { info: string; self: string; doctor: string; crew: string; earth: string }
 export interface CrewOverview {
-  mission: Mission; people: Person[]; fit: number; eva_open: boolean; hazards: Hazard[]
+  mission: Mission; people: Person[]; eva_open: boolean; hazards: Hazard[]
   team: TeamGoal[]; crew_streak: number; team_done: number; team_total: number; dose: Dose
   space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
   contract: ContractRow[]
@@ -105,6 +105,6 @@ export interface SpaceWeather {
 export interface Rad { quietMean: number; quiet: [number, number][]; storm: [number, number][]; unit: string; det: string; peak: number; ratio: number }
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
-  crew: { id: string; name: string; role: string; level: Level; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
+  crew: { id: string; name: string; role: string; level: Level; ops: Ops; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; xp: number; from_day: number; to_day: number }

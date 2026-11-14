@@ -1,5 +1,5 @@
-// A crew member's page. By default only the public card: operational status and participation.
-// Health details appear for the medical team, or for the crew when the person chose to share.
+// A crew member's page. By default only the public card: goal participation, never a status.
+// Health details appear for the medical team (with operational status), or for the crew when the person chose to share.
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
@@ -32,9 +32,9 @@ function Other({ id }: { id: string }) {
     <div className="page">
       <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
       <div className="head rise">
-        <Dot p={{ ...d.crew, ops: d.ops }} size="md" />
+        <Dot p={d.crew} ops={d.ops} size="md" />
         <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · level {p.level} · {p.xp_week} XP this week · {p.badges_earned} patches</p></div>
-        <div className="right"><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>
+        {d.ops && <div className="right"><span className="small dim" style={{ display: 'block', textAlign: 'right' }}>Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
       </div>
       <div className="privacy-bar rise">
         <Icon name={d.access === 'medical' ? 'med' : 'open'} />
@@ -75,7 +75,6 @@ function PublicCard({ p }: { p: Person }) {
         <div className="col" style={{ gap: 6 }}>
           <span className="eyebrow">{p.role} · {p.home}</span>
           <h1>{p.name}</h1>
-          <span className={`status s${p.ops.level}`} style={{ fontSize: 16 }}><span className="dot" />{p.ops.label}</span>
         </div>
       </section>
       <section className="grid g2">
@@ -88,7 +87,7 @@ function PublicCard({ p }: { p: Person }) {
         <div className="detail-card rise gate-mini" style={{ ['--d' as string]: 2 }}>
           <span className="lock"><Icon name="lock" size={20} /></span>
           <h2>{first}'s health is private</h2>
-          <p className="muted">The crew sees whether {first} is fit for duty, nothing more. Numbers, alerts and advice stay with {first} and the medical team, unless {first} chooses to share them.</p>
+          <p className="muted">The crew sees only how {first} is doing with goals, nothing more. Numbers, alerts, advice and operational status stay with {first} and the medical team. {first} can choose to share data and history.</p>
           <Link to="/medical" className="link">Medical team: open the console</Link>
         </div>
       </section>

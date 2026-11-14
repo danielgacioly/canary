@@ -38,6 +38,7 @@ def state() -> dict:
         "custom_day": s["day"] is not None,
         "location_override": s["location"] is not None,
         "plan_name": plan.get()["name"],
+        "setup_done": bool(db.get_setting("setup_done", False)),
     }
 
 
@@ -57,3 +58,7 @@ def set_location(location: Optional[str]) -> dict:
         raise ValueError(f"unknown location {location}")
     db.set_setting("mission", {**_get(), "location": location})
     return state()
+
+
+def set_setup_done(done: bool = True) -> None:
+    db.set_setting("setup_done", done)

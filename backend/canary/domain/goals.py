@@ -90,11 +90,16 @@ def set_done(crew_id: str, goal_id: str, day: int, done: bool) -> None:
 
 
 # ---------------------------------------------------------------- history-based numbers
+def _start(today: int) -> int:
+    """First day with history: HISTORY_START, or earlier when the clock is set before it."""
+    return min(HISTORY_START, today)
+
+
 def _history(crew_id: str, today: int) -> dict:
-    """Per-day completions from HISTORY_START to today, routine goals only."""
+    """Per-day completions from the first history day to today, routine goals only. `today` is always a key."""
     log = _log(crew_id)
     days = {}
-    for d in range(HISTORY_START, today + 1):
+    for d in range(_start(today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
         extra_xp = sum(15 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_")))
@@ -116,7 +121,7 @@ def _streak(days: dict, today: int) -> int:
 def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, window_end: Optional[int] = None) -> List[dict]:
     histories = histories or {c["id"]: _history(c["id"], today) for c in CREW}
     end = today if window_end is None else window_end
-    days = [d for d in range(end - 6, end + 1) if d >= HISTORY_START]
+    days = [d for d in range(end - 6, end + 1) if d >= _start(today)]
     out = []
     for t in TEAM_GOALS:
         kind, _, gid = t["metric"].partition(":")
@@ -184,7 +189,7 @@ def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = Non
     return {"crew_id": crew_id, "xp_total": total, "xp_week": week, "xp_week_by_area": by_area, "team_xp": team_xp,
             **level_for(total), "streak": streak, "completion_7d": rate,
             "badges": b, "badges_earned": sum(1 for x in b if x["earned"]),
-            "daily_xp": [[d, days[d]["xp"]] for d in range(max(HISTORY_START, today - 13), today + 1)]}
+            "daily_xp": [[d, days[d]["xp"]] for d in range(max(_start(today), today - 13), today + 1)]}
 
 
 def crew_streak(today: int, histories: Dict[str, dict]) -> int:
@@ -194,7 +199,7 @@ def crew_streak(today: int, histories: Dict[str, dict]) -> int:
                    and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= 3
     n = 1 if ok(today) else 0
     d = today - 1
-    while d >= HISTORY_START and ok(d):
+    while d >= _start(today) and ok(d):
         n += 1
         d -= 1
     return n

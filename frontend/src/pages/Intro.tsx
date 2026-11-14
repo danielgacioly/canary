@@ -1,9 +1,12 @@
 // Opening sequence: the canary story in four beats over the assembling body,
-// then straight to the crew. Text rises out of a blur; each beat has its own timer.
+// then mission setup (first run) or straight to the crew. Text rises out of a blur; each beat has its own timer.
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BodyHologram from '../hologram/BodyHologram'
+import Stars from '../components/Stars'
 import { CanaryMark, Icon } from '../components/ui'
+import { api } from '../api/client'
+import { useSession } from '../state/session'
 
 const BEATS = [
   { k: '1911 · Coal mines', h: 'For a century, miners carried a canary underground.', p: 'The bird felt bad air before people did. When it went quiet, the miners knew to leave, long before they felt anything themselves.' },
@@ -16,9 +19,12 @@ const BEAT_MS = 6500
 export default function Intro() {
   const [i, setI] = useState(0)
   const nav = useNavigate()
-  const enter = () => {
+  const { mission } = useSession()
+  // After the intro the mission is set up first; once it is, straight to the crew.
+  const enter = async () => {
     try { sessionStorage.setItem('canary.intro', '1') } catch { /* storage blocked */ }
-    nav('/crew')
+    const m = mission ?? await api.mission().catch(() => null)
+    nav(m && !m.setup_done ? '/setup' : '/crew')
   }
   useEffect(() => {
     if (i >= BEATS.length - 1) return
@@ -49,18 +55,5 @@ export default function Intro() {
           <button className="btn pri lg right" onClick={() => (i === BEATS.length - 1 ? enter() : setI(x => x + 1))}>{i === BEATS.length - 1 ? 'Enter Canary' : 'Next'}<Icon name="chev" /></button>
         </div>
     </div>
-  )
-}
-
-function Stars() {
-  const stars = useMemo(() => Array.from({ length: 160 }, () => ({ x: Math.random() * 100, y: Math.random() * 100, r: Math.random() * 1.4 + 0.3, d: 2.5 + Math.random() * 4, o: Math.random() * 3 })), [])
-  return (
-    <svg className="stars" aria-hidden="true">
-      {stars.map((s, k) => (
-        <circle key={k} cx={`${s.x}%`} cy={`${s.y}%`} r={s.r} fill="#dfe7f5">
-          <animate attributeName="opacity" values=".1;.85;.1" dur={`${s.d}s`} begin={`${s.o}s`} repeatCount="indefinite" />
-        </circle>
-      ))}
-    </svg>
   )
 }

@@ -1,5 +1,5 @@
-// Crew home: what everyone on board may see. Operational status, hazards, crew goals.
-// No scores, no averages (with four people an average gives individuals away), no vitals.
+// Crew home: what everyone on board may see. Participation, hazards, crew goals.
+// No status, no scores, no averages (with four people an average gives individuals away), no vitals.
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { TeamRow } from '../components/GoalItems'
@@ -10,25 +10,30 @@ import { useApi, useSession } from '../state/session'
 export default function Crew() {
   const { me, catalog } = useSession()
   const { data, error } = useApi(() => api.overview(), [])
+  const { data: plan } = useApi(() => api.plan(), [])
   const nav = useNavigate()
   if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
-  const off = data.people.filter(p => p.ops.key !== 'full')
   const storm = data.hazards.find(h => h.level === 2)
   const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const eva = storm ? { l: 2, t: 'EVA suspended for everyone', s: storm.title }
-    : data.eva_open ? { l: 0, t: 'EVA open', s: 'For those fit for all duties' }
-      : { l: 1, t: 'No EVA at this place', s: data.mission.place.name }
+    : data.eva_open ? { l: 0, t: 'EVA open', s: 'The medical team clears each person' }
+      : { l: 1, t: 'No EVA at this place', s: 'The medical team clears each person' }
   const ms = data.mission
+  const count = ['No one', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][n] ?? String(n)
+  const last = plan ? plan.legs[plan.legs.length - 1].end : null
+  const headline = ms.day < 0 ? `${count} in training, launch in ${-ms.day} ${ms.day === -1 ? 'day' : 'days'}`
+    : last !== null && ms.day > last ? `${count} home, mission complete`
+      : `${count} aboard${last !== null ? `, day ${ms.day} of ${last}` : ''}`
 
   return (
     <div className="page">
       <div className="head rise">
         <div>
-          <span className="eyebrow">Crew · {ms.day_label} · {ms.place.name}</span>
-          <h1 style={{ marginTop: 6 }}>{off.length === 0 ? `All ${n} fit for duty` : `${data.fit} of ${n} fit for all duties`}</h1>
-          <p className="sub">Operational status only. Each person's health stays with them and the medical team.</p>
+          <span className="eyebrow">{ms.day_label} · {ms.place.name}</span>
+          <h1 style={{ marginTop: 6 }}>{headline}</h1>
+          <p className="sub">No one's health is shown here. Each person's status goes only to the medical team.</p>
         </div>
         <button className="btn right" onClick={() => nav('/today')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my health' : 'Enter my space'}</button>
       </div>
@@ -40,7 +45,6 @@ export default function Crew() {
               <Dot p={p} size="xl" me={p.id === me} />
               <b>{p.name}</b>
               <span className="small muted">{p.role}</span>
-              <span className={`status s${p.ops.level}`}><span className="dot" />{p.ops.label}</span>
               <span className="routine" title="Routine goals done today">
                 <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
                 <span className="small dim num">{p.today.done}/{p.today.total} today</span>
@@ -48,12 +52,6 @@ export default function Crew() {
               <span className="small dim row" style={{ gap: 5 }}><Icon name={p.shared ? 'open' : 'lock'} size={13} />{p.id === me ? 'You' : p.shared ? 'Shares health with the crew' : 'Health private'}</span>
             </button>
           ))}
-        </div>
-        <div className="row wrap legend">
-          <span className="status s0"><span className="dot" />Fit for all duties</span>
-          <span className="status s1"><span className="dot" />Fit for duty, no EVA</span>
-          <span className="status s2"><span className="dot" />Off critical tasks</span>
-          <span className="small dim right">Status comes from each person's own alerts. Environment alerts are crew hazards, below.</span>
         </div>
       </section>
 

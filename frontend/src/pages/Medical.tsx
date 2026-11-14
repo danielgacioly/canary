@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
+import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
@@ -39,20 +40,12 @@ export default function Medical() {
 }
 
 function PinGate({ onOk }: { onOk: () => void }) {
-  const [pin, setPin] = useState(''), [err, setErr] = useState('')
   return (
-    <div className="page" style={{ alignItems: 'center', paddingTop: 80 }}>
-      <form className="card col" style={{ width: 'min(420px,100%)', gap: 14 }} onSubmit={async e => {
-        e.preventDefault()
-        try { await api.medicalSignIn(pin); onOk() } catch (x) { setErr((x as Error).message) }
-      }}>
-        <h2>Medical console</h2>
-        <p className="small muted">The crew has no accounts. Only the medical team signs in. Demo PIN: 1961.</p>
-        <input type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={pin} onChange={e => setPin(e.target.value)} aria-label="PIN"
-          style={{ padding: 12, borderRadius: 10, border: '1px solid var(--line-2)', background: 'var(--bg)', font: '500 22px var(--f-mono)', letterSpacing: '.3em' }} />
-        {err && <span className="small" style={{ color: 'var(--act)' }}>{err}</span>}
-        <button className="btn pri">Enter</button>
-      </form>
+    <div className="page" style={{ alignItems: 'center', paddingTop: 48 }}>
+      <section className="card rise" style={{ width: 'min(420px,100%)', padding: '28px 20px 22px' }}>
+        <PinPad title="Medical console" subtitle="The crew has no accounts. Only the medical team signs in with a 4-digit PIN." hint="Demo PIN: 1961"
+          onSubmit={async pin => { await api.medicalSignIn(pin); onOk() }} />
+      </section>
     </div>
   )
 }
@@ -63,8 +56,10 @@ function Triage({ ov }: { ov: MedicalOverview }) {
     <>
       <div className="grid g4">{ov.crew.map(c => (
         <div key={c.id} className="card col" style={{ gap: 8 }}>
-          <div className="row"><b>{c.name}</b><span className="right"><Status level={c.level} /></span></div>
+          <div className="row"><b>{c.name}</b></div>
           <span className="small muted">{c.role}</span>
+          <div className="ops-line"><span className="eyebrow">Operational status</span>
+            <span className={`status s${c.ops.level}`}><span className="dot" />{c.ops.label}</span></div>
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}
         </div>))}</div>

@@ -2,6 +2,7 @@
 // communication delay and Guided Response automatically, because the backend asks the
 // plan where the crew is on each day.
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Leg, Plan } from '../api/types'
 import { Icon, Loading } from '../components/ui'
@@ -45,6 +46,7 @@ export default function MissionPlan() {
         <div className="row right wrap">
           <span className="small muted">Start from</span>
           {Object.entries(plan.presets).map(([k, n]) => <button key={k} className={`btn sm ${plan.preset === k ? '' : 'ghost'}`} onClick={() => preset(k)}>{n}</button>)}
+          <Link to="/setup" className="btn sm">Run mission setup again</Link>
         </div>
       </div>
 

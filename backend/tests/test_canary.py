@@ -1,12 +1,15 @@
 """Core behaviour: baseline alerts, the story, goals, the assistant guard and the API."""
+import json
 import os
 import tempfile
+import time
 
 os.environ["CANARY_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from canary import auth, db  # noqa: E402
 from canary.assistant import guard  # noqa: E402
 from canary.domain import catalog, goals, health, mission  # noqa: E402
 from canary.main import app  # noqa: E402
@@ -21,8 +24,14 @@ def fresh():
     client.post("/api/demo/reset")
 
 
+PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
+
+
 def as_(cid):
-    return {"X-Canary-Viewer": cid}
+    """Sign in with the default PIN and send the session token, as the web app does."""
+    r = client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]})
+    assert r.status_code == 200
+    return {"X-Canary-Viewer": r.json()["token"]}
 
 
 def at(step):
@@ -169,9 +178,9 @@ def test_crew_overview_hides_private_health():
     at(2)
     o = client.get("/api/crew/overview").json()
     helena = next(p for p in o["people"] if p["id"] == "h")
-    assert helena["ops"]["key"] == "rest" and not helena["shared"]
+    assert "ops" not in helena and not helena["shared"] and "fit" not in o
     text = str(o)
-    for leak in ("indicators", "areas", "alerts", "score", "baseline", "Sleep, mood and focus"):
+    for leak in ("indicators", "areas", "alerts", "score", "baseline", "Sleep, mood and focus", "'ops'", "Fit for", "Off critical"):
         assert leak not in text
 
 
@@ -184,13 +193,97 @@ def test_details_are_private_until_shared():
     assert client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("k")).status_code == 403
     client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("h"))
     d = client.get("/api/crew/h", headers=as_("k")).json()
-    assert d["access"] == "shared" and d["alerts"] == [] and d["goals"] == [] and d["ops"]["key"] == "rest"
+    assert d["access"] == "shared" and d["alerts"] == [] and d["goals"] == [] and "ops" not in d
+    assert client.get("/api/crew/h", headers=as_("h")).json()["ops"]["key"] == "rest"
     assert client.get("/api/goals/h", headers=as_("k")).status_code == 403  # sharing opens health, not advice
 
 
 def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
     tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
-    assert client.get("/api/crew/h", headers={"Authorization": f"Bearer {tok}"}).json()["access"] == "medical"
+    med = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/api/crew/h", headers=med).json()["access"] == "medical"
     assert client.get("/api/crew").status_code == 401
+    at(2)
+    assert all("ops" in p for p in client.get("/api/crew", headers=med).json()["crew"])
+    ov = client.get("/api/medical/overview", headers=med).json()["crew"]
+    assert next(c for c in ov if c["id"] == "h")["ops"]["key"] == "rest"
     o = client.get("/api/crew/overview").json() if at(3) else None
     assert o["hazards"][0]["level"] == 2 and not o["eva_open"]
+
+
+# ---------------------------------------------------------------- the mission clock before and after the plan
+@pytest.mark.parametrize("day", [-60, -365, -31, 800, 2000])
+def test_every_page_works_on_any_mission_day(day):
+    assert client.put("/api/mission", json={"day": day}).json()["day"] == day
+    for path in ("/api/crew/overview", "/api/leaderboard"):
+        assert client.get(path).status_code == 200, path
+    h = as_("h")
+    for path in ("/api/crew/h", "/api/goals/h"):
+        assert client.get(path, headers=h).status_code == 200, path
+
+
+# ---------------------------------------------------------------- PINs and sessions
+def test_wrong_pin_is_401_and_the_right_one_returns_a_token():
+    assert client.post("/api/crew/h/session", json={"pin": "9999"}).status_code == 401
+    r = client.post("/api/crew/h/session", json={"pin": "1001"}).json()
+    assert r["crew_id"] == "h" and r["token"].startswith("h.") and r["expires_at"] > 0
+    assert client.post("/api/crew/h/session", json={"pin": "12"}).status_code == 422  # exactly 4 digits
+    assert client.post("/api/crew/zz/session", json={"pin": "1001"}).status_code == 404
+
+
+def test_pin_attempts_are_rate_limited_per_person():
+    for _ in range(5):
+        assert client.post("/api/crew/h/session", json={"pin": "0000"}).status_code == 401
+    assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 429  # even the right PIN waits
+    assert client.post("/api/crew/k/session", json={"pin": "1002"}).status_code == 200
+
+
+def test_a_plain_id_in_the_viewer_header_is_rejected():
+    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
+    assert client.get("/api/crew/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
+    exp = int(time.time()) - 10  # a correctly signed but expired token
+    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": f"h.{exp}.{auth._sig('h', exp)}"}).status_code == 403
+    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": as_("h")["X-Canary-Viewer"] + "0"}).status_code == 403
+
+
+def test_a_token_only_opens_its_own_space():
+    assert client.get("/api/goals/h", headers=as_("h")).status_code == 200
+    assert client.get("/api/goals/k", headers=as_("h")).status_code == 403
+    assert client.put("/api/crew/k/sharing", json={"shared": True}, headers=as_("h")).status_code == 403
+
+
+def test_changing_the_pin_replaces_the_old_one():
+    h = as_("h")
+    assert client.put("/api/crew/h/pin", json={"current": "1001", "new": "2468"}).status_code == 403  # no token
+    assert client.put("/api/crew/h/pin", json={"current": "1001", "new": "2468"}, headers=as_("k")).status_code == 403
+    assert client.put("/api/crew/h/pin", json={"current": "5555", "new": "2468"}, headers=h).status_code == 401
+    assert client.put("/api/crew/h/pin", json={"current": "1001", "new": "12ab"}, headers=h).status_code == 422
+    assert client.put("/api/crew/h/pin", json={"current": "1001", "new": "2468"}, headers=h).status_code == 200
+    assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 401
+    assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
+    stored = json.dumps(db.get_setting("pins"))
+    assert "2468" not in stored  # stored salted and hashed
+    client.post("/api/demo/reset")
+    assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 200  # reset restores defaults
+
+
+def test_medical_pin_is_four_digits():
+    assert client.post("/api/medical/session", json={"pin": "196"}).status_code == 422
+    assert client.post("/api/medical/session", json={"pin": "1961"}).status_code == 200
+
+
+# ---------------------------------------------------------------- mission setup
+def test_setup_saves_the_plan_and_marks_it_done():
+    assert client.get("/api/mission").json()["setup_done"] is False
+    legs = [{"location": "earth", "start": -60, "end": -1, "label": "Training"},
+            {"location": "rocket", "start": 0, "end": 4, "label": "Transfer"},
+            {"location": "moon", "start": 5, "end": 34, "label": "Surface"}]
+    bad = client.post("/api/setup", json={"name": "x", "legs": [legs[1], {**legs[2], "start": 3}]})
+    assert bad.status_code == 400 and client.get("/api/mission").json()["setup_done"] is False
+    ms = client.post("/api/setup", json={"name": "Artemis", "legs": legs}).json()
+    assert ms["setup_done"] and ms["plan_name"] == "Artemis" and ms["step"] == 0
+    assert client.put("/api/mission", json={"day": 10}).json()["location"] == "moon"
+    client.post("/api/demo/reset")
+    assert client.get("/api/mission").json()["setup_done"] is False  # a reset shows the setup again
+    client.post("/api/plan/preset", json={"preset": "iss"})
+    assert client.get("/api/mission").json()["setup_done"] is True

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, db
+from . import __version__, auth, db
 from .assistant import briefing, chat, providers, tools
 from .config import settings
 from .domain import goals, health, mission, nasa, plan, privacy, protocols, telemetry
@@ -64,8 +64,9 @@ def _is_medical(authorization: Optional[str]) -> bool:
 
 
 def viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> dict:
-    """Who is looking. No crew accounts on board: the terminal says who entered their space."""
-    return {"id": x_canary_viewer if x_canary_viewer in CREW_BY_ID else None, "medical": _is_medical(authorization)}
+    """Who is looking. X-Canary-Viewer carries the token from the PIN sign-in; a bare id, a forged or an expired token is nobody."""
+    cid = auth.verify(x_canary_viewer)
+    return {"id": cid if cid in CREW_BY_ID else None, "medical": _is_medical(authorization)}
 
 
 def require_self(crew_id: str, v: dict) -> None:
@@ -73,24 +74,51 @@ def require_self(crew_id: str, v: dict) -> None:
         raise HTTPException(403, f"private: only {CREW_BY_ID[crew_id]['name']} and the medical team can see this")
 
 
-_failed: List[float] = []
-
-
 class PinIn(BaseModel):
-    pin: str
+    pin: str = Field(pattern=r"^\d{4}$")
 
 
 @app.post("/api/medical/session", tags=["medical"])
 def medical_session(body: PinIn):
-    now = time.time()
-    _failed[:] = [t for t in _failed if now - t < 60]
-    if len(_failed) >= 5:
+    if auth.locked("medical"):
         raise HTTPException(429, "too many attempts, wait a minute")
     if not hmac.compare_digest(body.pin, settings.medical_pin):
-        _failed.append(now)
+        auth.fail("medical")
         raise HTTPException(401, "wrong PIN")
-    exp = int(now + settings.token_ttl_s)
+    exp = int(time.time() + settings.token_ttl_s)
     return {"token": f"{exp}.{_sign(exp)}", "expires_at": exp}
+
+
+@app.post("/api/crew/{crew_id}/session", tags=["crew"])
+def crew_session(crew_id: str, body: PinIn):
+    """Sign in to a private space with the 4-digit PIN. Returns the token for the X-Canary-Viewer header."""
+    _crew(crew_id)
+    if auth.locked(crew_id):
+        raise HTTPException(429, "too many attempts, wait a minute")
+    if not auth.check_pin(crew_id, body.pin):
+        auth.fail(crew_id)
+        raise HTTPException(401, "wrong PIN")
+    return auth.issue(crew_id)
+
+
+class PinChangeIn(BaseModel):
+    current: str = Field(pattern=r"^\d{4}$")
+    new: str = Field(pattern=r"^\d{4}$")
+
+
+@app.put("/api/crew/{crew_id}/pin", tags=["crew"])
+def crew_pin(crew_id: str, body: PinChangeIn, v: dict = Depends(viewer)):
+    """Change your own PIN: needs your session token and the current PIN."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "only you can change your PIN")
+    if auth.locked(crew_id):
+        raise HTTPException(429, "too many attempts, wait a minute")
+    if not auth.check_pin(crew_id, body.current):
+        auth.fail(crew_id)
+        raise HTTPException(401, "wrong PIN")
+    auth.set_pin(crew_id, body.new)
+    return {"crew_id": crew_id, "changed": True}
 
 
 # ---------------------------------------------------------------- mission
@@ -137,6 +165,7 @@ def put_mission(body: MissionIn):
 def demo_reset():
     db.reset()
     plan.reset_cache()
+    auth.clear_failures()
     return mission.state()
 
 
@@ -164,6 +193,7 @@ def put_plan(body: PlanIn):
         plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    mission.set_setup_done()
     return get_plan()
 
 
@@ -177,14 +207,26 @@ def plan_preset(body: PresetIn):
         plan.use_preset(body.preset)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    mission.set_setup_done()
     return get_plan()
+
+
+@app.post("/api/setup", tags=["mission"])
+def mission_setup(body: PlanIn):
+    """First-run mission setup: validate and save the plan, mark setup done and start the mission clock over."""
+    try:
+        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    mission.set_setup_done()
+    return mission.set_step(0)  # the demo story bar keeps working: it starts from its first scene
 
 
 # ---------------------------------------------------------------- crew and health
 def _summary(c: dict, ms: dict, prof: dict) -> dict:
     s = health.snapshot(c["id"], ms)
     return {"id": c["id"], "name": c["name"], "role": c["role"], "initials": c["initials"], "home": c["home"],
-            "areas": s["areas"], "level": s["level"], "status": s["status"],
+            "areas": s["areas"], "level": s["level"], "status": s["status"], "ops": privacy.operational(s),
             "top_alert": s["alerts"][0]["title"] if s["alerts"] else None, "alerts": len(s["alerts"]),
             "systems": {k: v["level"] for k, v in s["systems"].items()},
             "xp_week": prof["xp_week"], "level_xp": prof["level"], "streak": prof["streak"], "rank": prof.get("rank")}
@@ -203,17 +245,17 @@ def crew_list():
 
 @app.get("/api/crew/overview", tags=["crew"])
 def crew_overview():
-    """What everyone on board may see: operational status, hazards, participation and crew goals."""
+    """What everyone on board may see: hazards, participation and crew goals. Never anyone's status."""
     ms = mission.state()
     board = goals.crew_board(ms["day"])
     people, env = [], []
     for c in CREW:
         snap = health.snapshot(c["id"], ms)
         env = [a for a in snap["alerts"] if a.get("env")] or env
-        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": privacy.operational(snap),
+        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "shared": privacy.shared(c["id"]), "today": board["people"][c["id"]]})
     sw = nasa.space_weather(ms["storm"])
-    return {"mission": ms, "people": people, "fit": sum(1 for p in people if p["ops"]["key"] == "full"),
+    return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
@@ -241,8 +283,8 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
             "profile": goals.profile(crew_id, ms["day"]),
             "blood": nasa.blood(c["cbc_subject"]), "events": events,
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
-            "ops": ops, "shared": privacy.shared(crew_id), "care_by": privacy.care_by(crew_id),
-            "access": access}
+            **({"ops": ops} if access != "shared" else {}),  # status: the person and the medical team only
+            "shared": privacy.shared(crew_id), "care_by": privacy.care_by(crew_id), "access": access}
 
 
 class ShareIn(BaseModel):
@@ -482,7 +524,7 @@ def medical_overview():
     out = []
     for c in CREW:
         s = health.snapshot(c["id"], ms)
-        out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "areas": s["areas"],
+        out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
                     "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"]})
     return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5]}
 

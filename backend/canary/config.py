@@ -1,15 +1,43 @@
 """Settings read from environment variables. Defaults are for local development only."""
 import os
 import pathlib
+import re
 import secrets
+from typing import Dict
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+PIN_RE = re.compile(r"^\d{4}$")
+
+
+def _pins(raw: str) -> Dict[str, str]:
+    """Parse "h:1001,k:1002" into {"h": "1001", ...}. Every PIN must be exactly 4 digits."""
+    out = {}
+    for part in raw.split(","):
+        if not part.strip():
+            continue
+        who, _, pin = part.partition(":")
+        who, pin = who.strip(), pin.strip()
+        if not who or not PIN_RE.match(pin):
+            raise ValueError(f"CANARY_CREW_PINS: PIN for '{who}' must be exactly 4 digits")
+        out[who] = pin
+    return out
+
+
+def _medical_pin(raw: str) -> str:
+    if not PIN_RE.match(raw):
+        raise ValueError("CANARY_MEDICAL_PIN must be exactly 4 digits")
+    return raw
 
 
 class Settings:
     db_path: str = os.environ.get("CANARY_DB", str(ROOT / "backend" / "canary.db"))
     # Demo PIN for the medical team mode. Change it anywhere outside a demo.
-    medical_pin: str = os.environ.get("CANARY_MEDICAL_PIN", "1961")
+    medical_pin: str = _medical_pin(os.environ.get("CANARY_MEDICAL_PIN", "1961"))
+    # Default PIN of each crew member's private space ("id:pin,..."). A PIN changed in the app is stored hashed
+    # in the settings table and wins over this default until the demo is reset.
+    crew_pins: Dict[str, str] = _pins(os.environ.get("CANARY_CREW_PINS", "h:1001,k:1002,a:1003,t:1004"))
     token_secret: str = os.environ.get("CANARY_TOKEN_SECRET", secrets.token_hex(16))
     token_ttl_s: int = int(os.environ.get("CANARY_TOKEN_TTL", "3600"))
     # Communication delay runs this many times faster than real time in the demo.

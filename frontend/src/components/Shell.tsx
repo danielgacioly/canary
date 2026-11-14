@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
@@ -20,6 +20,8 @@ export default function Shell() {
   const nav = useNavigate()
   const { data: crew } = useApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
+  // First run (and after a demo reset): the mission is set up before anything else.
+  if (mission && !mission.setup_done) return <Navigate to="/setup" replace />
 
   return (
     <div className="shell">
@@ -43,7 +45,7 @@ export default function Shell() {
         <div className="foot">
           {mine ? (
             <button className="me-chip" onClick={() => { setMe(null); nav('/crew') }} title="Lock your space">
-              <Dot p={mine} size="sm" />
+              <Dot p={mine} size="sm" me />
               <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine.name}</b><span className="small muted">Lock my space</span></span>
               <Icon name="lock" />
             </button>
@@ -98,7 +100,7 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
 }
 
 function StoryBar() {
-  const { mission, setStep, catalog, me, setMe } = useSession()
+  const { mission, setStep, catalog, me } = useSession()
   const nav = useNavigate()
   const [busy, setBusy] = useState(false)
   if (!mission || !catalog) return null
@@ -109,7 +111,7 @@ function StoryBar() {
       <div className="dots">{catalog.story.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b style={{ color: 'var(--ink)' }}>Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b style={{ color: 'var(--ink)' }}>{mission.story.when}.</b> {mission.story.text}</>}</p>
       {!mission.custom_day && me !== mission.suggested_user && (
-        <button className="btn sm ghost" onClick={() => { setMe(mission.suggested_user); nav('/today') }} title="Demo shortcut">
+        <button className="btn sm ghost" onClick={() => nav(`/today?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
           Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
         </button>
       )}

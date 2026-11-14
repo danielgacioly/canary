@@ -36,7 +36,9 @@ make setup     # backend venv + npm install
 make dev       # API on :8000 and web app on :5173
 ```
 
-Open <http://localhost:5173>. The intro plays once, then Canary opens on the **crew**: everyone's operational status, without anyone's private data. To see your own health, enter your space under **My health** (tap your name: there are no accounts on board). The **Demo story** bar at the bottom walks through the six scenes and offers "Enter as …" for the person each scene follows.
+Open <http://localhost:5173>. The intro plays once, then **mission setup** (destination, how many days, the crew) and a short launch, and Canary opens on the **crew**: goals, hazards and crew missions, never anyone's health or status. To see your own health, enter your space under **My health**: tap your name and type your **4-digit PIN**. Setup shows again after **Reset demo** (About & data) or from the **Mission plan** page. The **Demo story** bar at the bottom walks through the six scenes and offers "Enter as …", which opens the PIN pad for the person each scene follows (it never skips the PIN).
+
+Demo PINs (public, for the demo only): Helena `1001`, Kenji `1002`, Amara `1003`, Tomás `1004`; medical console `1961`.
 
 Without `make`:
 
@@ -53,18 +55,19 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 24 backend tests (alerts, story, mission plan, goals, privacy, assistant guard, API) and the frontend type check |
+| `make test` | 36 backend tests (alerts, story, mission plan and setup, goals, privacy, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
-| Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else) |
+| Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
 
 ### Settings (environment variables)
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CANARY_DB` | `backend/canary.db` | SQLite file (created on start) |
-| `CANARY_MEDICAL_PIN` | `1961` | PIN of the medical console |
-| `CANARY_TOKEN_SECRET` | random per start | signs medical session tokens |
+| `CANARY_MEDICAL_PIN` | `1961` | PIN of the medical console (4 digits) |
+| `CANARY_CREW_PINS` | `h:1001,k:1002,a:1003,t:1004` | default 4-digit PIN of each crew member's private space. A PIN changed in the app is stored salted and hashed (PBKDF2-SHA256) in the `settings` table and wins over this default until the demo is reset |
+| `CANARY_TOKEN_SECRET` | random per start | signs medical and crew session tokens (set it to keep sessions across restarts) |
 | `CANARY_DELAY_SPEEDUP` | `20` | communication delay runs this many times faster in the demo |
 | `CANARY_LIVE_SPACE_WEATHER` | `0` | `1` also asks NASA DONKI for the last 30 days (falls back to the snapshot) |
 | `NASA_API_KEY` | `DEMO_KEY` | key for api.nasa.gov |
@@ -78,16 +81,17 @@ A sidebar with seven pages in three groups, **crew first**: the system always op
 
 | Page | What you see |
 | --- | --- |
-| **Intro** | Four beats of the canary story over a starfield while the body assembles, then straight to the crew |
-| **Crew** (home) | The four astronauts as dots coloured by operational status (fit for all duties, fit but no EVA, off critical tasks), today's routine and shared streak, outside-activity status, hazards for everyone, crew missions and the **Who sees what** table. No scores, no vitals, no averages. A dot opens that person's public card |
-| **My health** (private) | Behind a gate: tap your name to enter, Lock to leave (closing the tab also locks). A privacy bar says what the crew sees of you, who receives your alerts, and has the **Share data with the crew** switch. Then, top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals and the current mission leg. Click any part of the body or any tile and the top area becomes that system. |
+| **Intro** | Four beats of the canary story over a starfield while the body assembles, then mission setup |
+| **Setup** (`/setup`, first run) | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
+| **Crew** (home) | The four astronauts as neutral dots (no status colour), today's routine and shared streak, outside-activity status for the place, hazards for everyone, crew missions and the **Who sees what** table. No status, no scores, no vitals, no averages. A dot opens that person's public card |
+| **My health** (private) | Behind a gate: tap your name and enter your 4-digit PIN, Lock to leave (closing the tab also locks). A privacy bar says what the crew sees of you (only goal participation), your own medical status, who receives your alerts, and has the **Share data with the crew** switch and **Change PIN**. Then, top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals and the current mission leg. Click any part of the body or any tile and the top area becomes that system. |
 | **My goals** (private) | Level, XP, streak and 7-day completion; physical and mental goals side by side; crew missions; patches |
 | **Ranking** | Podium and weekly table by effort |
-| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, and the leg editor |
+| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, the leg editor and **Run mission setup again** |
 | **Space weather** | NASA DONKI storm (Kp) and Curiosity RAD dose on Mars |
 | **Link to Earth** | Messages, briefings and reports with the real delay |
 
-Always reachable: the **crew dots** and **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** and **About & data**; the **demo bar** at the bottom drives the story.
+Always reachable: the **crew dots** and **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** (4-digit PIN) and **About & data**; the **demo bar** at the bottom drives the story.
 
 ### Who sees what
 
@@ -97,16 +101,18 @@ Canary follows the team's data-use draft: a visibility contract the crew agrees 
 | --- | --- | --- | --- | --- |
 | Raw data and history | Yes | Yes | Only if the astronaut shares | No |
 | Personal risks and advice | Yes | Yes | No | No |
-| Operational status (e.g. fit for EVA) | Yes | Yes | Yes | Yes |
+| Operational status (e.g. fit for EVA) | Yes | Yes | No | Via the medical team |
 | Critical alert | Immediately | Immediately | No | Delayed briefing |
 | Hazards and crew goals | Yes | Yes | Yes | Yes |
 
 How the API enforces it:
 
-- `GET /api/crew/overview` is the only crew-wide view: operational status, participation (goals done today, streaks), hazards, crew missions. No indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
-- `GET /api/crew/{id}` answers the astronaut (`X-Canary-Viewer` header from the terminal), the medical team (signed token) or, if the astronaut switched sharing on, the rest of the crew. Shared views drop personal alerts and advice.
+- **Operational status is medical-only.** Diagnoses such as "Fit for all duties" or "Off critical tasks" are visible to the medical team and to the person themself in their private space. The crew never sees anyone's status; the Crew page shows only whether EVA is possible at all (environment) and says the medical team clears each person.
+- **Entry is by PIN.** `POST /api/crew/{id}/session {"pin"}` returns a signed token `{id}.{exp}.{sig}` (HMAC-SHA256 over `crew:{id}:{exp}`, one hour). The web app keeps it in `sessionStorage` and sends it in the `X-Canary-Viewer` header; a bare id, a forged or an expired token is nobody (403 on private routes). Five wrong PINs in 60 seconds lock that person for a minute (429). `PUT /api/crew/{id}/pin` changes your PIN (needs your token and the current PIN). The medical console works the same way with its own PIN and a bearer token.
+- `GET /api/crew/overview` is the only crew-wide view: participation (goals done today, streaks), hazards, crew missions. No status, indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
+- `GET /api/crew/{id}` answers the astronaut (session token), the medical team (bearer token) or, if the astronaut switched sharing on, the rest of the crew. Shared views drop personal alerts, advice and operational status.
 - Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. `GET /api/crew` with full summaries is medical-only.
-- Operational status comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status.
+- Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status.
 - If the medical officer is the patient, their alerts go to the substitute (the commander).
 
 ### Mission plan
@@ -174,13 +180,14 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    ├─ domain/telemetry   TelemetrySource: SimulatedSource today, devices tomorrow
    ├─ domain/health      baseline z-scores, alert rules, body systems, readiness scores
    ├─ domain/goals       daily goals, XP, levels, streaks, patches, crew missions, ranking
-   ├─ domain/privacy     who sees what: operational status, sharing, hazards, the day-0 contract
+   ├─ domain/privacy     who sees what: operational status (medical only), sharing, hazards, the day-0 contract
    ├─ domain/protocols   Guided Response bank, resolved by gravity and place
    ├─ domain/nasa        DONKI · Curiosity RAD · OSD-569 snapshot (+ optional live DONKI)
    ├─ domain/plan        mission plan: itinerary legs, presets, location by day
    ├─ domain/mission     mission clock, place, demo story
    ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing
-   └─ main.py            routes, medical sign-in (PIN → signed short-lived token)
+   ├─ auth               PINs (hashed), crew session tokens, rate limit
+   └─ main.py            routes, PIN sign-in for each private space and the medical console
    ▼
  SQLite                                            only what people do: check-ins, goals,
    (on board, offline)                             messages, emergencies, briefings, settings
@@ -195,7 +202,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | Telemetry behind `TelemetrySource` | Real devices plug in without touching alerts or goals | Hard-coding the simulator into the rules |
 | Personal baseline (z-score) | Astronauts are fit outliers; population ranges miss their changes | Fixed clinical thresholds only |
 | Protocols as JSON | The medical team can review and replace them without code | Protocols in code |
-| No accounts for the crew | A shared terminal in a cabin; seconds matter | Logins: friction in an emergency |
+| No accounts for the crew, a 4-digit PIN per private space | A shared terminal in a cabin: a PIN is fast, and Guided Response needs no sign-in | Logins with passwords: friction in an emergency; trusting a plain id: anyone could open anyone's health |
 | PIN + signed token for doctors | Only the medical team writes prescriptions and rules | Full identity system: out of scope for a prototype |
 | AI only explains | Deterministic rules decide alerts and emergencies | Letting a model diagnose or triage |
 | React + plain Three.js, no UI kit | Full control of the mission-console look and the hologram | Component libraries: generic look |
@@ -285,22 +292,23 @@ The snapshot lives in `backend/canary/data/nasa_snapshot.json`, so the ship neve
 ```
 backend/
   canary/
-    main.py              routes and medical sign-in
+    main.py              routes and PIN sign-in
+    auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
     domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission
     assistant/           the AI slot
     data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   21 tests
+  tests/test_canary.py   36 tests
   requirements.txt
 frontend/
   src/
     api/                 typed client and response types
     state/session.tsx    mission, terminal user, refresh signal
     hologram/            scene, shaders, procedural anatomy, React wrapper
-    components/          shell, People (crew dots, private-space gate), BodyView (body + observations), goals, charts, patches
+    components/          shell, People (neutral crew dots, PIN gate), PinPad, Stars, BodyView (body + observations), goals, charts, patches
     features/            Guided Response, Ask Canary, self-checks
-    pages/               Intro, Crew (home), Astronaut (public card or shared view), Me (My health, private), Goals (private), Ranking, MissionPlan, Mission (space weather, link), Medical, About
+    pages/               Intro, Setup, Crew (home), Astronaut (public card or shared view), Me (My health, private), Goals (private), Ranking, MissionPlan, Mission (space weather, link), Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
 data/prepare_nasa_data.py
@@ -316,11 +324,13 @@ Full, interactive documentation at `/docs`. The main routes:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/mission` · `PUT /api/mission` | Mission clock (story step or any day), place, current leg |
+| `GET /api/mission` · `PUT /api/mission` | Mission clock (story step or any day), place, current leg, `setup_done` |
 | `GET /api/plan` · `PUT /api/plan` · `POST /api/plan/preset` | Mission plan: itinerary legs, presets |
-| `GET /api/crew/overview` | What everyone may see: operational status, participation, hazards, crew missions, the visibility contract |
-| `GET /api/crew/{id}` · `PUT /api/crew/{id}/sharing` | One astronaut in full (self, medical team, or crew if shared) · the astronaut's share switch |
-| `GET /api/crew` | Full health summary of everyone (medical team only) |
+| `POST /api/setup` | First-run mission setup: validates and saves the plan, marks setup done, restarts the story |
+| `POST /api/crew/{id}/session` · `PUT /api/crew/{id}/pin` | Sign in with the 4-digit PIN (returns the session token) · change your PIN |
+| `GET /api/crew/overview` | What everyone may see: participation, hazards, crew missions, the visibility contract. Never status |
+| `GET /api/crew/{id}` · `PUT /api/crew/{id}/sharing` | One astronaut in full (self, medical team, or crew if shared; `ops` only for the first two) · the astronaut's share switch |
+| `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, XP · tick a goal |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `POST /api/checkins` | Mood, reaction test, Amsler grid, vital signs |
@@ -354,7 +364,7 @@ Full, interactive documentation at `/docs`. The main routes:
 2. **Real devices:** a `TelemetrySource` that reads a wearable or a CSV export.
 3. **Ground sync:** store-and-forward of messages, briefings and check-ins to a ground station, with conflict rules.
 4. **Clinical review:** replace the illustrative protocols with flight-surgeon-approved ones; per-person medication allergies in Guided Response.
-5. **Privacy, next steps:** a personal PIN or badge tap to enter your space; freeze a streak during medical leave instead of breaking it; per-item sharing instead of all-or-nothing.
+5. **Privacy, next steps:** a badge tap as a second factor; freeze a streak during medical leave instead of breaking it; per-item sharing instead of all-or-nothing.
 6. **Pitch:** record the six-scene demo; verify the literature figures listed below.
 
 ---
@@ -364,7 +374,7 @@ Full, interactive documentation at `/docs`. The main routes:
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.
 - **To verify before quoting:** daily dose by place, the 600 mSv career limit, bone loss of about 1% per month, delays to Mars.
-- **Demo shortcuts:** entering your space is a tap on your name (the API trusts the terminal's viewer header); the medical PIN is in this README; the communication delay runs 20× faster; fonts load from Google Fonts (bundle them for an offline ship).
+- **Demo shortcuts:** the PINs are public (crew `1001` to `1004`, medical `1961`, all in this README and shown as a hint on the pad), and a 4-digit PIN with a rate limit is a prototype lock, not real security; session tokens are signed with a random secret per start unless `CANARY_TOKEN_SECRET` is set; the communication delay runs 20× faster; fonts load from Google Fonts (bundle them for an offline ship).
 
 ---
 

@@ -23,6 +23,7 @@ const paths: Record<string, string> = {
   plus: 'M12 5v14M5 12h14',
   lock: 'M6 11h12v9H6Zm2.5 0V8a3.5 3.5 0 0 1 7 0v3',
   open: 'M6 11h12v9H6Zm2.5 0V8a3.5 3.5 0 0 1 6.8-1.2',
+  backspace: 'M21 5H9l-6 7 6 7h12V5Zm-4 4-6 6m0-6 6 6',
   shield: 'M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z',
 }
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {
