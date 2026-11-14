@@ -190,9 +190,9 @@ def _fatigue_risk(crew_id: str, day: int, tok: tuple) -> dict:
 RISKS = {"fatigue": _fatigue_risk}  # the other NASA risks join here, one entry each
 
 
-def evaluate(crew_id: str, ms: dict) -> List[dict]:
+def evaluate(crew_id: str, ms: dict, tok: Optional[tuple] = None) -> List[dict]:
     """Every risk for one person on the mission day of `ms`."""
-    tok = _token(crew_id)
+    tok = tok or _token(crew_id)
     return [fn(crew_id, ms["day"], tok) for fn in RISKS.values()]
 
 

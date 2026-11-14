@@ -176,7 +176,59 @@ def _indicator_alert(i: str, d: dict) -> dict:
             "sources": [d["source"]], "goals": []}
 
 
+# What each alert goal is meant to move, and after how many days it is checked (see domain/advice.py).
+# Prototype assumptions: no published rule says how long a habit takes to show in a number.
+ALERT_GOAL_VERIFY = {
+    "al_light": ("sleep", 3), "al_screens": ("sleep", 3), "al_psy": ("mood", 7), "al_sip": ("water", 1),
+    "al_head": ("hr", 2), "al_salt": ("bp", 3), "al_stand": ("bp", 3), "al_talk": ("mood", 7),
+}
+ALERT_LOOKBACK = 60  # days days_active looks back; a longer episode reads "at least this long"
+_alert_cache: Dict[tuple, frozenset] = {}
+
+
+def _alert_ids(crew_id: str, day: int, tok: tuple) -> frozenset:
+    """Ids of the alerts that were active on a (past) day, from that day's data. Cached per person, day and entered data."""
+    key = (crew_id, day, tok)
+    hit = _alert_cache.get(key)
+    if hit is None:
+        if len(_alert_cache) > 4000:
+            _alert_cache.clear()
+        ms = risk._day_ms(day)
+        hit = _alert_cache[key] = frozenset(a["id"] for a in _alerts(crew_id, ms, indicators(crew_id, ms), risk.evaluate(crew_id, ms, tok)))
+    return hit
+
+
+def _alert_since(crew_id: str, day: int, aid: str, tok: tuple) -> int:
+    """First day of the unbroken stretch in which alert `aid` was active up to `day`. Walks back, never stored."""
+    d, stop = day, day - ALERT_LOOKBACK
+    while d > stop and aid in _alert_ids(crew_id, d - 1, tok):
+        d -= 1
+    return d
+
+
 def alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> List[dict]:
+    """The alerts of the day, each with how long it has been active (`since_day`, `days_active`) and whether the
+    person has marked this episode as seen. An alert that goes away and comes back is a new episode, not seen."""
+    risks = risk.evaluate(crew_id, ms) if risks is None else risks
+    A = _alerts(crew_id, ms, inds, risks)
+    tok = risk._token(crew_id)
+    seen = db.get_setting("alerts_seen", {})
+    for a in A:
+        since = ms["day"] if a["id"] == "storm" else _alert_since(crew_id, ms["day"], a["id"], tok)
+        a.update({"since_day": since, "days_active": ms["day"] - since + 1, "seen": f"{crew_id}:{a['id']}:{since}" in seen})
+        for g in a.get("goals", []):
+            if g["id"] in ALERT_GOAL_VERIFY:
+                g["verify"] = dict(zip(("indicator", "after_days"), ALERT_GOAL_VERIFY[g["id"]]))
+    return A
+
+
+def mark_seen(crew_id: str, alert: dict, day: int) -> None:
+    seen = db.get_setting("alerts_seen", {})
+    seen[f"{crew_id}:{alert['id']}:{alert['since_day']}"] = day
+    db.set_setting("alerts_seen", seen)
+
+
+def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> List[dict]:
     """Cross-signal rules first, then single indicators that are left. Each alert says what to do."""
     if ms["learning"]:  # no early warnings while Canary learns the baseline; a safety limit still speaks
         return [_indicator_alert(i, d) for i, d in inds.items() if d["population"]["status"] == "critical"]
