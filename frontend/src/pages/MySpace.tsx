@@ -5,13 +5,16 @@ import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
-import BodyView, { Blood } from '../components/BodyView'
+import BloodChart from '../components/BloodChart'
+import BodyView, { Guide } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
-import { Icon, LineChart, Loading, Patch, Tabs } from '../components/ui'
+import Trend from '../components/Trend'
+import { Icon, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
+import { bonePctOfPreflight, nasaLine, ORIGIN } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
@@ -152,47 +155,83 @@ function PatchesTab({ me }: { me: string }) {
 }
 
 /* ---------------------------------------------------------------- dashboard: every chart in one place */
+const GROUPS: [string, string[]][] = [
+  ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
+  ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
+]
+
 function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
-  const groups: [string, string[]][] = [
-    ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
-    ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
-  ]
+  const { catalog } = useSession()
+  const guide = catalog?.guide ?? {}
   return (
     <>
-      <p className="muted rise">Last 30 days against your own normal (dashed line). Readings are simulated in this prototype; the blood counts are real NASA data.</p>
-      {groups.map(([name, ids], gi) => (
+      <p className="muted rise">Last 30 days against your own normal. Readings are simulated in this prototype; the blood values are real NASA data.</p>
+      {GROUPS.map(([name, ids], gi) => (
         <section key={name} className="rise" style={{ ['--d' as string]: gi + 1 }}>
           <div className="section-head"><h2>{name}</h2></div>
           <div className="charts">
             {ids.filter(k => d.indicators[k]).map(k => {
               const i = d.indicators[k]
+              const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
+              const pts: [number, number][] = bone ? d.trends[k].map(([x, y]) => [x, 100 + y]) : d.trends[k]
+              const lim = nasaLine(k, i)
+              const normal = bone ? 100 : i.baseline
               return (
                 <figure key={k} className={`chart-card s${i.level}`}>
-                  <figcaption><span className="dot" /><b>{i.name}</b><span className="num muted">{i.value.toFixed(i.dp)} {i.unit}</span></figcaption>
-                  <LineChart series={[{ pts: d.trends[k], color: name === 'Mental' ? 'var(--mental)' : 'var(--physical)' }]} refY={i.baseline} refLabel="your normal" w={360} h={150} />
-                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text} · NASA-STD-3001 {i.standard.item}</p>}
+                  <figcaption>
+                    <span className="dot" /><b>{i.name}</b>
+                    <span className="tag">{ORIGIN[i.origin]}</span>
+                    <span className="num">{bone ? `${bonePctOfPreflight(i).toFixed(1)} % of pre-flight` : `${i.value.toFixed(i.dp)} ${i.unit}`}</span>
+                  </figcaption>
+                  <p className="small muted legend">
+                    <span><i className="key normal" />Your normal {bone ? '100 %' : `${i.baseline.toFixed(i.dp)} ${i.unit}`}</span>
+                    {lim && <span><i className="key limit" />NASA limit {lim.text} · <a className="item" href={lim.url} target="_blank" rel="noreferrer">{lim.item}</a></span>}
+                    {bone && <span>7-day average over daily values</span>}
+                  </p>
+                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal} limit={lim?.y}
+                    minSpan={bone ? 4 : i.spread * 4} avg={bone ? 7 : undefined} label={`${i.name}, last ${pts.length} days`} />
+                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text}</p>}
+                  {guide[k] && <Guide g={guide[k]} />}
                 </figure>
               )
             })}
           </div>
         </section>
       ))}
-      {g && (
-        <section className="rise" style={{ ['--d' as string]: 3 }}>
-          <div className="section-head"><h2>Goals done, last 14 days</h2></div>
-          <div className="day-bars">
-            {g.profile.daily_done.map(([day, n, total]) => (
-              <div key={day} title={`Day ${day}: ${n} done`}><i style={{ height: `${Math.min(100, (100 * n) / Math.max(1, total))}%` }} /><span className="num">{day}</span></div>
-            ))}
-          </div>
-        </section>
-      )}
+      {g && <GoalsStrip days={g.profile.daily_done} />}
       <section className="rise" style={{ ['--d' as string]: 4 }}>
-        <div className="section-head"><h2>Blood</h2><span className="sub">Lymphocytes from NASA OSD-569 (Inspiration4), the first cells to drop after radiation</span></div>
-        <div style={{ maxWidth: 560 }}><Blood d={d} /></div>
+        <div className="section-head"><h2>Blood</h2></div>
+        <BloodChart d={d} />
       </section>
     </>
+  )
+}
+
+/** Goals done on each of the last 14 days: fixed-width bars. With fewer than 3 days of data, only the number. */
+function GoalsStrip({ days }: { days: [number, number, number][] }) {
+  const done = days.reduce((s, x) => s + x[1], 0)
+  const slots = Array.from({ length: Math.max(0, 14 - days.length) }, () => null as [number, number, number] | null).concat(days.slice(-14))
+  const top = Math.max(1, ...days.map(x => x[2]))
+  return (
+    <section className="rise" style={{ ['--d' as string]: 3 }}>
+      <div className="section-head"><h2>Goals done, last 14 days</h2></div>
+      {days.length < 3 ? (
+        <p className="big-num">{done}<small>{done === 1 ? 'goal' : 'goals'} done{days.length ? ` since day ${days[0][0]}` : ''}</small></p>
+      ) : (
+        <div className="day-strip" role="img" aria-label={`${done} goals done in ${days.length} days`}>
+          {slots.map((s, i) => (
+            <div key={i} title={s ? `Day ${s[0]}: ${s[1]} of ${s[2]} done` : undefined}>
+              <div className="bar">
+                {s && <span className="num n">{s[1]}</span>}
+                <i className={s ? '' : 'empty'} style={{ height: s ? Math.max(2, Math.round((84 * s[1]) / top)) : 2 }} />
+              </div>
+              <span className="num d">{s && (slots.length - 1 - i) % 3 === 0 ? s[0] : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 

@@ -255,11 +255,11 @@ function RiskBlock({ r, sys }: { r: Risk; sys: SystemId }) {
 }
 
 /** "How to measure and why", folded. Each text names its source, or says there is none checked yet. */
-function Guide({ name, g }: { name: string; g: GuideEntry }) {
+export function Guide({ name, g }: { name?: string; g: GuideEntry }) {
   const src = (u: string | null | undefined) => (u ? <a className="item" href={u} target="_blank" rel="noreferrer">Source</a> : <span className="dim">No source checked yet</span>)
   return (
     <details className="how">
-      <summary>How to measure and why · {name}</summary>
+      <summary>How to measure and why{name ? ` · ${name}` : ''}</summary>
       <dl>
         <dt>How</dt><dd>{g.how} {src(g.sources.how)}</dd>
         <dt>What space does</dt><dd>{g.effect} {src(g.sources.effect)}</dd>
@@ -269,23 +269,5 @@ function Guide({ name, g }: { name: string; g: GuideEntry }) {
         <dt>How often</dt><dd>{g.frequency}</dd>
       </dl>
     </details>
-  )
-}
-
-export function Blood({ d }: { d: CrewDetail }) {
-  const b = d.blood, w = 360, h = 120
-  const lo = Math.min(b.range.min, ...b.lymphocytes) * 0.9, hi = Math.max(b.range.max, ...b.lymphocytes) * 1.05
-  const X = (i: number) => 14 + (i / (b.lymphocytes.length - 1)) * (w - 28), Y = (v: number) => h - 20 - ((v - lo) / (hi - lo)) * (h - 30)
-  return (
-    <div className="rise" style={{ ['--d' as string]: 3 }}>
-      <div className="lbl">Lymphocytes · real NASA data (OSD-569, Inspiration4)</div>
-      <svg viewBox={`0 0 ${w} ${h}`} width="100%" className="chart" style={{ marginTop: 8 }}>
-        <rect x="14" width={w - 28} y={Y(b.range.max)} height={Y(b.range.min) - Y(b.range.max)} fill="var(--surface-2)" />
-        <path d={b.lymphocytes.map((v, i) => `${i ? 'L' : 'M'}${X(i)},${Y(v)}`).join('')} fill="none" stroke="var(--physical)" strokeWidth="1.8" />
-        {b.lymphocytes.map((v, i) => <circle key={i} cx={X(i)} cy={Y(v)} r="2.5" fill="var(--physical)" />)}
-        {b.timepoints.map((t, i) => <text key={t} x={X(i)} y={h - 4} textAnchor="middle">{t}</text>)}
-      </svg>
-      <div className="small dim">Shaded band: reference range.</div>
-    </div>
   )
 }

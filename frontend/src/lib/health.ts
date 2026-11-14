@@ -26,3 +26,18 @@ export function attention(alerts: Alert[], risks: Risk[]): Attention[] {
   ]
   return rows.sort((a, b) => b.level - a.level || (a.since ?? 1e9) - (b.since ?? 1e9))
 }
+
+/** The NASA line a chart draws, in the chart's own unit. VO2max: the item (V1 4001 microgravity EVA, V1 4002 surface EVA) says which
+ *  minimum applies today (standards.py LIMITS); strength: 80% of the pre-flight value; bone: 95% of pre-flight. Only in flight. */
+export function nasaLine(k: string, i: Indicator): { y: number; text: string; item: string; url: string } | null {
+  const s = i.standard
+  if (!s) return null
+  const base = { item: s.item, url: s.url }
+  if (k === 'vo2') return { ...base, y: s.item === 'V1 4001' ? 32.9 : 36.5, text: `${s.item === 'V1 4001' ? 32.9 : 36.5} ${i.unit}` }
+  if (k === 'grip' && i.baseline) return { ...base, y: 0.8 * i.baseline, text: `${(0.8 * i.baseline).toFixed(i.dp)} ${i.unit} (80% of pre-flight)` }
+  if (k === 'bone') return { ...base, y: 95, text: '95% of pre-flight' }
+  return null
+}
+
+/** Words for where an indicator's numbers come from, the same on every chart. */
+export const ORIGIN = { simulated: 'Simulated', real: 'Real NASA data', user: 'You typed' } as const
