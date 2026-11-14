@@ -9,7 +9,8 @@ import json
 from typing import Dict, Optional, Protocol
 
 from .. import db
-from .catalog import CREW_BY_ID, INDICATORS, LOCATIONS, timeline_location
+from . import plan
+from .catalog import CREW_BY_ID, INDICATORS, LOCATIONS
 
 
 def h01(key: str) -> float:
@@ -45,10 +46,12 @@ class SimulatedSource:
         if crew_id == "t" and 1 <= day <= 6:
             v += {"hr": 12, "water": -1.1, "exer": -50, "mood": -0.6}.get(ind, 0) * (1 - (day - 1) / 6)
         # Everyone: readapting to gravity on Mars
-        if 210 <= day <= 240:
-            v += {"bp": -14, "hr": 12, "grip": -3}.get(ind, 0) * (1 - (day - 210) / 30)
+        # Everyone: readapting to partial gravity in the first 30 days after a 0 g cruise
+        since = plan.days_since_gravity_change(day)
+        if since is not None and since <= 30:
+            v += {"bp": -14, "hr": 12, "grip": -3}.get(ind, 0) * (1 - since / 30)
         # Exercise target is lower in the first hours and on the surface
-        if ind == "exer" and timeline_location(day) == "rocket":
+        if ind == "exer" and plan.location_at(day) == "rocket":
             v = min(v, 25 + 10 * h01(f"x{crew_id}{day}"))
         if ind in ("mood", "stress"):
             v = min(5.0, max(1.0, v))
@@ -58,16 +61,20 @@ class SimulatedSource:
         """Estimated % change of weight-bearing bone density since launch."""
         if day <= 0:
             return (h01(f"b{crew_id}{day}") - 0.5) * 0.4
-        c = CREW_BY_ID[crew_id]
-        # 0.35%/month with full exercise, up to 1%/month without (order of magnitude from NASA HRP; verify)
-        per_month = 1.0 - 0.65 * min(1.0, c["base"]["exer"] / 110)
-        zero_g_days = min(day, 210)
-        loss = per_month * zero_g_days / 30
-        if day > 210:  # partial gravity on Mars slows the loss
-            loss += per_month * 0.4 * (day - 210) / 30
-        return -loss + (h01(f"b{crew_id}{day}") - 0.5) * 0.3
+        key = (crew_id, plan.version())
+        cum = _BONE.setdefault(key, [0.0])  # cum[d] = loss after day d
+        if len(cum) <= day:
+            c = CREW_BY_ID[crew_id]
+            # 0.35%/month with full exercise, up to 1%/month without (order of magnitude from NASA HRP; verify).
+            # Full rate in 0 g, 40% in partial gravity, slow recovery back on Earth.
+            per_day = (1.0 - 0.65 * min(1.0, c["base"]["exer"] / 110)) / 30
+            rate = {"g0": 1.0, "gp": 0.4, "g1": -0.25}
+            for d in range(len(cum), day + 1):
+                cum.append(max(0.0, cum[-1] + per_day * rate[LOCATIONS[plan.location_at(d)]["gravity_key"]]))
+        return -cum[day] + (h01(f"b{crew_id}{day}") - 0.5) * 0.3
 
 
+_BONE: Dict[tuple, list] = {}
 SOURCE: TelemetrySource = SimulatedSource()
 
 
@@ -108,8 +115,8 @@ def cumulative_dose(day: int, location_now: str, storm: Optional[str]) -> float:
     """Mission dose in mSv up to `day`, following the reference timeline. Simulated."""
     if day < 0:
         return 0.0
-    total = sum(LOCATIONS[timeline_location(d)]["dose_rate"] for d in range(0, day))
+    total = sum(LOCATIONS[plan.location_at(d)]["dose_rate"] for d in range(0, day))
     total += LOCATIONS[location_now]["dose_rate"]
-    if day >= 152:
-        total += 22.0  # simulated extra dose behind the storm shelter on day 152
+    if day >= 152 and plan.location_at(152) in ("transit", "moon"):
+        total += 22.0  # simulated extra dose behind the storm shelter during the replayed May 2024 storm
     return round(total, 1)

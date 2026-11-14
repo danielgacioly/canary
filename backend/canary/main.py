@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from . import __version__, db
 from .assistant import briefing, chat, providers, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, protocols, telemetry
+from .domain import goals, health, mission, nasa, plan, protocols, telemetry
 from .domain.catalog import CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
@@ -95,6 +95,8 @@ def get_mission():
 
 class MissionIn(BaseModel):
     step: Optional[int] = None
+    day: Optional[int] = Field(default=None, ge=-365, le=2000)
+    clear_day: bool = False
     location: Optional[str] = None
     clear_location: bool = False
 
@@ -103,6 +105,8 @@ class MissionIn(BaseModel):
 def put_mission(body: MissionIn):
     if body.step is not None:
         mission.set_step(body.step)
+    if body.day is not None or body.clear_day:
+        mission.set_day(None if body.clear_day else body.day)
     if body.location is not None or body.clear_location:
         try:
             mission.set_location(None if body.clear_location else body.location)
@@ -114,7 +118,48 @@ def put_mission(body: MissionIn):
 @app.post("/api/demo/reset", tags=["mission"])
 def demo_reset():
     db.reset()
+    plan.reset_cache()
     return mission.state()
+
+
+# ---------------------------------------------------------------- mission plan (itinerary)
+@app.get("/api/plan", tags=["mission"])
+def get_plan():
+    return {**plan.get(), "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
+
+
+class LegIn(BaseModel):
+    location: str
+    start: int = Field(ge=-365, le=2000)
+    end: int = Field(ge=-365, le=2000)
+    label: str = ""
+
+
+class PlanIn(BaseModel):
+    name: str = "Mission plan"
+    legs: List[LegIn]
+
+
+@app.put("/api/plan", tags=["mission"])
+def put_plan(body: PlanIn):
+    try:
+        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return get_plan()
+
+
+class PresetIn(BaseModel):
+    preset: str
+
+
+@app.post("/api/plan/preset", tags=["mission"])
+def plan_preset(body: PresetIn):
+    try:
+        plan.use_preset(body.preset)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return get_plan()
 
 
 # ---------------------------------------------------------------- crew and health

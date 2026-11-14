@@ -30,22 +30,12 @@ DOSE_SOURCE = "Typical daily dose by place from published ISS, Apollo, MSL cruis
 CAREER_LIMIT_MSV = 600  # NASA career limit, NASA-STD-3001 (2022). To be verified before quoting.
 
 
-def timeline_location(day: int) -> str:
-    """Where the reference Mars mission is on a given mission day."""
-    if day < 0:
-        return "earth"
-    if day <= 3:
-        return "rocket"
-    if day < 210:
-        return "transit"
-    return "mars"
-
-
-def day_label(day: int, location: str) -> str:
+def day_label(day: int, location: str, leg_start: int = 0) -> str:
+    """L-30 before launch, Sol N on Mars (counted from landing), Day N otherwise."""
     if day < 0:
         return f"L{day}"
-    if location == "mars" and day >= 210:
-        return f"Sol {day - 210}"
+    if location == "mars":
+        return f"Sol {day - leg_start}"
     return f"Day {day}"
 
 

@@ -9,9 +9,9 @@ anything the crew ticks in the app is stored and wins over the simulation.
 from typing import Dict, List, Optional
 
 from .. import db
-from . import health, telemetry
+from . import health, plan, telemetry
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
-                      WINDOW_BY_PLACE, level_for, timeline_location)
+                      WINDOW_BY_PLACE, level_for)
 
 HISTORY_START = -30  # first day with goals (pre-flight training)
 STREAK_RATE = 0.7    # a day counts for the streak when 70% of goals are done
@@ -95,7 +95,7 @@ def _history(crew_id: str, today: int) -> dict:
     log = _log(crew_id)
     days = {}
     for d in range(HISTORY_START, today + 1):
-        ids = daily_goal_ids(timeline_location(d))
+        ids = daily_goal_ids(plan.location_at(d))
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
         extra_xp = sum(15 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_")))
         days[d] = {"done": done, "total": len(ids),

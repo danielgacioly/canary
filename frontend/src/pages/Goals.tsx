@@ -1,68 +1,58 @@
-// Goals: one tab at a time. Today's goals first, then crew missions, ranking and patches.
+// Goals as a dashboard: your level, today's physical and mental goals side by side,
+// crew missions, then patches.
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { GoalRow, TeamRow } from '../components/GoalItems'
-import { Loading, Patch, Tabs } from '../components/ui'
+import { CountUp, Loading, Patch } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { useApi, useSession } from '../state/session'
-import RankingView from './Ranking'
-
-type Tab = 'today' | 'crew' | 'ranking' | 'patches'
 
 export default function Goals() {
   const { me, catalog } = useSession()
-  const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) || 'today'
-  const setTab = (t: Tab) => setParams(t === 'today' ? {} : { tab: t }, { replace: true })
   const { data } = useApi(() => (me ? api.goals(me) : Promise.reject(new Error('no user'))), [me])
-  const [area, setArea] = useState<'physical' | 'mental'>('physical')
   const [check, setCheck] = useState<CheckKind | null>(null)
   if (!data || !me || !catalog) return <Loading what="goals" />
   const p = data.profile
-  const list = data.personal.filter(g => g.area === area)
-  const doneAll = data.personal.filter(g => g.done).length
   const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
+  const done = data.personal.filter(g => g.done).length
   return (
     <div className="page">
-      <div className="head">
-        <div><h1>Goals</h1><p className="sub">{doneAll} of {data.personal.length} done today · level {p.level} · {p.streak}-day streak</p></div>
-        <div className="right" style={{ minWidth: 240 }}>
-          <div className="row small"><span className="muted">Level {p.level}</span><span className="right num muted">{p.into}/{p.need} XP</span></div>
-          <div className="bar-track" style={{ marginTop: 6, ['--pc' as string]: 'var(--gold)' }}><i style={{ width: `${(100 * p.into) / p.need}%` }} /></div>
-        </div>
+      <div className="head rise"><div><span className="eyebrow">Goals</span><h1 style={{ marginTop: 6 }}>{done} of {data.personal.length} done today</h1>
+        <p className="sub">Small wins, every day, as a crew. A hard day reported honestly earns the same as a good one.</p></div></div>
+
+      <div className="stats">
+        <div className="stat rise"><div className="k">Level</div><b className="num" style={{ color: 'var(--gold)' }}>{p.level}</b>
+          <div className="bar-track" style={{ marginTop: 8, ['--pc' as string]: 'var(--gold)' }}><i style={{ width: `${(100 * p.into) / p.need}%` }} /></div><div className="s">{p.need - p.into} XP to level {p.level + 1}</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 1 }}><div className="k">XP this week</div><b className="num"><CountUp value={p.xp_week} /></b><div className="s">Physical {p.xp_week_by_area.physical} · Mental {p.xp_week_by_area.mental}</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 2 }}><div className="k">Streak</div><b className="num"><CountUp value={p.streak} /><small>days</small></b><div className="s">Days with 70% of goals done</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 3 }}><div className="k">Last 7 days</div><b className="num"><CountUp value={p.completion_7d} /><small>%</small></b><div className="s">of goals done</div></div>
       </div>
-      <Tabs value={tab} onChange={setTab} options={[['today', 'Today'], ['crew', 'Crew missions'], ['ranking', 'Ranking'], ['patches', 'Patches']]} />
 
-      {tab === 'today' && (
-        <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px', alignItems: 'start', gap: 24 }}>
-          <section className="card">
-            <div className="row" style={{ marginBottom: 6 }}>
-              {(['physical', 'mental'] as const).map(a => {
-                const g = data.personal.filter(x => x.area === a)
-                return <button key={a} className={`btn sm ${area === a ? '' : 'ghost'}`} onClick={() => setArea(a)}>{a === 'physical' ? 'Physical' : 'Mental'} · {g.filter(x => x.done).length}/{g.length}</button>
-              })}
+      <section className="grid g2">
+        {(['physical', 'mental'] as const).map((a, i) => {
+          const list = data.personal.filter(g => g.area === a)
+          return (
+            <div key={a} className="detail-card rise" style={{ ['--d' as string]: 3 + i }}>
+              <div className="section-head"><h2>{a === 'physical' ? 'Physical' : 'Mental'}</h2><span className="sub">{list.filter(g => g.done).length} of {list.length}</span></div>
+              {list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={setCheck} />)}
             </div>
-            <div>{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={setCheck} />)}</div>
-          </section>
-          <aside className="col" style={{ gap: 16 }}>
-            <div className="card pad-sm"><div className="lbl">XP this week</div><div className="big-num num" style={{ marginTop: 6 }}>{p.xp_week}</div>
-              <div className="small muted" style={{ marginTop: 6 }}>Physical {p.xp_week_by_area.physical} · Mental {p.xp_week_by_area.mental}</div></div>
-            <div className="card pad-sm"><div className="lbl">Goals done, last 7 days</div><div className="big-num num" style={{ marginTop: 6 }}>{p.completion_7d}<small>%</small></div></div>
-            <p className="small dim">Ticking a goal earns XP. A hard day reported honestly earns the same as a good one.</p>
-          </aside>
-        </div>
-      )}
+          )
+        })}
+      </section>
 
-      {tab === 'crew' && <div className="grid g2">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>}
-      {tab === 'ranking' && <RankingView />}
-      {tab === 'patches' && (
-        <div className="patches">{p.badges.map(b => (
-          <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}>
+      <section>
+        <div className="section-head rise"><h2>Crew missions this week</h2><span className="sub">Everyone gets the XP when the crew gets there</span></div>
+        <div className="grid g2">{data.team.map((t, i) => <div key={t.id} className="rise" style={{ ['--d' as string]: i }}><TeamRow t={t} names={names} /></div>)}</div>
+      </section>
+
+      <section>
+        <div className="section-head rise"><h2>Patches</h2><span className="sub">{p.badges_earned} of {p.badges.length} earned</span></div>
+        <div className="patches">{p.badges.map((b, i) => (
+          <div key={b.id} className={`patch rise ${b.earned ? '' : 'off'}`} style={{ ['--d' as string]: i }}>
             <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
             <span className="small dim">{b.earned ? 'Earned' : `${b.progress} of ${b.need}`}</span>
           </div>))}</div>
-      )}
+      </section>
       {check && <Check kind={check} onClose={() => setCheck(null)} />}
     </div>
   )

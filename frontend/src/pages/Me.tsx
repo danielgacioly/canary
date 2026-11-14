@@ -12,7 +12,7 @@ export default function Me() {
   if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
   if (!d) return <Loading what="your health" />
   return (
-    <div className="page" style={{ gap: 0, paddingTop: 20 }}>
+    <div className="page" style={{ gap: 40 }}>
       <BodyView d={d} onCheck={setCheck} />
       {check && <Check kind={check} onClose={() => setCheck(null)} />}
     </div>

@@ -18,6 +18,7 @@ client = TestClient(app)
 def fresh():
     client.post("/api/demo/reset")
     yield
+    client.post("/api/demo/reset")
 
 
 def at(step):
@@ -129,3 +130,32 @@ def test_closing_an_emergency_creates_follow_up_goals_and_a_report():
     titles = [g["title"] for g in client.get("/api/goals/t").json()["personal"] if g["by"] == "medical"]
     assert titles and any("Glucose" in t for t in titles)
     assert any(m["kind"] == "report" for m in client.get("/api/messages").json())
+
+
+def test_plan_drives_the_place_and_goals():
+    client.post("/api/plan/preset", json={"preset": "iss"})
+    ms = client.put("/api/mission", json={"day": 100}).json()
+    assert ms["location"] == "iss" and ms["leg"]["label"].startswith("Expedition")
+    titles = [g["title"] for g in client.get("/api/goals/h").json()["personal"]]
+    assert any("treadmill" in t for t in titles) and any("cupola" in t for t in titles)
+    assert client.put("/api/mission", json={"day": 200}).json()["location"] == "earth"
+
+
+def test_custom_plan_is_validated_and_used():
+    bad = {"name": "x", "legs": [{"location": "earth", "start": 0, "end": 10}, {"location": "moon", "start": 5, "end": 20}]}
+    assert client.put("/api/plan", json=bad).status_code == 400
+    good = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
+                                          {"location": "moon", "start": 3, "end": 40, "label": "Base camp"}]}
+    assert client.put("/api/plan", json=good).status_code == 200
+    ms = client.put("/api/mission", json={"day": 10}).json()
+    assert ms["location"] == "moon" and ms["place"]["gravity"] == "1/6 g" and ms["leg"]["label"] == "Base camp"
+    assert any(p["variant"] for p in client.get("/api/protocols").json()["protocols"]["rad"]["steps"])
+
+
+def test_bone_loss_depends_on_gravity_in_the_plan():
+    client.post("/api/plan/preset", json={"preset": "mars"})
+    at(2)
+    mars = health.indicator("t", "bone", mission.state())["value"]
+    client.post("/api/plan/preset", json={"preset": "moon"})
+    moon = health.indicator("t", "bone", mission.state())["value"]  # day 147 is back on Earth after a short trip
+    assert mars < moon

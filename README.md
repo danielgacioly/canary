@@ -53,7 +53,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 18 backend tests (alerts, story, goals, assistant guard, API) and the frontend type check |
+| `make test` | 21 backend tests (alerts, story, mission plan, goals, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else) |
@@ -74,23 +74,46 @@ Other commands:
 
 ## What it does
 
-Four tabs, one job each. Everything else is one click away, never on screen at the same time.
+A sidebar with seven pages in three groups. Each page reads top to bottom like a dashboard: the most important thing first, details further down.
 
-| Tab | What you see |
+| Page | What you see |
 | --- | --- |
-| **Today** | The body on the left; on the right, one sentence on how you are, up to three numbered steps, and the body systems sorted by what needs attention. Physical and Mental are two buttons on the body, each with its score. Click any part of the body (or any row) and the right panel turns into that system: numbers against your normal, what space does there, what to do, goals. |
-| **Goals** | Tabs: Today (Physical or Mental), Crew missions, Ranking, Patches |
-| **Crew** | Tabs: People (one card per astronaut, sorted by attention), Body systems (person × system). Each person opens a page with the same body view, all numbers and patches |
-| **Mission** | Tabs: Where you are, Space weather (NASA DONKI), Radiation on Mars (Curiosity RAD), Link to Earth (delayed messages) |
+| **Intro** | Four beats of the canary story over a starfield while the body assembles, then "Who is at this terminal?" |
+| **Today** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals and the current mission leg. Click any part of the body or any tile and the top area becomes that system. |
+| **Goals** | Level, XP, streak and 7-day completion; physical and mental goals side by side; crew missions; patches |
+| **Crew** | Crew averages, one card per astronaut (sorted by attention), person × body-system matrix. Each person opens a page with the same body dashboard, all numbers and patches |
+| **Ranking** | Podium and weekly table by effort |
+| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, and the leg editor |
+| **Space weather** | NASA DONKI storm (Kp) and Curiosity RAD dose on Mars |
+| **Link to Earth** | Messages, briefings and reports with the real delay |
 
-Always reachable: **Hold for emergency** (top right) opens Guided Response; the **avatar menu** holds Switch crew member, Ask Canary, Medical console and About & data; the **demo bar** at the bottom drives the story.
+Always reachable: **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** and **About & data**; the **demo bar** at the bottom drives the story.
+
+### Mission plan
+
+A plan is a list of legs: place, first day, last day and what happens (day 0 is launch; negative days are pre-flight). Three presets ship with it: **Mars reference mission**, **Six months on the ISS** and **Lunar surface mission**, and any leg can be added, removed or edited.
+
+Every rule that depends on where the crew is asks the plan (`backend/canary/domain/plan.py`), so saving a plan re-adapts the whole system:
+
+| What changes | How |
+| --- | --- |
+| Gravity, radiation, communication delay, hospital distance | from the place of the current leg |
+| Exercise and "look homeward" goals | per place (2 h on the station or in cruise, suited walks on Mars, cupola on the ISS…) |
+| Alert rules | space sickness in the first 72 h of launch legs; re-adaptation in the first 30 days of partial gravity after a 0 g leg; no alerts before launch |
+| Bone model | full loss rate in 0 g, about 40% in partial gravity, slow recovery on Earth, accumulated day by day along the plan |
+| Mission dose | the daily dose of each place along the plan |
+| Guided Response | step variants for 0 g, partial gravity or Earth, and place-specific shelters |
+| Day label | L-30 before launch, Sol N on Mars counted from landing, Day N otherwise |
+
+The slider jumps to any day; every screen follows. The demo story bar returns to the scripted scenes.
 
 ### Design rules
 
 - Flat surfaces, no gradients, no glow, no glass. The hologram is the only luminous thing on screen.
 - Colour means state: green on track, amber watch, red act. One accent colour (blue) for what you can press.
 - Hierarchy by size, weight and space: one headline per screen, then the steps, then the details.
-- One thing at a time: tabs and a right panel that swaps content instead of showing everything at once.
+- Read top to bottom: the body and the verdict first, tiles next, details last. Clicking swaps the top area instead of opening more panels.
+- Motion has a job: an intro that tells the story, and content that arrives in order when a page opens.
 
 ### The three ideas behind it
 
@@ -112,7 +135,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | --- | --- | --- |
 | 1 | **L-30, Earth** | Canary is learning everyone's normal. No alerts. |
 | 2 | **Day 2, launch** | Tomás: fast pulse, little water. Space sickness alert with hydration goals. |
-| 3 | **Day 147, Mars transit** | Helena: sleep, mood, focus and crew time slipping together. Today opens on the Mental lens with the brain in red. Take the reaction test, or Ask why. |
+| 3 | **Day 147, Mars transit** | Helena: sleep, mood, focus and crew time slipping together. The brain is red on the body, the Mental tiles show the slide. Take the reaction test, or Ask why. |
 | 4 | **Day 152, replay of 10 May 2024** | NASA DONKI's real storm. Everyone to the shelter, radiation protocol. |
 | 5 | **Day 153, dinner** | Kenji's terminal. Tomás has a seizure: hold EMERGENCY, pick Seizure, follow the steps, close and report. Then see the follow-up goals and the report in the medical console. |
 | 6 | **Sol 12 on Mars, replay of 20 May 2024** | Curiosity RAD measured 51× the normal dose. Gravity re-adaptation for everyone. |
@@ -133,6 +156,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    ├─ domain/goals       daily goals, XP, levels, streaks, patches, crew missions, ranking
    ├─ domain/protocols   Guided Response bank, resolved by gravity and place
    ├─ domain/nasa        DONKI · Curiosity RAD · OSD-569 snapshot (+ optional live DONKI)
+   ├─ domain/plan        mission plan: itinerary legs, presets, location by day
    ├─ domain/mission     mission clock, place, demo story
    ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing
    └─ main.py            routes, medical sign-in (PIN → signed short-lived token)
@@ -243,10 +267,10 @@ backend/
     main.py              routes and medical sign-in
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, telemetry, health, goals, protocols, nasa, mission
+    domain/              catalog, plan, telemetry, health, goals, protocols, nasa, mission
     assistant/           the AI slot
     data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   18 tests
+  tests/test_canary.py   21 tests
   requirements.txt
 frontend/
   src/
@@ -255,7 +279,7 @@ frontend/
     hologram/            scene, shaders, procedural anatomy, React wrapper
     components/          shell, BodyView (body + observations), goals, charts, patches
     features/            Guided Response, Ask Canary, self-checks
-    pages/               Intro, Me, Crew, Astronaut, Goals, Ranking, Mission, Medical, About
+    pages/               Intro, Me (Today), Goals, Crew, Astronaut, Ranking, MissionPlan, Mission (space weather, link), Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
 data/prepare_nasa_data.py
@@ -271,7 +295,8 @@ Full, interactive documentation at `/docs`. The main routes:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/mission` · `PUT /api/mission` | Mission clock, place, story step |
+| `GET /api/mission` · `PUT /api/mission` | Mission clock (story step or any day), place, current leg |
+| `GET /api/plan` · `PUT /api/plan` · `POST /api/plan/preset` | Mission plan: itinerary legs, presets |
 | `GET /api/crew` · `GET /api/crew/{id}` | Crew overview · one astronaut: indicators, systems, alerts, trends, goals, profile, blood |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, XP · tick a goal |
 | `GET /api/leaderboard` | Ranking and crew missions |
@@ -292,7 +317,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | Best Use of Data | Three NASA datasets in the product, reproducible snapshot script, live DONKI option |
 | Best Use of Technology | Holographic WebGL body with clickable systems, typed API, tested assistant guard, offline-first design |
 | Galactic Impact | Works where help is far: Mars transit, Moon, and on Earth on ships, platforms and remote communities |
-| Best Mission Concept | A full day-147 to Sol-12 mission story, comm delay built into every message and report |
+| Best Mission Concept | A mission plan that re-adapts the whole system per leg (ISS, Moon, Mars), a day-147 to Sol-12 story, comm delay in every message and report |
 | Most Inspirational / Storytelling | The canary in the mine, the four-beat intro, the six-scene demo |
 | Global Connection | An international crew, a system meant for any agency or commercial crew |
 | Art & Technology | The hologram: iridescent shell, flowing vessels, a Mental lens that lights the nervous system |

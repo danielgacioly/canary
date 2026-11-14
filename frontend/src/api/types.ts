@@ -7,9 +7,13 @@ export interface Place {
   delay_s: number; reply: string; hospital: string; dose_rate: number; what: string
 }
 export interface StoryStep { loc: string; day: number; me: string; storm: string | null; when: string; text: string }
+export interface Leg { location: string; start: number; end: number; label: string }
+export interface LegNow extends Leg { index: number; day_in_leg: number; length: number; next: Leg | null; days_to_next: number | null }
+export interface Plan { name: string; legs: Leg[]; preset: string | null; presets: Record<string, string> }
 export interface Mission {
   step: number; steps: number; story: StoryStep; day: number; day_label: string
   location: string; place: Place; storm: string | null; suggested_user: string; learning: boolean
+  leg: LegNow; custom_day: boolean; location_override: boolean; plan_name: string
 }
 export interface CrewInfo { id: string; name: string; role: string; initials: string; home: string; age: number }
 export interface IndicatorDef { name: string; unit: string; area: Area; facet?: string; dir: string; sd: number; dp: number }

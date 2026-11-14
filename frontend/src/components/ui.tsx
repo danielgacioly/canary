@@ -1,5 +1,5 @@
 // Small shared pieces: icons, status, sparkline, line chart, mission patches.
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Level } from '../api/types'
 
 export const STATUS = ['On track', 'Watch', 'Act'] as const
@@ -11,6 +11,16 @@ const paths: Record<string, string> = {
   back: 'm15 6-6 6 6 6',
   send: 'm4 12 16-8-6 16-2.5-6.5L4 12Z',
   ask: 'M4 5h16v11H9l-5 4V5Z',
+  today: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9a7 7 0 0 1 14 0',
+  goals: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0-4a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z',
+  rank: 'M7 21V11m5 10V5m5 16v-7',
+  crew: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm-6 9a6 6 0 0 1 12 0m1.5-9a3 3 0 1 0 0-6m2.5 15a5 5 0 0 0-3-4.6',
+  plan: 'M4 6h4v4H4Zm12 8h4v4h-4ZM8 8h4a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2',
+  weather: 'M12 3v2m0 14v2M3 12h2m14 0h2M6 6l1.5 1.5m9 9L18 18M18 6l-1.5 1.5m-9 9L6 18M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+  link: 'M4 12a8 8 0 0 1 16 0M7.5 12a4.5 4.5 0 0 1 9 0M12 12v8',
+  med: 'M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6V4Z',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-11v6m0-9v.01',
+  plus: 'M12 5v14M5 12h14',
 }
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {
   return (
@@ -105,3 +115,22 @@ export function Tabs<T extends string>({ value, options, onChange }: { value: T;
     </div>
   )
 }
+
+/** Count up to a number when it first appears. */
+export function CountUp({ value, dp = 0, ms = 1100 }: { value: number; dp?: number; ms?: number }) {
+  const [v, setV] = useState(0)
+  useEffect(() => {
+    let raf = 0
+    const t0 = performance.now()
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms)
+      setV(value * (1 - Math.pow(1 - k, 3)))
+      if (k < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [value, ms])
+  return <>{v.toFixed(dp)}</>
+}
+
+export const PLACE_CLASS = (loc: string) => `p-${loc}`
