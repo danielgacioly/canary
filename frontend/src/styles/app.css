@@ -949,3 +949,17 @@ ul.recent li { display: grid; grid-template-columns: minmax(120px, 200px) 1fr au
   .story .dots button { flex: 1; width: auto; min-width: 4px; }
   .story > .small { font-size: 12px; }
 }
+
+/* ---------- assistant: structured answers and audit (AI layer, Phase 6) ---------- */
+.ask-group { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ask-group p { margin: 0; }
+.ask-limits { margin: 0; padding-left: 18px; }
+.ask-action { margin-top: 12px; }
+.ask-action:disabled { opacity: .55; cursor: not-allowed; }
+.ask-guard { margin: 10px 0 0; color: var(--dim); font-family: var(--f-mono); font-size: 12px; }
+.audit-list { display: flex; flex-direction: column; }
+.audit-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.audit-row:first-child { border-top: 0; }
+.audit-row .q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit-flags { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+.audit-flag { --c: var(--watch); font: 500 11px var(--f-mono); color: var(--c); }

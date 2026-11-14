@@ -1,19 +1,29 @@
 // The space for the on-board AI assistant. With no provider connected, answers come from
 // the same tools and guard a model would use, so the whole path can be tested today.
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { AssistantAnswer, AssistantStatus } from '../api/types'
+import type { AssistantAnswer, AssistantStatus, AssistantStatusValue, GuardReport, Observation, RecommendedAction } from '../api/types'
 import { Icon } from '../components/ui'
 import { useSession } from '../state/session'
 
 const MODE: Record<string, [string, string]> = {
   ai: ['AI answer', 's0'], grounded: ['Rule-based, from your data', 's0'], refused: ['Out of scope', 's1'],
   emergency: ['Emergency: use Guided Response', 's2'], unknown: ['Not in the data', 's1'],
+  fallback: ['Model unavailable: rule-based answer', 's1'],
 }
+// Any mode the backend adds later still renders instead of crashing.
+const modeOf = (m: string): [string, string] => MODE[m] ?? [m, 's1']
+const STATUS: Record<AssistantStatusValue, [string, string]> = {
+  supported: ['Supported by your data', 's0'], insufficient_evidence: ['Insufficient evidence', 's1'], out_of_scope: ['Out of scope', 's1'],
+}
+// kb:CARD-BRAIN@1#summary -> document, version, section (schema.md §6). Title and chunk text are not in the answer yet.
+const KB_RE = /^kb:([A-Z0-9-]+)@(\d+)#([a-z0-9-]+)$/
 const SUGGEST = ['How am I doing today?', 'Why is my sleep off?', 'What does space do to my bones?', 'Is my pulse normal?', 'Should I take melatonin?']
 
 export default function AskCanary({ onClose }: { onClose: () => void }) {
-  const { me, catalog, setEmergency } = useSession()
+  const { me, catalog, setEmergency, toast } = useSession()
+  const navigate = useNavigate()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [items, setItems] = useState<AssistantAnswer[]>([])
   const [q, setQ] = useState('')
@@ -37,8 +47,40 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
     if (kind === 'card') return `${catalog?.systems[a]?.name ?? a} card`
     if (kind === 'protocol') return `protocol ${a}`
     if (kind === 'nasa') return `NASA ${a.toUpperCase()}`
+    if (kind === 'kb') { const m = KB_RE.exec(id); return m ? `${m[1].toLowerCase()} v${m[2]}` : 'knowledge' }
     return kind
   }
+  const hover = (id: string) => {
+    const m = KB_RE.exec(id)
+    if (m) return `Approved knowledge · ${m[1]} · version ${m[2]} · section ${m[3]}`
+    if (id.startsWith('card:')) return `Body system card · ${id}`
+    if (id.startsWith('protocol:')) return `Guided Response protocol · ${id}`
+    return `From your data · ${id}`
+  }
+  const chips = (ids: string[]) => ids.map(s => <span key={s} className="cite" title={hover(s)}>{label(s)}</span>)
+  const group = (title: string, rows: Observation[]) => !!rows.length && (
+    <div className="ask-group"><span className="lbl">{title}</span>
+      {rows.map((r, k) => <p key={k}>{r.statement} {chips(r.source_ids)}</p>)}</div>
+  )
+  // The model picks one action from an allow-list (schema.md §6); each id maps to a flow that already exists.
+  const action = (ra: RecommendedAction) => {
+    const [kind, arg] = ra.id.split(':')
+    const btn = (onClick: () => void) => <button className="btn sm pri ask-action" onClick={onClick}>{ra.label}</button>
+    if (kind === 'goal') return btn(() => { onClose(); navigate('/me/goals') })
+    if (kind === 'protocol') return btn(() => { onClose(); setEmergency(true) })
+    if (kind === 'send_briefing' && me) return btn(async () => {
+      try { await api.briefing(me); toast('Briefing draft prepared. Review it in the medical console before it is queued for Earth.') }
+      catch { toast('Could not prepare the briefing right now.') }
+    })
+    const why = kind === 'contact_cmo' ? 'Talk to the crew medical officer in person or over crew comms. Messaging from here is not available yet.'
+      : `This action (${arg ?? kind}) is not available here yet.`
+    return <button className="btn sm ask-action" disabled title={why} aria-disabled="true">{ra.label}</button>
+  }
+  const guardNote = (g?: GuardReport) => g?.reason ? (
+    <p className="ask-guard small">Guard: {g.reason}
+      {!!g.dropped_claims && ` · ${g.dropped_claims} claim${g.dropped_claims > 1 ? 's' : ''} removed`}
+      {!!g.rejected_numbers.length && ` · numbers not in the data: ${g.rejected_numbers.join(', ')}`}</p>
+  ) : null
   return (
     <>
       <div className="scrim" style={{ background: 'rgba(2,3,7,.4)' }} onClick={onClose} />
@@ -63,10 +105,25 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
             <div key={a.id} className="col" style={{ gap: 8 }}>
               <div className="bubble me">{a.question}</div>
               <div className="bubble bot">
-                <span className={`status ${MODE[a.mode][1]}`}><span className="dot" />{MODE[a.mode][0]}</span>
-                {a.claims.length ? a.claims.map((c, k) => (
-                  <p key={k} style={{ marginTop: 6 }}>{c.text} {c.source_ids.map(s => <span key={s} className="cite" title={s}>{label(s)}</span>)}</p>
+                <div className="row wrap" style={{ gap: 10 }}>
+                  <span className={`status ${modeOf(a.mode)[1]}`}><span className="dot" />{modeOf(a.mode)[0]}</span>
+                  {a.status && STATUS[a.status] && <span className={`status ${STATUS[a.status][1]}`}>{STATUS[a.status][0]}</span>}
+                </div>
+                {a.observations || a.explanations ? (
+                  <>
+                    {a.answer && <p style={{ marginTop: 6 }}>{a.answer}</p>}
+                    {group('Observed', a.observations ?? [])}
+                    {group('Possible explanations', a.explanations ?? [])}
+                  </>
+                ) : a.claims.length ? a.claims.map((c, k) => (
+                  <p key={k} style={{ marginTop: 6 }}>{c.text} {chips(c.source_ids)}</p>
                 )) : <p style={{ marginTop: 6 }}>{a.answer}</p>}
+                {!!a.limitations?.length && (
+                  <div className="ask-group"><span className="lbl">Limitations</span>
+                    <ul className="ask-limits small muted">{a.limitations.map((l, k) => <li key={k}>{l}</li>)}</ul></div>
+                )}
+                {a.recommended_action && a.mode !== 'emergency' && action(a.recommended_action)}
+                {guardNote(a.guard)}
                 {a.mode === 'emergency' && <button className="btn sm" style={{ marginTop: 10 }} onClick={() => { onClose(); setEmergency(true) }}>Open Guided Response</button>}
                 {!!a.tools_used.length && <p className="small dim" style={{ marginTop: 8 }}>Tools: {a.tools_used.map(t => t.tool).join(', ')}</p>}
               </div>

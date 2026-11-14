@@ -6,6 +6,27 @@ import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
+/* ---------------------------------------------------------------------------------------------
+ * PLACEHOLDER (AI layer Phase 6): the audit route and its type are not in api/client.ts / api/types.ts yet.
+ * Expected: GET /api/medical/assistant-audit?limit=30 (medical token) -> AssistantAuditEntry[].
+ * Replace with api.assistantAudit() once Wave 3 adds it. Any error (404, 401, network) shows the empty state.
+ * ------------------------------------------------------------------------------------------- */
+interface AssistantAuditEntry {
+  id: number; crew_id: string; question: string; created_at: number
+  mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
+  tools: string[]; guard_flags: string[]; latency_ms: number | null
+}
+async function fetchAssistantAudit(limit = 30): Promise<AssistantAuditEntry[]> {
+  let token: string | null = null
+  try { token = sessionStorage.getItem('canary.med') } catch { /* storage blocked */ }
+  try {
+    const r = await fetch(`/api/medical/assistant-audit?limit=${limit}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    if (!r.ok) return []
+    const j: unknown = await r.json()
+    return Array.isArray(j) ? (j as AssistantAuditEntry[]) : []
+  } catch { return [] }
+}
+
 const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
 
 export default function Medical() {
@@ -52,6 +73,10 @@ function PinGate({ onOk }: { onOk: () => void }) {
 
 function Triage({ ov }: { ov: MedicalOverview }) {
   const inds = Object.keys(ov.crew[0].indicators)
+  const { rev } = useSession()
+  const [audit, setAudit] = useState<AssistantAuditEntry[] | null>(null)
+  useEffect(() => { fetchAssistantAudit().then(setAudit) }, [rev])
+  const turnsOf = (id: string) => (audit ?? []).filter(t => t.crew_id === id)
   return (
     <>
       <div className="grid g4">{ov.crew.map(c => (
@@ -60,6 +85,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           <span className="small muted">{c.role}</span>
           <div className="ops-line"><span className="lbl">Operational status</span>
             <span className={`status s${c.ops.level}`}><span className="dot" />{c.ops.label}</span></div>
+          {!!turnsOf(c.id).length && <span className="small dim">Assistant: {turnsOf(c.id).length} recent · {turnsOf(c.id).filter(t => t.guard_flags.length).length} flagged</span>}
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}
         </div>))}</div>
@@ -72,7 +98,29 @@ function Triage({ ov }: { ov: MedicalOverview }) {
               {ov.crew.map(c => { const i = c.indicators[k]; return <td key={c.id} className={`num s${i.level}`}><span className={i.level ? 'c' : ''}>{i.value.toFixed(i.dp)}</span> <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span></td> })}</tr>))}</tbody>
         </table></div>
       </section>
+      <AssistantAudit audit={audit} ov={ov} />
     </>
+  )
+}
+
+function AssistantAudit({ audit, ov }: { audit: AssistantAuditEntry[] | null; ov: MedicalOverview }) {
+  const name = (id: string) => ov.crew.find(c => c.id === id)?.name.split(' ')[0] ?? id
+  return (
+    <section className="card">
+      <div className="head"><h2>Assistant audit</h2><span className="small muted">recent questions · tools used · guard flags</span></div>
+      {audit === null ? <span className="lbl">Loading…</span> : !audit.length ? (
+        <p className="muted">No assistant turns recorded yet.</p>
+      ) : (
+        <div className="audit-list">{audit.map(t => (
+          <div key={t.id} className="audit-row small">
+            <span className="q"><b>{name(t.crew_id)}</b> <span className="muted">{t.question}</span></span>
+            <span className="num dim">{new Date(t.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="dim">{t.mode}{t.status ? ` · ${t.status.replace(/_/g, ' ')}` : ''}{t.provider ? ` · ${t.provider}` : ''}{t.kb_version ? ` · kb ${t.kb_version}` : ''}{t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}</span>
+            <span className="dim">{t.tools.length ? t.tools.join(', ') : 'no tools'}</span>
+            {!!t.guard_flags.length && <div className="audit-flags">{t.guard_flags.map(f => <span key={f} className="audit-flag">{f}</span>)}</div>}
+          </div>))}</div>
+      )}
+    </section>
   )
 }
 
