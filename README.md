@@ -122,8 +122,9 @@ How the API enforces it:
 - `GET /api/crew/overview` is the only crew-wide view: participation (goals done today, streaks), hazards, crew missions. No status, indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
 - `GET /api/crew/{id}` answers only the astronaut (session token) and the medical team (bearer token). There is no sharing switch: health never leaves those two.
 - Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. `GET /api/crew` with full summaries is medical-only.
-- Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status.
-- If the medical officer is the patient, their alerts go to the substitute (the commander).
+- Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status. After a closed emergency the status is at least the protocol's `ops` until the end of the care window, with `reason` and `until_day` (see [After an emergency](#after-an-emergency-and-who-is-told)).
+- **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per episode (`crew_id`, `alert_id`, `since_day`); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The list is in `GET /api/medical/overview` → `notices`.
+- Guided Response itself is a crew-wide event (the whole crew is alerted, and `GET /api/emergencies` lists protocol, patient and outcome as before). What follows it, the care window, the restricted status and the tightened thresholds, is private to the person and the medical team (`care_events` in `GET /api/crew/{id}` and the medical overview).
 
 ### Mission plan
 
@@ -242,7 +243,7 @@ observation(day) ─►  recent = 60% today + 25% yesterday + 15% day before
 baseline (pre-flight) ──┤  z = (recent − baseline) / personal spread
                         ▼
               level 0 / 1 / 2  by the medical team's thresholds (default 1.5σ / 2.5σ)
-                        │
+                        │  (× 0.8 for the patient inside the care window after an emergency)
 slow slide? ────────────┤  a line through the last 14 days crosses the level-1 limit within 10 days  →  "drifting towards your limit"
                         ▼
 RISK (domain/risk.py) ──┤  evidence from every related indicator and check-in, added up with a weight table
@@ -253,6 +254,8 @@ cross-signal rules ─────┤  fatigue level 2  →  the `behaviour` ale
                         ▼
          alert = { what it means, what to do now, goals added, sources }
                         │
+   personal level 2 ────┤  one message to the medical officer (or the substitute) per episode, one delayed note for Earth
+      (domain/notify.py)│
                         ▼
    advice accepted ──────┤  goal + what to verify (indicator, days)  →  checked on its day: improved / same / worse
       (domain/advice.py)│  two rounds in a row without improvement  →  another suggestion + one message to the medical officer
@@ -296,6 +299,18 @@ Example, Helena:
 4. **Escalation.** The suggestions list then shows *Change one thing in your day, not three* (or another alternative), and Kenji's inbox has one `advice` message. Asking again for the same day, or any later day until a new round ends, shows the same alternative and sends nothing more.
 
 Alerts also last: each has `since_day`, `days_active` (found by walking back day by day, at most 60 days, cached, never stored) and `seen`. `POST /api/alerts/{crew}/{alert}/seen` marks the current episode; if the alert goes away and comes back it is a new episode and not seen. While the fatigue risk is at level 1 or 2 the day's exercise goal is lighter and says why (`adjusted: {pct, minutes, target, reason, max_pct}`), by the percentage the medical team sets in `PUT /api/medical/exercise-adjust` (default 15% at level 1 and 30% at level 2, never above `max_pct`). Canary never goes beyond that limit and does not prescribe.
+
+### After an emergency, and who is told
+
+Each protocol in `data/protocols.json` carries `window_days` (the care window, whole days, rounded up from the text of `after`), `ops` (`full`, `limited` or `rest`) and `after_days` (days of each follow-up item; empty means the window). `GET /api/protocols` returns them as `window_days`, `ops` and `after_items: [{title, days}]` next to the unchanged `after`. Closing an emergency on day D (`POST /api/emergencies/{id}` with `close`, once; closing again changes nothing):
+
+- each follow-up goal lasts its own days (seizure: glucose 1 day, no critical task 3 days, medication review 1 day; radiation: blood count 7 days);
+- a row in `care_events` records protocol, day and outcome (origin `user`, source `emergency:{id}`); it is shown as `care_events` in `GET /api/crew/{id}` and in the medical overview, newest first;
+- the window runs from D to D + `window_days`, both days included. The mission clock has a resolution of one day, so a seizure closed on day 153 restricts days 153 to 156 and the patient is back to normal on 157. Everything is a function of the day asked about: moving the clock back before D shows no event;
+- `ops` in the patient's `operational status` is at least the protocol's, and says `reason` and `until_day` (the last restricted day);
+- the patient's thresholds are multiplied by `factor` (default 0.8: 1.5σ becomes 1.2σ and 2.5σ becomes 2.0σ) for every indicator, and `sensitive_until` appears on those indicators. Nobody else's thresholds change. The medical team sets it with `PUT /api/medical/care-sensitivity {factor}` (0.5 to 1.0).
+
+`notify.sync` runs in the routes that write (`PUT /api/mission`, `POST /api/checkins` for that person, and the close of an emergency), never in a GET, and writes nothing twice: the `notices` primary key is the episode. An alert that stays active longer than the 60-day look-back is the same episode for notices.
 
 ### Where a value comes from and how old it is
 
@@ -470,6 +485,8 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/advice/{id}` | The advice loop: advice in progress and concluded with the outcome, and the escalation (the person and the medical team only) |
 | `POST /api/alerts/{id}/{alert}/seen` | Mark today's episode of an alert as seen (the person only) |
 | `GET/PUT /api/medical/exercise-adjust` | Maximum lightening of the day's exercise under fatigue (medical console) |
+| `GET/PUT /api/medical/care-sensitivity` | How much tighter the patient's thresholds are during the care window after an emergency (medical console) |
+| `GET /api/medical/overview` → `notices`, `care_events` | Critical alerts sent to the medical officer, and each person's closed emergencies (medical console) |
 | `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence (fatigue so far) |
 | `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
@@ -509,6 +526,7 @@ Full, interactive documentation at `/docs`. The main routes:
 - **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
 - **Risk layer (prototype assumptions, `verified: false`):** the fatigue weights, the cuts (2.0 and 4.0 points), the minimum of 3 signals, the 2-day sustain rule, the 3-day trend (±0.5), the drift window (14 days, 10 days ahead, minimum slope 0.08 spreads a day) and the 60-day look-back. They were tuned on the simulated crew, not on flight data. The Physical and Mental readiness scores are also a design choice (18 points per spread beyond 0.6, minus 6 per level of eyes, skin and immune), not a published score.
 - **Advice loop (prototype assumptions, `verified: false`):** the `verify` pairs (indicator and days for each alert goal and suggestion), the 0.5-spread margin and the 3-day average that decide improved / same / worse, the rule of two rounds, the alternative steps per risk, the 60-day look-back of `days_active` and the default exercise reductions (15% and 30%, at most 30%). The reductions are placeholders for the flight surgeon; nothing here has been clinically reviewed.
+- **Care windows (prototype assumptions, `verified: false`):** every `window_days`, `ops` and `after_days` in `protocols.json` is read from the illustrative text of `after` and rounded up to whole days (`care_note`); the 0.8 sensitivity factor (adjustable, no published rule says how much tighter a recovering patient should be watched); the radiation protocol as `full` (follow-up tests, no restriction). Windows are in whole days because the mission clock is. Critical alerts reach the medical officer when a write route runs `notify.sync`, not by a background clock, because nothing in the system depends on real time.
 - **Reference ranges to verify:** every entry of `reference.POPULATION` is `verified: false` (table above). Simulated glucose of Tomás sits just above 99 mg/dL on a few isolated days (level 1, none in a story scene).
 - **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
