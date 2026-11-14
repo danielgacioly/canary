@@ -404,6 +404,7 @@ def crew_record(crew_id: str, v: dict = Depends(viewer)):
     age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
     bmi = round(r["weight_kg"] / (r["height_cm"] / 100) ** 2, 1)
     return {**r, "name": c["name"], "role": c["role"], "home": c["home"], "age": age, "bmi": bmi,
+            "eva": standards.eva_role(crew_id), "prior_dose": standards.prior_dose(crew_id),  # recorded, or estimated from the days in space
             "date_today": today.isoformat(), "registered_by": "Mission Control", "registered_on": "L-180"}
 
 
