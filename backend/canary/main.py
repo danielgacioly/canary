@@ -22,12 +22,13 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, plan, privacy, protocols, selftests, telemetry
-from .domain.catalog import CAREER_LIMIT_MSV, LAUNCH_DATE, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain import goals, health, mission, nasa, plan, privacy, protocols, registry, selftests, telemetry
+from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
 async def lifespan(_app):
     db.connect()
+    registry.load()
     yield
 
 
@@ -166,6 +167,7 @@ def put_mission(body: MissionIn):
 def demo_reset():
     db.reset()
     plan.reset_cache()
+    registry.load()
     auth.clear_failures()
     return mission.state()
 
@@ -317,7 +319,7 @@ def crew_record(crew_id: str, v: dict = Depends(viewer)):
     require_self(crew_id, v)
     r = RECORDS[crew_id]
     ms = mission.state()
-    today = date.fromisoformat(LAUNCH_DATE) + timedelta(days=ms["day"])
+    today = date.fromisoformat(registry.launch_date()) + timedelta(days=ms["day"])
     dob = date.fromisoformat(r["dob"])
     age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
     bmi = round(r["weight_kg"] / (r["height_cm"] / 100) ** 2, 1)
@@ -662,6 +664,135 @@ def med_goals():
 def del_med_goal(gid: int):
     db.x("DELETE FROM medical_goals WHERE id=?", (gid,))
     return med_goals()
+
+
+# ---------------------------------------------------------------- mission overview (public) and Canary Control (Mission Control)
+@app.get("/api/mission/overview", tags=["mission"])
+def mission_overview():
+    """General information about the mission and the crew as a whole. Public on board: no health data."""
+    ms = mission.state()
+    info = registry.mission_info() or {}
+    p = plan.get()
+    launch = date.fromisoformat(registry.launch_date())
+    dest = next((l for l in reversed(p["legs"]) if l["location"] not in ("earth", "rocket")), p["legs"][-1])
+    crew = [{**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
+             **{k: RECORDS.get(c["id"], {}).get(k) for k in ("nationality", "agency", "languages", "flights", "days_in_space")}}
+            for c in CREW]
+    return {"registered": registry.registered(), "callsign": info.get("callsign"), "name": p["name"],
+            "launch_date": launch.isoformat(), "today_date": (launch + timedelta(days=ms["day"])).isoformat(),
+            "destination": LOCATIONS[dest["location"]]["name"], "flight_days": p["legs"][-1]["end"] + 1,
+            "legs": p["legs"], "mission": ms, "crew": crew}
+
+
+def _control_sig(exp: int) -> str:
+    return hmac.new(settings.token_secret.encode(), f"control:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def require_control(x_canary_control: Optional[str] = Header(None)) -> None:
+    try:
+        tag, exp, sig = (x_canary_control or "").split(".")
+        if tag != "control" or int(exp) < time.time() or not hmac.compare_digest(sig, _control_sig(int(exp))):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(401, "Mission Control sign-in required")
+
+
+@app.post("/api/control/session", tags=["control"])
+def control_session(body: PinIn):
+    if auth.locked("control"):
+        raise HTTPException(429, "too many attempts, wait a minute")
+    if not hmac.compare_digest(body.pin, settings.control_pin):
+        auth.fail("control")
+        raise HTTPException(401, "wrong PIN")
+    exp = int(time.time() + settings.token_ttl_s)
+    return {"token": f"control.{exp}.{_control_sig(exp)}", "expires_at": exp}
+
+
+@app.get("/api/control/overview", tags=["control"], dependencies=[Depends(require_control)])
+def control_overview():
+    """What Earth follows: operational status as the medical team reports it, participation, hazards, traffic."""
+    ms = mission.state()
+    board = goals.crew_board(ms["day"]) if CREW else {"people": {}}
+    people = []
+    for c in CREW:
+        s = health.snapshot(c["id"], ms)
+        last = db.q("SELECT day FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 1", (c["id"],))
+        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": privacy.operational(s),
+                       "today": board["people"].get(c["id"]), "last_checkin_day": last[0]["day"] if last else None})
+    env = [a for a in (health.snapshot(CREW[0]["id"], ms)["alerts"] if CREW else []) if a.get("env")]
+    return {"registered": registry.registered(), "mission": ms, "overview": mission_overview(), "people": people,
+            "ridge": privacy.ridge(ms["location"], ms["storm"]), "warnings": [{k: a[k] for k in ("title", "todo")} for a in env],
+            "dose": health.dose(ms), "emergencies": emergencies()[:5]}
+
+
+@app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
+def control_demo():
+    """What the 'fill with the demo crew' button puts in the form."""
+    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
+
+
+class SeatIn(BaseModel):
+    seat: str = Field(pattern="^(h|k|a|t)$")
+    name: str = Field(min_length=2, max_length=80)
+    role: str = Field(min_length=2, max_length=60)
+    home: str = Field(default="", max_length=80)
+    pin: str = Field(pattern=r"^\d{4}$")
+    dob: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    sex: str = ""
+    nationality: str = ""
+    languages: List[str] = []
+    agency: str = ""
+    flights: int = Field(default=0, ge=0, le=20)
+    days_in_space: int = Field(default=0, ge=0, le=2000)
+    height_cm: float = Field(default=170, ge=120, le=220)
+    weight_kg: float = Field(default=70, ge=35, le=160)
+    blood_type: str = ""
+    skin_type: str = Field(default="III", pattern="^(I|II|III|IV|V|VI)$")
+    handedness: str = "Right"
+    vision: str = ""
+    allergies: List[str] = []
+    medications: List[str] = []
+    conditions: List[str] = []
+    diet: str = ""
+    vaccinations: str = ""
+    emergency_contact: str = ""
+
+
+class MissionRegIn(BaseModel):
+    callsign: str = Field(min_length=2, max_length=40)
+    name: str = Field(min_length=2, max_length=80)
+    launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    preset: str
+
+
+class RegisterIn(BaseModel):
+    crew: List[SeatIn]
+    mission: MissionRegIn
+
+
+@app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
+def control_register(body: RegisterIn):
+    """Register the four crew seats and the mission, then start the mission clock from the beginning."""
+    if body.mission.preset not in plan.PRESETS:
+        raise HTTPException(400, "unknown mission profile")
+    crew = [s.model_dump() for s in body.crew]
+    try:
+        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], body.mission.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    for p in crew:
+        auth.set_pin(p["seat"], p["pin"])
+    plan.use_preset(body.mission.preset)
+    plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
+    mission.set_step(0)
+    return control_overview()
+
+
+@app.post("/api/control/clear", tags=["control"], dependencies=[Depends(require_control)])
+def control_clear():
+    """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
+    registry.clear()
+    return control_overview()
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)

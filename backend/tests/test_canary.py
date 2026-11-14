@@ -351,3 +351,38 @@ def test_my_information_is_private_and_ages_with_the_mission():
     assert client.get("/api/crew/h/record", headers=as_("k")).status_code == 403
     tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
     assert client.get("/api/crew/h/record", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
+
+
+def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
+    assert client.post("/api/control/session", json={"pin": "0000"}).status_code == 401
+    assert client.get("/api/control/overview").status_code == 401
+    med = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    assert client.get("/api/control/overview", headers={"X-Canary-Control": med}).status_code == 401  # a medical token is not a control token
+    c = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    assert client.get("/api/mission/overview").json()["callsign"] == "Odyssey 1"
+
+    o = client.post("/api/control/clear", headers=c).json()
+    assert o["registered"] is False and o["people"] == [] and client.get("/api/catalog").json()["crew"] == []
+    assert client.get("/api/mission").json()["registered"] is False
+
+    demo = client.get("/api/control/demo", headers=c).json()
+    crew = demo["crew"]
+    crew[0] = {**crew[0], "name": "Ana Lima", "pin": "2468"}
+    o = client.post("/api/control/register", headers=c, json={"crew": crew, "mission": {**demo["mission"], "callsign": "Kestrel 2", "preset": "iss"}}).json()
+    assert o["registered"] and o["overview"]["callsign"] == "Kestrel 2" and o["mission"]["step"] == 0
+    assert any(p["name"] == "Ana Lima" and p["initials"] == "AL" for p in client.get("/api/catalog").json()["crew"])
+    assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
+    assert client.get("/api/plan").json()["preset"] == "iss"
+
+    client.post("/api/demo/reset")
+    assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
+
+
+def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
+    at(2)  # transit: 10 minutes each way, 20x faster in the demo = 15 s
+    client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Confirm the crew is in the shelter."})
+    client.post("/api/messages", json={"sender": "ship medical team", "recipient": "mission-control", "text": "All four in the shelter."})
+    msgs = client.get("/api/messages").json()
+    out = next(m for m in msgs if m["sender"] == "mission-control")
+    back = next(m for m in msgs if m["recipient"] == "mission-control")
+    assert not out["delivered"] and 10 <= out["eta_s"] <= 15 and back["text"].startswith("All four")

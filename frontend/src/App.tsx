@@ -5,7 +5,9 @@ import Astronaut from './pages/Astronaut'
 import Crew from './pages/Crew'
 import Intro from './pages/Intro'
 import MySpace from './pages/MySpace'
+import Control from './pages/Control'
 import Medical from './pages/Medical'
+import MissionInfo from './pages/MissionInfo'
 import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
 import Settings from './pages/Settings'
@@ -21,6 +23,7 @@ export default function App() {
     <Routes>
       <Route path="/welcome" element={<Intro />} />
       <Route path="/setup" element={<Setup />} />
+      <Route path="/control" element={<Control />} />
       <Route element={<Shell />}>
         <Route path="/me" element={<MySpace />} />
         <Route path="/me/:tab" element={<MySpace />} />
@@ -34,7 +37,7 @@ export default function App() {
         <Route path="/plan" element={<MissionPlan />} />
         <Route path="/space-weather" element={<Navigate to="/crew" replace />} />
         <Route path="/link" element={<Navigate to="/crew" replace />} />
-        <Route path="/mission" element={<Navigate to="/plan" replace />} />
+        <Route path="/mission" element={<MissionInfo />} />
         <Route path="/medical" element={<Medical />} />
         <Route path="/about" element={<About />} />
       </Route>

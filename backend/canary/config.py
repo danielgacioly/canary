@@ -37,6 +37,7 @@ class Settings:
     medical_pin: str = _medical_pin(os.environ.get("CANARY_MEDICAL_PIN", "1961"))
     # Default PIN of each crew member's private space ("id:pin,..."). A PIN changed in the app is stored hashed
     # in the settings table and wins over this default until the demo is reset.
+    control_pin: str = _medical_pin(os.environ.get("CANARY_CONTROL_PIN", "4242"))
     crew_pins: Dict[str, str] = _pins(os.environ.get("CANARY_CREW_PINS", "h:1001,k:1002,a:1003,t:1004"))
     token_secret: str = os.environ.get("CANARY_TOKEN_SECRET", secrets.token_hex(16))
     token_ttl_s: int = int(os.environ.get("CANARY_TOKEN_TTL", "3600"))
