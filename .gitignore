@@ -12,6 +12,8 @@ backend/.cache/
 # Node
 frontend/node_modules/
 frontend/dist/
+# Vite dependency cache
+frontend/.vite/
 # Local
 .DS_Store
 .env
