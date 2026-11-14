@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 81 backend tests (alerts, risks, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 91 backend tests (alerts, risks, advice, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -237,6 +237,9 @@ cross-signal rules ─────┤  fatigue level 2  →  the `behaviour` ale
          alert = { what it means, what to do now, goals added, sources }
                         │
                         ▼
+   advice accepted ──────┤  goal + what to verify (indicator, days)  →  checked on its day: improved / same / worse
+      (domain/advice.py)│  two rounds in a row without improvement  →  another suggestion + one message to the medical officer
+                        ▼
    body system status = the highest risk level acting on it (one indicator alone: watch at most,
    unless past the population safety limit)  →  colour on the 3D body  →  physical / mental readiness score
 ```
@@ -259,6 +262,23 @@ Level 1 from 2.0 points. Level 2 from 4.0 points **and** at least 3 distinct sig
 The suggestions use the same layer: each one is decided by the level of the indicator it cites, the risk evidence and the weekly goal counts, with no limits of their own, so a suggestion never contradicts an alert.
 
 Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. The baseline in that formula is the person's pre-flight mean, and a population range can raise the level by itself (see "Reference ranges and their sources"). Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
+
+### The advice loop
+
+Every alert goal and every suggestion says what it is meant to move: `verify: {indicator, after_days}` (for example `al_screens` verifies `sleep` after 3 days, the sleep suggestion verifies `sleep` after 7). When the person ticks an alert goal for the first time, or accepts a suggestion, Canary opens a small experiment in the `advice` table: trigger, action, `start_day`, `check_day = start_day + after_days` and `start_bad`, how far the indicator was from the person's own normal (mean of the last three days, in personal spreads, higher is worse). The rows are written only by routes that change something, never by a GET.
+
+An outcome is a function of the mission day asked about, so the demo clock can jump anywhere: before `check_day` it is `pending`; from `check_day` on it compares the deviation at `check_day` with `start_bad`: `improved` (0.5 spreads better or more), `worse` (0.5 or more) or `same`. The same day always gives the same answer.
+
+Two **rounds** in a row without improvement for the same risk (a round is what was started on the same day; one improved advice saves the round) escalate: the suggestions list gets one different step from a per-risk list (`advice.ALTERNATIVES`, id `alt_fatigue`), and **one** message of kind `advice` goes to the crew medical officer (or the substitute when the patient is the medical officer), written the first time a write route sees it. It never repeats. Advice messages are not shown to the rest of the crew, only to the recipient and the medical console.
+
+Example, Helena:
+
+1. **Day 147.** The fatigue risk is at level 2. She accepts *Protect your sleep window*. Canary stores `start_bad` 2.81 and `check_day` 154. On day 149 `GET /api/advice/h` says `pending`, and the goal carries `advice: {status: "pending", check_day: 154}`.
+2. **Day 154.** The check runs: her sleep is 4.11 spreads from normal against 2.81 at the start, `worse`. The goal row reads "Checked on day 154: worse".
+3. **Round two.** She tries another step on day 154 (say breathing, verifying stress after 7 days). On day 161 stress is still not better: a second round without improvement.
+4. **Escalation.** On day 161 the suggestions list shows *Change one thing in your day, not three* (or another alternative), and Kenji's inbox has one `advice` message. Asking again for day 161, or any later day until a new round ends, shows the same alternative and sends nothing more.
+
+Alerts also last: each has `since_day`, `days_active` (found by walking back day by day, at most 60 days, cached, never stored) and `seen`. `POST /api/alerts/{crew}/{alert}/seen` marks the current episode; if the alert goes away and comes back it is a new episode and not seen. While the fatigue risk is at level 1 or 2 the day's exercise goal is lighter and says why (`adjusted: {pct, minutes, target, reason, max_pct}`), by the percentage the medical team sets in `PUT /api/medical/exercise-adjust` (default 15% at level 1 and 30% at level 2, never above `max_pct`). Canary never goes beyond that limit and does not prescribe.
 
 ### Where a value comes from and how old it is
 
@@ -427,6 +447,9 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET/POST /api/messages` | Messages with communication delay |
 | `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |
 | `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data (used by alerts and the story; no page of their own) |
+| `GET /api/advice/{id}` | The advice loop: advice in progress and concluded with the outcome, and the escalation (the person and the medical team only) |
+| `POST /api/alerts/{id}/{alert}/seen` | Mark today's episode of an alert as seen (the person only) |
+| `GET/PUT /api/medical/exercise-adjust` | Maximum lightening of the day's exercise under fatigue (medical console) |
 | `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence (fatigue so far) |
 | `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
@@ -465,6 +488,7 @@ Full, interactive documentation at `/docs`. The main routes:
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
 - **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
 - **Risk layer (prototype assumptions, `verified: false`):** the fatigue weights, the cuts (2.0 and 4.0 points), the minimum of 3 signals, the 2-day sustain rule, the 3-day trend (±0.5), the drift window (14 days, 10 days ahead, minimum slope 0.08 spreads a day) and the 60-day look-back. They were tuned on the simulated crew, not on flight data. The Physical and Mental readiness scores are also a design choice (18 points per spread beyond 0.6, minus 6 per level of eyes, skin and immune), not a published score.
+- **Advice loop (prototype assumptions, `verified: false`):** the `verify` pairs (indicator and days for each alert goal and suggestion), the 0.5-spread margin and the 3-day average that decide improved / same / worse, the rule of two rounds, the alternative steps per risk, the 60-day look-back of `days_active` and the default exercise reductions (15% and 30%, at most 30%). The reductions are placeholders for the flight surgeon; nothing here has been clinically reviewed.
 - **Reference ranges to verify:** every entry of `reference.POPULATION` is `verified: false` (table above). Simulated glucose of Tomás sits just above 99 mg/dL on a few isolated days (level 1, none in a story scene).
 - **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
