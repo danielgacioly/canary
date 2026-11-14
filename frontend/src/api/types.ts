@@ -35,7 +35,8 @@ export interface SystemState { id: string; name: string; area: Area; level: Leve
 export interface AlertGoal { id: string; area: Area; title: string }
 export interface Alert {
   id: string; level: Level; title: string; why: string; todo: string[]; sys?: string | null
-  protocol?: string; test?: string; env?: boolean; data?: boolean; risk?: string; sources: string[]; goals: AlertGoal[]
+  protocol?: string; test?: string; env?: boolean; data?: boolean; risk?: string
+  since_day?: number; days_active?: number; seen?: boolean; sources: string[]; goals: AlertGoal[]
 }
 export interface RiskEvidence {
   indicator?: string; checkin?: string; text: string; value: number | null; baseline: number | null; z: number | null
@@ -50,6 +51,18 @@ export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_
 export interface Goal {
   id: string; area: Area; title: string; why: string; sys?: string | null
   action?: string | null; by: 'routine' | 'alert' | 'medical' | 'suggestion'; done: boolean
+  verify?: { indicator: string; after_days: number }
+  advice?: { status: AdviceStatus; check_day: number }
+  adjusted?: { pct: number; minutes: number; target: number; reason: 'fatigue'; max_pct: number }
+}
+export type AdviceStatus = 'pending' | 'improved' | 'same' | 'worse'
+export interface AdviceItem {
+  goal_id: string; origin: 'alert' | 'suggestion'; indicator: string; risk: string | null
+  start_day: number; check_day: number; start_bad: number; status: AdviceStatus; bad_at_check?: number
+}
+export interface AdviceResponse {
+  day: number; active: AdviceItem[]; done: AdviceItem[]; margin: number
+  escalation: { risk: string; key: string; alternative: { id: string; title: string } }[]
 }
 export interface Badge { id: string; name: string; desc: string; area: string; progress: number; need: number; earned: boolean }
 export interface Profile {
