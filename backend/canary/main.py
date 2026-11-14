@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, goals, health, mission, nasa, plan, privacy, protocols, registry, selftests, telemetry
+from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, telemetry
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
@@ -160,8 +160,10 @@ def put_mission(body: MissionIn):
             mission.set_location(None if body.clear_location else body.location)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    advice.sync_all(mission.state()["day"])  # an advice concluded by the new day may call for a message to the medical officer
-    return mission.state()
+    ms = mission.state()
+    advice.sync_all(ms["day"])  # an advice concluded by the new day may call for a message to the medical officer
+    notify.sync(ms)  # a new critical alert reaches the medical officer, once per episode
+    return ms
 
 
 @app.post("/api/demo/reset", tags=["mission"])
@@ -310,7 +312,8 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
             "profile": goals.profile(crew_id, ms["day"]),
             "blood": nasa.blood(c["cbc_subject"]), "events": events,
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
-            "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access}
+            "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access,
+            "care_events": care.events(crew_id, ms["day"])}
 
 
 @app.get("/api/crew/{crew_id}/record", tags=["crew"])
@@ -439,6 +442,7 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     if g:
         goals.set_done(body.crew_id, g, day, True)
     advice.sync(body.crew_id, day)
+    notify.sync(mission.state(), [body.crew_id])
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
             "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
@@ -504,20 +508,23 @@ def emergency_event(eid: int, body: EmergencyEvent):
         db.x("UPDATE emergencies SET patient=? WHERE id=?", (body.patient, eid))
     if body.text:
         log.append([t, body.text])
-    if body.close:
+    if body.close and not _emergency(eid)["ended_at"]:  # closing twice does not repeat goals, window or report
         ms = mission.state()
         e = _emergency(eid)
         db.x("UPDATE emergencies SET ended_at=?, outcome=? WHERE id=?", (time.time(), body.outcome or "stable", eid))
         log.append([t, f"Closed: {body.outcome or 'stable'}"])
         if e["protocol"] and e["patient"]:
-            after = protocols.resolve(ms["location"])["protocols"][e["protocol"]]["after"]
-            for a in after:
+            for item in protocols.care(e["protocol"])["after_items"]:  # each follow-up lasts the days its text gives
                 db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (e["patient"], "physical", a, "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + 3, time.time()))
+                     (e["patient"], "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
+            care.open_window(e, ms["day"], body.outcome or "stable")
         delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
         report = f"Guided Response report: {e['protocol'] or 'triage'}, patient {e['patient'] or 'unknown'}, outcome {body.outcome or 'stable'}, {len(log)} logged steps."
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
              (e["responder"] or "crew", "earth", "report", report, time.time(), time.time() + delay))
+        db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
+        notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
+        return _emergency(eid)
     db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
     return _emergency(eid)
 
@@ -559,7 +566,8 @@ def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
 def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
-    rows = [r for r in rows if r["kind"] != "advice" or (v and (v["medical"] or v["id"] == r["recipient"]))]  # private to the medical officer
+    private = ("advice", "alert", "alert_earth")  # private to the medical officer and the medical team
+    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
     for r in rows:
@@ -661,8 +669,26 @@ def medical_overview():
     for c in CREW:
         s = health.snapshot(c["id"], ms)
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
-                    "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"]})
-    return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5]}
+                    "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"],
+                    "care_events": care.events(c["id"], ms["day"])})
+    return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5],
+            "notices": notify.list_for(ms["day"]), "care_sensitivity": care.sensitivity()}
+
+
+class CareSensitivityIn(BaseModel):
+    factor: float = Field(ge=care.FACTOR_RANGE[0], le=care.FACTOR_RANGE[1])
+
+
+@app.put("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
+def put_care_sensitivity(body: CareSensitivityIn):
+    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change)."""
+    db.set_setting("care_sensitivity", {"factor": body.factor})
+    return care.sensitivity()
+
+
+@app.get("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
+def get_care_sensitivity():
+    return care.sensitivity()
 
 
 class ExerciseAdjustIn(BaseModel):
