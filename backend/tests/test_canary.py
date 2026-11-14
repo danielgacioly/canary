@@ -662,3 +662,100 @@ def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_
         assert len(a["status"]) == len(b["timepoints"]) == len(a["values"]) and set(a["status"]) <= {"in", "out", None}
         assert a["range"]["min"] < a["range"]["max"]
     assert b["lymphocytes"] == b["analytes"]["lym"]["values"]
+
+
+# ---------------------------------------------------------------- Prompt 3: risks (fatigue), drift, since_day, one engine for suggestions
+def _fatigue(cid, day=None):
+    from canary.domain import risk
+    ms = mission.state() if day is None else {"day": day}
+    return next(r for r in risk.evaluate(cid, ms) if r["id"] == "fatigue")
+
+
+def test_helena_has_a_level_two_fatigue_risk_on_day_147_and_nobody_else_does():
+    ms = at(2)
+    r = _fatigue("h")
+    assert r["level"] == 2 and r["nasa_red"] and r["systems"] == ["brain"] and r["clock_days"] == 14
+    assert len(r["evidence"]) >= 3 and r["trend"] == "rising" and 132 <= r["since_day"] <= 147
+    for e in r["evidence"]:
+        assert e["text"] and e["origin"] in ("user", "simulated", "real") and e["source"] and (e.get("indicator") or e.get("checkin"))
+    assert [x["id"] for x in health.snapshot("h", ms)["risks"]] == ["fatigue"]
+    for cid in ("k", "a", "t"):
+        assert _fatigue(cid)["level"] == 0 and _fatigue(cid)["since_day"] is None
+    _day(100)
+    assert _fatigue("h")["level"] == 0
+
+
+def test_the_behaviour_alert_comes_from_the_fatigue_risk_and_keeps_its_shape():
+    a = next(x for x in health.snapshot("h", at(2))["alerts"] if x["id"] == "behaviour")
+    assert a["risk"] == "fatigue" and a["level"] == 2 and a["sys"] == "brain" and a["test"] == "pvt"
+    assert a["title"] == "Sleep, mood and focus are dropping together." and "slept" in a["why"] and len(a["goals"]) == 3
+    _day(100)
+    assert not any(x["id"] == "behaviour" for x in health.snapshot("h", mission.state())["alerts"])
+
+
+def test_one_bad_night_or_two_tired_check_ins_stay_at_level_one_at_most():
+    _day(100)
+    assert _fatigue("a")["level"] == 0
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    assert _checkin("a", "tlx", {"raw": 92}).status_code == 200
+    r = _fatigue("a")
+    assert r["level"] == 1 and {e.get("indicator") for e in r["evidence"]} >= {"kss", "tlx"}
+    assert _checkin("a", "sleep", {"hours": 3}).status_code == 200
+    assert _checkin("a", "pvt", {"ms": 400}).status_code == 200
+    assert _fatigue("a")["level"] <= 1  # a bad night shows on several signals at once, and still has not been building
+
+
+def test_since_day_is_the_same_whatever_order_the_clock_visits_the_days():
+    from canary.domain import risk
+    first = {d: _fatigue("h", d)["since_day"] for d in (147, 100, 153, 147, 139, 300)}
+    risk.clear_cache()
+    for d in (300, 139, 147, 153, 100, 147):
+        assert _fatigue("h", d)["since_day"] == first[d]
+    assert first[100] is None and first[300] is None and first[147] == first[153] == 139 and first[139] == 139
+
+
+def test_drift_flags_a_slow_slide_that_will_cross_the_limit_and_ignores_a_flat_line():
+    from canary.domain import risk
+    slide = [0.1 * i for i in range(14)]           # 0 to 1.3 spreads in 14 days, limit 1.5
+    assert risk.drift_of(slide, 1.5)["days_to_limit"] <= 10
+    assert risk.drift_of([0.2, -0.1, 0.1, 0.0, 0.2, -0.2] * 2, 1.5) is None
+    assert risk.drift_of([1.6] * 14, 1.5) is None  # already past it: that is a level, not a drift
+    assert risk.drift_of([0.01 * i for i in range(14)], 1.5) is None  # too slow to matter in 10 days
+
+
+def test_the_brain_stays_red_for_helena_and_a_lone_indicator_never_makes_a_system_red():
+    s = health.snapshot("h", at(2))
+    assert s["systems"]["brain"]["level"] == 2 and s["systems"]["brain"]["risks"] == ["fatigue"]
+    _day(100)
+    assert _checkin("a", "vitals", {"hr": 100}).status_code == 200
+    s = health.snapshot("a", mission.state())
+    assert s["indicators"]["hr"]["level"] == 2 and s["indicators"]["hr"]["population"]["status"] != "critical"
+    assert s["systems"]["heart"]["level"] == 1
+
+
+def test_suggestions_never_contradict_the_level_of_the_indicator_they_cite():
+    from canary.assistant import suggestions
+    cited = {"sleep": ["sleep"], "nap": ["kss"], "exercise": ["exer"], "bone": ["bone"], "water": ["water"], "breathe": ["stress", "mood"]}
+    for step in range(6):
+        at(step)
+        for c in catalog.CREW:
+            f = suggestions.facts(c["id"])
+            for s in suggestions.candidates(f):
+                if s["id"] in cited:
+                    ok = any(f["ind"][i]["level"] for i in cited[s["id"]]) or (s["id"] == "sleep" and "sleep" in f["risk"]["fatigue"]["signals"])
+                    assert ok, (step, c["id"], s["id"])
+    at(2)
+    assert "talk" not in [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]  # no wellbeing check-in, no "talk"
+    assert _checkin("h", "wellbeing", {"phq2": 4, "gad2": 1}).status_code == 200
+    assert "talk" in [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]
+
+
+def test_get_risks_is_a_read_only_tool_with_sources_and_chat_answers_from_it():
+    from canary.assistant import tools
+    at(2)
+    r = tools.get_risks("h")
+    assert r["data"][0]["level"] == 2 and r["sources"] and "get_risks" in tools.TOOLS
+    a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "Am I at risk of fatigue?"}, headers=as_("h")).json()
+    assert a["mode"] == "grounded" and any(t["tool"] == "get_risks" for t in a["tools_used"])
+    assert any("since day" in c["text"] for c in a["claims"]) and all(c["source_ids"] for c in a["claims"])
+    assert "risks" in client.get("/api/crew/h", headers=as_("h")).json()
