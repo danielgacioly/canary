@@ -90,8 +90,16 @@ def rad() -> dict:
 
 
 def blood(subject: str) -> dict:
+    """Inspiration4 complete blood count for one crew member: the lymphocyte curve (kept for the chart) and every
+    analyte with its reference range and an in/out status per collection. Real data (OSD-569). No alert uses it yet."""
     cbc = _SNAPSHOT["cbc"]
+    analytes = {}
+    for ind, series in cbc["crew"][subject].items():
+        rng = cbc["an"][ind]
+        analytes[ind] = {"unit": rng["unit"], "range": {"min": rng["min"], "max": rng["max"]}, "values": series,
+                         "status": [None if v is None else "in" if rng["min"] <= v <= rng["max"] else "out" for v in series]}
     return {"subject": subject, "timepoints": cbc["tp"], "lymphocytes": cbc["crew"][subject]["lym"],
             "range": {"min": cbc["an"]["lym"]["min"], "max": cbc["an"]["lym"]["max"]}, "unit": "cells/µL",
+            "analytes": analytes, "origin": "real",
             "note": "Real Inspiration4 crew data (OSD-569), shown as a reference curve for this crew member.",
             "source": "nasa:osd569"}

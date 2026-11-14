@@ -85,7 +85,7 @@ export const api = {
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
   checkin: (crew_id: string, kind: string, payload: Record<string, unknown>) =>
-    req<{ ok: boolean; summary: string; goal: string | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
+    req<{ ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
   record: (crew_id: string) => req<PersonalRecord>(`/crew/${crew_id}/record`),
   suggestions: (crew_id: string) => req<Suggestions>(`/suggestions/${crew_id}`),

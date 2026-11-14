@@ -2,7 +2,7 @@
 
 Only what people do is stored here (check-ins, goals, messages, emergencies,
 briefings, settings). Sensor telemetry comes from a TelemetrySource
-(see domain/telemetry.py), which today is a deterministic simulator.
+(see domain/telemetry.py), which today reads the observation table (see domain/simdata.py).
 """
 import json
 import sqlite3
@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS briefings (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL, status TEXT NOT NULL,
   facts TEXT NOT NULL, text TEXT NOT NULL, mode TEXT NOT NULL, created_at REAL NOT NULL,
   sent_at REAL, deliver_at REAL);
+CREATE TABLE IF NOT EXISTS advice (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, goal_id TEXT NOT NULL, origin TEXT NOT NULL,
+  indicator TEXT NOT NULL, risk TEXT, start_day INTEGER NOT NULL, check_day INTEGER NOT NULL,
+  start_bad REAL NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
   response TEXT NOT NULL, created_at REAL NOT NULL);
@@ -78,6 +82,6 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log"):
+        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "advice"):
             c.execute(f"DELETE FROM {t}")
         c.commit()

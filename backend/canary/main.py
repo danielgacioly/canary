@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, plan, privacy, protocols, registry, selftests, telemetry
+from .domain import advice, goals, health, mission, nasa, plan, privacy, protocols, registry, selftests, telemetry
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
@@ -160,6 +160,7 @@ def put_mission(body: MissionIn):
             mission.set_location(None if body.clear_location else body.location)
         except ValueError as e:
             raise HTTPException(400, str(e))
+    advice.sync_all(mission.state()["day"])  # an advice concluded by the new day may call for a message to the medical officer
     return mission.state()
 
 
@@ -371,8 +372,38 @@ class DoneIn(BaseModel):
 def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)):
     _crew(crew_id)
     require_self(crew_id, v)
-    goals.set_done(crew_id, goal_id, mission.state()["day"], body.done)
+    ms = mission.state()
+    goals.set_done(crew_id, goal_id, ms["day"], body.done)
+    if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
+        g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
+        if g:
+            advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
+    advice.sync(crew_id, ms["day"])
     return goals_for(crew_id, v)
+
+
+@app.get("/api/advice/{crew_id}", tags=["goals"])
+def advice_for(crew_id: str, v: dict = Depends(viewer)):
+    """The advice loop: advice in progress and concluded, with the outcome against the person's own normal. Read-only."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    day = mission.state()["day"]
+    return {"day": day, **advice.for_crew(crew_id, day), "escalation": advice.escalation(crew_id, day),
+            "margin": advice.MARGIN, "assumption": advice.SOURCE}
+
+
+@app.post("/api/alerts/{crew_id}/{alert_id}/seen", tags=["crew"])
+def alert_seen(crew_id: str, alert_id: str, v: dict = Depends(viewer)):
+    """Mark today's episode of an alert as seen. If the alert goes away and comes back, the new episode is not seen."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    ms = mission.state()
+    a = next((x for x in health.snapshot(crew_id, ms)["alerts"] if x["id"] == alert_id), None)
+    if not a:
+        raise HTTPException(404, "that alert is not active today")
+    health.mark_seen(crew_id, a, ms["day"])
+    advice.sync(crew_id, ms["day"])
+    return {"alert_id": alert_id, "since_day": a["since_day"], "days_active": a["days_active"], "seen": True}
 
 
 @app.get("/api/leaderboard", tags=["goals"])
@@ -397,6 +428,9 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     """A test or log from the Tests page (or a quick check from My space). Private: self and medical team."""
     _crew(body.crew_id)
     require_self(body.crew_id, v)
+    err = selftests.validate(body.kind, body.payload)
+    if err:
+        raise HTTPException(400, err)
     day = mission.state()["day"]
     p = selftests.normalise(body.kind, body.payload)
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
@@ -404,7 +438,9 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     g = selftests.goal_for(body.kind, p)
     if g:
         goals.set_done(body.crew_id, g, day, True)
+    advice.sync(body.crew_id, day)
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
+            "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
 
 
@@ -516,9 +552,14 @@ def send_message(body: MessageIn):
 
 
 @app.get("/api/messages", tags=["messages"])
-def messages(crew_id: Optional[str] = None):
+def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
+    return messages(crew_id, v)
+
+
+def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
+    rows = [r for r in rows if r["kind"] != "advice" or (v and (v["medical"] or v["id"] == r["recipient"]))]  # private to the medical officer
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
     for r in rows:
@@ -622,6 +663,24 @@ def medical_overview():
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
                     "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"]})
     return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5]}
+
+
+class ExerciseAdjustIn(BaseModel):
+    max_pct: int = Field(ge=0, le=50)
+    level1: int = Field(ge=0, le=50)
+    level2: int = Field(ge=0, le=50)
+
+
+@app.put("/api/medical/exercise-adjust", tags=["medical"], dependencies=[Depends(require_medical)])
+def put_exercise_adjust(body: ExerciseAdjustIn):
+    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct."""
+    db.set_setting("exercise_adjust", {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}})
+    return goals.exercise_adjust()
+
+
+@app.get("/api/medical/exercise-adjust", tags=["medical"], dependencies=[Depends(require_medical)])
+def get_exercise_adjust():
+    return goals.exercise_adjust()
 
 
 class ThresholdsIn(BaseModel):

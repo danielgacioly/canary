@@ -9,7 +9,7 @@ anything the crew ticks in the app is stored and wins over the simulation.
 from typing import Dict, List, Optional
 
 from .. import db
-from . import health, plan, telemetry
+from . import advice, health, plan, risk, telemetry
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
                       WINDOW_BY_PLACE)
 
@@ -63,6 +63,29 @@ def medical_goals(crew_id: str, day: int) -> List[dict]:
              "by": "medical"} for r in rows]
 
 
+# The medical team sets how much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct.
+# Prototype assumption: the percentages are placeholders for the flight surgeon to set.
+EXERCISE_ADJUST = {"max_pct": 30, "by_level": {"1": 15, "2": 30}, "source": "prototype assumption", "verified": False}
+
+
+def exercise_adjust() -> dict:
+    return {**EXERCISE_ADJUST, **db.get_setting("exercise_adjust", {})}
+
+
+def _exercise_goal(g: dict, loc: str, fatigue_level: int) -> dict:
+    """The routine exercise goal; lighter, and says why, when the fatigue risk is at watch or act (within the medical limit)."""
+    base = {"title": _title(g, loc), "why": g["why"]}
+    cfg = exercise_adjust()
+    pct = min(int(cfg["by_level"].get(str(fatigue_level), 0)), int(cfg["max_pct"]))
+    if not fatigue_level or pct <= 0:
+        return base
+    target = EXERCISE_BY_PLACE[loc][1]
+    minutes = int(round(target * (100 - pct) / 100))
+    return {"title": f"{base['title']} (lighter today: about {minutes} min instead of {target})",
+            "why": f"Your fatigue risk is up, so today's load is {pct}% lower, within the {cfg['max_pct']}% limit your medical team set. Rest is part of training.",
+            "adjusted": {"pct": pct, "minutes": minutes, "target": target, "reason": "fatigue", "max_pct": int(cfg["max_pct"])}}
+
+
 def suggested(crew_id: str, day: int) -> List[dict]:
     """Suggestions the person turned into goals (see assistant/suggestions.py). They last a week."""
     return [g for g in db.get_setting("suggested_goals", {}).get(crew_id, []) if g["from_day"] <= day <= g["to_day"]]
@@ -72,12 +95,15 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
     day, loc = ms["day"], ms["location"]
     log = _log(crew_id)
     out = []
+    snap = snap or health.snapshot(crew_id, ms)
+    by_adv = advice.by_goal(crew_id, day)
+    fat = risk.get(snap.get("risks", []), "fatigue")
     for gid in daily_goal_ids(loc):
         g = PERSONAL_BY_ID[gid]
-        out.append({"id": gid, "area": g["area"], "title": _title(g, loc), "why": g["why"],
+        text = _exercise_goal(g, loc, fat["level"] if fat else 0) if gid == "exercise" else {"title": _title(g, loc), "why": g["why"]}
+        out.append({"id": gid, "area": g["area"], **text,
                     "sys": g.get("sys"), "action": g.get("action"), "by": "routine",
                     "done": is_done(crew_id, gid, day, day, log)})
-    snap = snap or health.snapshot(crew_id, ms)
     for a in snap["alerts"]:
         for g in a.get("goals", []):
             out.append({**g, "why": f"Added by the alert: {a['title']}", "by": "alert", "sys": a.get("sys"),
@@ -86,7 +112,12 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
         out.append({**g, "done": is_done(crew_id, g["id"], day, day, log)})
     for g in suggested(crew_id, day):
         out.append({"id": g["id"], "area": g["area"], "title": g["title"], "why": "You added this from Suggestions.",
-                    "by": "suggestion", "done": is_done(crew_id, g["id"], day, day, log)})
+                    "by": "suggestion", "done": is_done(crew_id, g["id"], day, day, log),
+                    **({"verify": g["verify"]} if g.get("verify") else {})})
+    for g in out:  # the experiment behind a goal: pending until its check day, then improved / same / worse
+        a = by_adv.get(g["id"])
+        if a:
+            g["advice"] = a
     return out
 
 

@@ -50,6 +50,12 @@ def _grounded(results: List[dict]) -> List[dict]:
             claims.append({"text": f"{d['system']}: {d['space']}", "source_ids": src[:1]})
             if d["note"]:
                 claims.append({"text": d["note"], "source_ids": src[:1]})
+        elif r["tool"] == "get_risks":
+            for k in d:
+                since = f", since day {k['since_day']}" if k["since_day"] is not None else ""
+                claims.append({"text": f"{k['name']}: " + ("no risk at the moment." if not k["level"] else
+                                                          f"{'watch' if k['level'] == 1 else 'act'} level, {k['trend']}{since}."),
+                               "source_ids": src[:3] or src})
         elif r["tool"] == "get_protocol":
             claims.append({"text": f"For {d['name'].lower()}, Guided Response starts with: {d['first_step']} "
                                    "In a real emergency, hold the EMERGENCY button.", "source_ids": src})

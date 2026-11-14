@@ -65,8 +65,10 @@ def load() -> None:
         crew, records = [], {}
         for p in r.get("crew", []):
             seat = demo_by_id[p["seat"]]
+            reg = str(p.get("sex") or "")[:1].upper()  # the registered sex picks the reference range; else the seat's
             crew.append({"id": p["seat"], "name": p["name"], "role": p["role"], "initials": _initials(p["name"]),
-                         "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"], "base": seat["base"]})
+                         "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"],
+                         "sex": reg if reg in ("F", "M") else seat["sex"], "base": seat["base"]})
             records[p["seat"]] = {k: p.get(k) for k in RECORD_FIELDS}
     catalog.CREW[:] = crew
     catalog.CREW_BY_ID.clear()

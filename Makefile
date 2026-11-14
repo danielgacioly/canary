@@ -1,4 +1,4 @@
-.PHONY: setup dev api web test build serve
+.PHONY: setup dev api web test build serve dataset
 
 setup:            ## install backend and frontend dependencies
 	cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -16,6 +16,9 @@ dev:              ## API and web app together; Ctrl+C stops both
 test:             ## backend tests + frontend type check
 	cd backend && .venv/bin/python -m pytest -q
 	cd frontend && npm run typecheck
+
+dataset:          ## rebuild data/observations.csv and data/DATASET.md from data/recipes.json and data/real/
+	python3 data/generate_dataset.py
 
 build:            ## production build of the web app into frontend/dist
 	cd frontend && npm run build

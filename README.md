@@ -56,7 +56,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 43 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | backend tests (alerts, risks, advice, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, Mission Control, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -204,7 +204,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    │  HTTP /api   (Vite proxies in dev; FastAPI serves the build in prod)
    ▼
  Canary API (FastAPI, one process)                 backend/canary/
-   ├─ domain/telemetry   TelemetrySource: SimulatedSource today, devices tomorrow
+   ├─ domain/telemetry   TelemetrySource: DatasetSource (observations.csv) today, devices tomorrow
    ├─ domain/health      baseline z-scores, alert rules, body systems, readiness scores
    ├─ domain/goals       daily goals, streaks, patches, crew missions, ranking
    ├─ domain/privacy     who sees what: operational status (medical only), profile photos, hazards, the day-0 contract
@@ -226,8 +226,8 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | --- | --- | --- |
 | One FastAPI process | Runs offline on board, one thing to deploy and test | Microservices: more failure points, no benefit at this size |
 | SQLite | A single file, no server, survives with no network | Postgres: belongs on the ground station later |
-| Telemetry behind `TelemetrySource` | Real devices plug in without touching alerts or goals | Hard-coding the simulator into the rules |
-| Personal baseline (z-score) | Astronauts are fit outliers; population ranges miss their changes | Fixed clinical thresholds only |
+| Telemetry behind `TelemetrySource`, fed by an observation file | Real data replaces simulated rows by dropping in a CSV, with no code change | Formulas inside the code that nobody can open and check |
+| Personal baseline (z-score) **and** population range | Astronauts are fit outliers, so their own normal gives the early warning; the population range stays as the safety limit | Either one alone |
 | Protocols as JSON | The medical team can review and replace them without code | Protocols in code |
 | No accounts for the crew, a 4-digit PIN per private space | A shared terminal in a cabin: a PIN is fast, and Guided Response needs no sign-in | Logins with passwords: friction in an emergency; trusting a plain id: anyone could open anyone's health |
 | PIN + signed token for doctors | Only the medical team writes prescriptions and rules | Full identity system: out of scope for a prototype |
@@ -237,19 +237,100 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 ### How a number becomes an alert
 
 ```
-reading(day)  ──►  recent = 60% today + 25% yesterday + 15% day before
-                        │
+observation(day) ─►  recent = 60% today + 25% yesterday + 15% day before
+ (check-in or file)     │
 baseline (pre-flight) ──┤  z = (recent − baseline) / personal spread
                         ▼
               level 0 / 1 / 2  by the medical team's thresholds (default 1.5σ / 2.5σ)
                         │
-cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  →  behavioural alert
+slow slide? ────────────┤  a line through the last 14 days crosses the level-1 limit within 10 days  →  "drifting towards your limit"
+                        ▼
+RISK (domain/risk.py) ──┤  evidence from every related indicator and check-in, added up with a weight table
+ e.g. fatigue           │  → level 0 / 1 / 2 · score · trend (rising / stable / falling) · since_day · evidence list
+                        ▼
+cross-signal rules ─────┤  fatigue level 2  →  the `behaviour` alert (`risk: "fatigue"`); the other rules are unchanged
+  missing data ─────────┤  no mood check-in for 3 days  →  `missing_mood` (level 1, never counts as a health risk)
                         ▼
          alert = { what it means, what to do now, goals added, sources }
                         │
                         ▼
-   body system status  →  colour on the 3D body  →  physical / mental readiness score
+   advice accepted ──────┤  goal + what to verify (indicator, days)  →  checked on its day: improved / same / worse
+      (domain/advice.py)│  two rounds in a row without improvement  →  another suggestion + one message to the medical officer
+                        ▼
+   body system status = the highest risk level acting on it (one indicator alone: watch at most,
+   unless past the population safety limit)  →  colour on the 3D body  →  physical / mental readiness score
 ```
+
+### Risks
+
+A risk is a function of the day, never a stored value, so the demo clock can jump anywhere and the same day always gives the same answer. `GET /api/crew/{id}` and the snapshot carry `risks: [{id, name, nasa_red, systems, clock_days, level, score, trend, evidence, since_day}]`; each evidence is `{indicator | checkin, text, value, baseline, z, origin, source, points}`. Only **`fatigue`** (Behavioural health and performance) exists so far; the other NASA risks are a later step and join the same table (`risk.RISKS`).
+
+| Fatigue evidence | Points |
+| --- | --- |
+| each of sleep, reaction time, mood | 1.0 × the indicator's level (0, 1 or 2) |
+| processing speed (`dsst`) | 0.75 × level |
+| stress, time with crew, working memory, sleepiness (`kss`), workload (`tlx`) | 0.5 × level |
+| wellbeing check-in (PHQ-2 or GAD-2 of 3 or more in 14 days) | 1.0 |
+| no mood check-in for 3 days | 0.5 |
+| drifting towards the limit (level 0 but sliding) | 0.5 each, 1.0 at most |
+
+Level 1 from 2.0 points. Level 2 from 4.0 points **and** at least 3 distinct signals (drift does not count) **and** level 1 or more two days earlier, so one bad night, or two tired check-ins, never reaches level 2. The trend compares the score with 3 days ago (±0.5). `since_day` is found by walking back day by day and re-evaluating (cached, at most 60 days), never stored. Every weight and cut is a prototype assumption (`verified: false`, see [Limits, honestly](#limits-honestly)); the tables are at the top of `risk.py`. The AI never scores a risk: rules decide, the assistant only explains (`get_risks`).
+
+The suggestions use the same layer: each one is decided by the level of the indicator it cites, the risk evidence and the weekly goal counts, with no limits of their own, so a suggestion never contradicts an alert.
+
+Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. The baseline in that formula is the person's pre-flight mean, and a population range can raise the level by itself (see "Reference ranges and their sources"). Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
+
+### The advice loop
+
+Every alert goal and every suggestion says what it is meant to move: `verify: {indicator, after_days}` (for example `al_screens` verifies `sleep` after 3 days, the sleep suggestion verifies `sleep` after 7). When the person ticks an alert goal for the first time, or accepts a suggestion, Canary opens a small experiment in the `advice` table: trigger, action, `start_day`, `check_day = start_day + after_days` and `start_bad`, how far the indicator was from the person's own normal (mean of the last three days, in personal spreads, higher is worse). The rows are written only by routes that change something, never by a GET.
+
+An outcome is a function of the mission day asked about, so the demo clock can jump anywhere: before `check_day` it is `pending`; from `check_day` on it compares the deviation at `check_day` with `start_bad`: `improved` (0.5 spreads better or more), `worse` (0.5 or more) or `same`. The same day always gives the same answer.
+
+Two **rounds** in a row without improvement for the same risk (a round is what was started on the same day; one improved advice saves the round) escalate: the suggestions list gets one different step from a per-risk list (`advice.ALTERNATIVES`, id `alt_fatigue`), and **one** message of kind `advice` goes to the crew medical officer (or the substitute when the patient is the medical officer), written the first time a write route sees it. It never repeats. Advice messages are not shown to the rest of the crew, only to the recipient and the medical console.
+
+Example, Helena:
+
+1. **Day 147.** The fatigue risk is at level 2. She accepts *Protect your sleep window*. Canary stores `start_bad` 2.81 and `check_day` 154. On day 149 `GET /api/advice/h` says `pending`, and the goal carries `advice: {status: "pending", check_day: 154}`.
+2. **Day 154.** The check runs: her sleep is 4.11 spreads from normal against 2.81 at the start, `worse`. The goal row reads "Checked on day 154: worse".
+3. **Round two.** She tries another step on day 154 (say breathing, verifying stress after 7 days). In the simulation Helena starts to recover around day 160, so in the demo this round ends well. If it did not (the tests build that case on purpose), it would be a second round without improvement.
+4. **Escalation.** The suggestions list then shows *Change one thing in your day, not three* (or another alternative), and Kenji's inbox has one `advice` message. Asking again for the same day, or any later day until a new round ends, shows the same alternative and sends nothing more.
+
+Alerts also last: each has `since_day`, `days_active` (found by walking back day by day, at most 60 days, cached, never stored) and `seen`. `POST /api/alerts/{crew}/{alert}/seen` marks the current episode; if the alert goes away and comes back it is a new episode and not seen. While the fatigue risk is at level 1 or 2 the day's exercise goal is lighter and says why (`adjusted: {pct, minutes, target, reason, max_pct}`), by the percentage the medical team sets in `PUT /api/medical/exercise-adjust` (default 15% at level 1 and 30% at level 2, never above `max_pct`). Canary never goes beyond that limit and does not prescribe.
+
+### Where a value comes from and how old it is
+
+`telemetry.observation()` returns `{value, origin, source, day}` and is the only reader behind `current()`, `series()` and the assistant's trends:
+
+1. A self check-in of that day wins: `origin: "user"`, `source: "checkin:<crew>:<kind>:day<D>"`. Fields read: mood (mood, stress), pvt (ms), sleep (hours), vitals (hr, bp, temp, spo2), dsst (correct), span (span), kss (level), tlx (raw). Other tests are stored but are not indicators (amsler, symptoms and wellbeing feed their own alert rules; reading and journal only complete goals).
+2. Otherwise the last row of the observation file up to that day, with the origin of the row (`simulated` or `real`).
+
+Each indicator in `GET /api/crew/{id}` also says `origin` (where today's value came from), `last_measured_day` and `age_days` (days since the person last measured it themselves; `null` if never). The four cognitive and self-report indicators (`dsst`, `span`, `kss`, `tlx`, Brain & mind) follow the same baseline, spread and thresholds as the others.
+
+### Reference ranges and their sources
+
+Canary compares every number with two references. The **population range** is the safety limit: outside it the indicator is at least level 1, and past a *critical* limit it is level 2 on its own (even before launch, even when the personal numbers look fine; it is judged on the day's reading, not the three-day blend). The **personal baseline** is the early warning: mean of the person's measurements on the plan's pre-flight days (file rows plus their own check-ins; the mean is shown at the app's precision, the spread never goes below the catalog's `sd`; with fewer than 5 pre-flight measurements, or no pre-flight leg, the catalog seed is used). Inside the population range the personal z-score still decides, as before. Thresholds can be overridden for one indicator with the setting `thresholds_by_indicator` (`{"sleep": {"watch": 1.0, "act": 2.0}}`); there is no screen for it.
+
+<!-- reference-table:start (generated from backend/canary/domain/reference.py) -->
+| Indicator | Unit | Low | High | Critical (below / above) | Source | Verified |
+| --- | --- | --- | --- | --- | --- | :---: |
+| `hr` Resting pulse | bpm | 40 | 100 | 30 / 150 | AHA: resting heart rate 60 to 100 bpm in adults, 40 to 60 is common in trained people. Critical limits: prototype assumption | no |
+| `bp` Blood pressure | mmHg | 90 | 139 | 70 / 180 | Systolic pressure. Below 90 is low blood pressure; 140 or more is hypertension (ESC/ESH 2018); above 180 is the AHA hypertensive-crisis line. Critical low: prototype assumption | no |
+| `spo2` Blood oxygen | % | 95 | 100 | 90 / - | Usual pulse-oximetry range 95 to 100%; below 90% is hypoxaemia (WHO pulse oximetry training manual) | no |
+| `temp` Temperature | °C | 36.1 | 37.2 | 35 / 40 | MedlinePlus: normal body temperature about 36.1 to 37.2 °C; below 35 °C is hypothermia; above 40 °C is hyperpyrexia | no |
+| `gluc` Fasting glucose | mg/dL | 70 | 99 | 54 / - | ADA Standards of Care: fasting normal below 100 mg/dL; level 2 hypoglycaemia below 54 mg/dL. Low edge 70: ADA level 1 | no |
+| `sleep` Sleep | h | 6 | 10 | - | National Sleep Foundation 2015: 7 to 9 h recommended for adults, 6 to 10 h may be appropriate | no |
+| `water` Water | L | F 1.6 / M 2 | - | - | EFSA 2010: adequate intake from drinks about 1.6 L (women) and 2.0 L (men) | no |
+| `exer` Exercise | min | 21 | - | - | WHO 2020 physical activity guidelines: 150 min a week of moderate activity, about 21 min a day | no |
+| `grip` Grip strength | kg | F 16 / M 27 | - | - | EWGSOP2 2019 sarcopenia cut-offs: grip below 16 kg (women) or 27 kg (men) is low strength | no |
+| `kss` Sleepiness | /9 | - | 6 | - | Karolinska Sleepiness Scale (Åkerstedt and Gillberg 1990): 7 or more means sleepy | no |
+| `react` Reaction time | ms | 150 | 500 | - | prototype assumption: wide on purpose, the result depends on the device and screen lag | no |
+| `dsst` Processing speed | correct | 20 | 100 | - | prototype assumption: wide on purpose, depends on the task version and device | no |
+| `span` Working memory | digits | 4 | 10 | - | prototype assumption: wide on purpose; forward digit span of adults is usually 5 to 9 | no |
+
+No population range (personal or relative scales): `mood`, `stress`, `social`, `tlx`, `bone`.
+<!-- reference-table:end -->
+
+None of these ranges is `verified`: they are known clinical references written down for the prototype, to be checked by the team before the pitch. Critical limits without a guideline are marked as prototype assumptions, and the PVT, DSST and span ranges are wide on purpose because they depend on the device. They are risk limits, not diagnoses.
 
 ---
 
@@ -268,7 +349,7 @@ question ─► guard.precheck ─► tools (read-only) ─► LLMProvider ─�
 | --- | --- |
 | `assistant/providers.py` | `LLMProvider` interface. `NullProvider` (default), `AnthropicProvider` and `LocalProvider` are slots with a `TODO` |
 | `assistant/knowledge.py` | The only knowledge allowed: body-system cards and protocols, each with an id. Small enough for a cached prompt, no vector database |
-| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
+| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_risks`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
 | `assistant/guard.py` | Sends emergencies to Guided Response, refuses diagnosis and doses, drops any claim citing a source the tools did not return, rejects briefing text with invented numbers |
 | `assistant/chat.py` | Entry 1: an astronaut asks a question |
 | `assistant/briefing.py` | Entry 2: one-page weekly briefing for the flight surgeon. Code computes the facts, the model only writes prose, the astronaut approves it before it is queued for Earth |
@@ -290,6 +371,16 @@ Real-world parallel: NASA and Google are testing a Crew Medical Officer Digital 
 | [NASA HRP hazards and risks](https://www.nasa.gov/hrp/hazards/) | The five hazards (RIDGE) behind every body system | System cards, assistant knowledge |
 
 The snapshot lives in `backend/canary/data/nasa_snapshot.json`, so the ship never needs a network. `data/prepare_nasa_data.py` rebuilds the same data from the original downloads (checked: identical output) (needs `numpy` and `cdflib`). With `CANARY_LIVE_SPACE_WEATHER=1` the API also queries DONKI live and falls back to the snapshot on any error.
+
+### The crew observation file
+
+Every number the crew shows comes from one table, `backend/canary/data/observations.csv`: one row per measurement, `crew_id, day, indicator, value, unit, origin, method, source, note`. `origin` is `simulated` or `real`; `method` is `wearable`, `manual`, `test`, `blood`, `urine` or `environment`; cabin air uses the crew id `cabin`. A day without a row means nothing was measured, and the app shows the last observation (`telemetry.last_observation` also gives its age).
+
+- **Where the simulated rows come from.** `data/recipes.json` holds one recipe per indicator (baseline, day-to-day spread, slow drift by gravity and mission day, which hidden states move it, how often it is measured, chance of a missed measurement, and a `source` with `verified`). Four hidden states (fatigue, hydration, energy, bone loss) move related signals together; the demo story is two dated events that push them. `python data/generate_dataset.py` builds the file, deterministic and standard library only, and writes `data/DATASET.md` with one table per indicator, the assumptions without a source, and how each method would be collected on a real mission.
+- **What is real today.** The complete blood count (OSD-569, from the snapshot into `data/real/osd569_cbc.csv`, collections keep their label such as `R+45` in `note`; the pre-flight ones set each person's baseline). Everything else is simulated.
+- **Other plans.** With the default plan the backend reads the file. With any other plan it generates the same table in memory with the same generator (cached per plan).
+- **Swapping simulated for real.** Put a CSV with the same columns in `data/real/` (`crew_id, day, indicator, value` are enough) and run `python data/generate_dataset.py`. Those rows enter with `origin = real` and replace the simulated row with the same (crew_id, day, indicator). No code changes. A check-in made in the app still wins over the file for that day, and the file is never written to the `checkins` table.
+- Radiation dose by place is still the function in `telemetry.cumulative_dose`, not in the file.
 
 ---
 
@@ -324,10 +415,10 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, registry (crew and mission registered by Mission Control), plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
+    domain/              catalog, registry (crew and mission registered by Mission Control), plan, telemetry, simdata, health, risk, advice, goals, privacy, protocols, nasa, mission, selftests
     assistant/           the AI slot: chat, briefing, suggestions, guard
-    data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   43 tests
+    data/                protocols.json, nasa_snapshot.json, observations.csv (generated)
+  tests/test_canary.py   tests
   requirements.txt
 frontend/
   src/
@@ -340,6 +431,10 @@ frontend/
     pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, My information, Settings), MissionInfo, Control (Canary Control), Tests, Settings, Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
+data/recipes.json        one recipe per indicator: baseline, spread, drift, hidden states, frequency, gaps, source
+data/real/               real observations (CSV), replace simulated rows with the same key
+data/generate_dataset.py builds observations.csv, data/DATASET.md and data/real/osd569_cbc.csv
+data/DATASET.md          what is in the file, where each part comes from, how it would be collected
 data/prepare_nasa_data.py
 tools/build_body_model.py
 Makefile
@@ -365,13 +460,17 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/control/session` · `GET /api/control/overview` · `GET /api/control/demo` · `POST /api/control/register` · `POST /api/control/clear` | Canary Control (Mission Control PIN, its own token): sign in, follow the crew, the demo form, register crew and mission, start from zero |
 | `GET /api/crew/{id}/record` | My information: the personal record (the astronaut and the medical team) |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
-| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only) · every test with its latest result and the recent log (self and medical team) |
+| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log, returns `conclusion` {population, personal, text} (self only; vitals outside the typing limits, such as a pulse of 900, return 400) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
 | `GET/POST /api/messages` | Messages with communication delay |
 | `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |
 | `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data (used by alerts and the story; no page of their own) |
+| `GET /api/advice/{id}` | The advice loop: advice in progress and concluded with the outcome, and the escalation (the person and the medical team only) |
+| `POST /api/alerts/{id}/{alert}/seen` | Mark today's episode of an alert as seen (the person only) |
+| `GET/PUT /api/medical/exercise-adjust` | Maximum lightening of the day's exercise under fatigue (medical console) |
+| `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence (fatigue so far) |
 | `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
 
@@ -406,7 +505,13 @@ Full, interactive documentation at `/docs`. The main routes:
 
 ## Limits, honestly
 
-- **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such.
+- **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
+- **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
+- **Risk layer (prototype assumptions, `verified: false`):** the fatigue weights, the cuts (2.0 and 4.0 points), the minimum of 3 signals, the 2-day sustain rule, the 3-day trend (±0.5), the drift window (14 days, 10 days ahead, minimum slope 0.08 spreads a day) and the 60-day look-back. They were tuned on the simulated crew, not on flight data. The Physical and Mental readiness scores are also a design choice (18 points per spread beyond 0.6, minus 6 per level of eyes, skin and immune), not a published score.
+- **Advice loop (prototype assumptions, `verified: false`):** the `verify` pairs (indicator and days for each alert goal and suggestion), the 0.5-spread margin and the 3-day average that decide improved / same / worse, the rule of two rounds, the alternative steps per risk, the 60-day look-back of `days_active` and the default exercise reductions (15% and 30%, at most 30%). The reductions are placeholders for the flight surgeon; nothing here has been clinically reviewed.
+- **Reference ranges to verify:** every entry of `reference.POPULATION` is `verified: false` (table above). Simulated glucose of Tomás sits just above 99 mg/dL on a few isolated days (level 1, none in a story scene).
+- **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
+- **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.
 - **To verify before quoting:** daily dose by place, the 600 mSv career limit, bone loss of about 1% per month, delays to Mars.
 - **Demo shortcuts:** the PINs are public (crew `1001` to `1004`, medical `1961`, all in this README and shown as a hint on the pad), and a 4-digit PIN with a rate limit is a prototype lock, not real security; session tokens are signed with a random secret per start unless `CANARY_TOKEN_SECRET` is set; the communication delay runs 20× faster; fonts load from Google Fonts (bundle them for an offline ship).
