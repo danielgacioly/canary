@@ -342,3 +342,12 @@ def test_suggestions_are_personal_grounded_and_become_goals():
     assert next(x for x in s["items"] if x["id"] == "sleep")["accepted"]
     g = client.get("/api/goals/h", headers=h).json()["personal"]
     assert any(x["id"] == "sg_sleep" and x["by"] == "suggestion" for x in g)
+
+
+def test_my_information_is_private_and_ages_with_the_mission():
+    at(0)  # L-30
+    r = client.get("/api/crew/h/record", headers=as_("h")).json()
+    assert r["blood_type"] == "O−" and r["age"] == 46 and r["bmi"] == 21.8 and r["date_today"] == "2035-05-02"
+    assert client.get("/api/crew/h/record", headers=as_("k")).status_code == 403
+    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    assert client.get("/api/crew/h/record", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
