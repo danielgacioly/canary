@@ -35,6 +35,12 @@ export interface Catalog {
   locations: Record<string, Omit<Place, 'id'>>; indicators: Record<string, IndicatorDef>
   systems: Record<string, SystemDef>; region_system: Record<string, string>
   crew: CrewInfo[]; story: StoryStep[]; sources: Source[]; standards?: StandardsSummary
+  /** "How to measure and why" per indicator id (and radiation), English, each text with its source or none */
+  guide?: Record<string, GuideEntry>
+}
+export interface GuideEntry {
+  how: string; effect: string; actions: { green: string; amber: string; red: string }; frequency: string
+  sources: { how: string | null; effect: string | null; actions: string[] }
 }
 export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number

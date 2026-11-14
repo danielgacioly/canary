@@ -4,6 +4,7 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
 import BodyView from '../components/BodyView'
+import EvaReadiness from '../components/EvaReadiness'
 import { Dot } from '../components/People'
 import { Icon, Loading, Patch, Spark } from '../components/ui'
 import { useApi, useSession } from '../state/session'
@@ -41,6 +42,7 @@ function Other({ id }: { id: string }) {
         <span className="grow muted"><b style={{ color: 'var(--ink)' }}>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</span>
       </div>
       <BodyView key={d.crew.id} d={d} self={false} />
+      <section className="rise"><EvaReadiness d={d} self={false} /></section>
       <section className="detail-card rise" style={{ padding: 8 }}>
         <div className="section-head" style={{ padding: '12px 12px 0' }}><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
         <div className="scroll"><table className="t">
