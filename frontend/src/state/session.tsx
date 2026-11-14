@@ -52,7 +52,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [photos, setPhotos] = useState<Record<string, string>>({})
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
 
-  useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [])
+  useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [rev])  // Mission Control can re-register the crew
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
   useEffect(() => { api.photos().then(setPhotos).catch(() => undefined) }, [rev])
   useEffect(() => {

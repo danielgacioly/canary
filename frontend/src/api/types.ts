@@ -14,6 +14,7 @@ export interface Mission {
   step: number; steps: number; story: StoryStep; day: number; day_label: string
   location: string; place: Place; storm: string | null; suggested_user: string; learning: boolean
   leg: LegNow; custom_day: boolean; location_override: boolean; plan_name: string; setup_done: boolean
+  callsign: string | null; registered: boolean
 }
 export interface CrewInfo { id: string; name: string; role: string; initials: string; home: string; age: number }
 export interface IndicatorDef { name: string; unit: string; area: Area; facet?: string; dir: string; sd: number; dp: number }
@@ -126,3 +127,19 @@ export interface PersonalRecord {
   conditions: string[]; diet: string; vaccinations: string; emergency_contact: string; date_today: string
   registered_by: string; registered_on: string
 }
+export interface MissionCrewInfo { id: string; name: string; role: string; initials: string; home: string; nationality?: string; agency?: string; languages?: string[]; flights?: number; days_in_space?: number }
+export interface MissionOverview {
+  registered: boolean; callsign: string | null; name: string; launch_date: string; today_date: string; destination: string
+  flight_days: number; legs: Leg[]; mission: Mission; crew: MissionCrewInfo[]
+}
+export interface ControlPerson { id: string; name: string; role: string; initials: string; home: string; ops: Ops; today: { done: number; total: number; streak: number } | null; last_checkin_day: number | null }
+export interface ControlOverview {
+  registered: boolean; mission: Mission; overview: MissionOverview; people: ControlPerson[]; ridge: Ridge[]
+  warnings: { title: string; todo: string[] }[]; dose: Dose; emergencies: Emergency[]
+}
+export interface SeatForm {
+  seat: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
+  agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
+  handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
+}
+export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string }

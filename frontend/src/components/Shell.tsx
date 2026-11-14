@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
 import { useApi, useSession } from '../state/session'
+import { WaitingForControl } from '../pages/MissionInfo'
 import { CrewDots, Dot } from './People'
 import { CanaryMark, Icon } from './ui'
 
@@ -16,6 +17,7 @@ const NAV: { group: string; items: [string, string, string][] }[] = [
 export default function Shell() {
   const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs } = useSession()
   const [where, setWhere] = useState(false)
+  const nav = useNavigate()
   const { data: crew } = useApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
@@ -54,12 +56,12 @@ export default function Shell() {
               {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
             </>
           )}
-          <div className="right row" style={{ gap: 18 }}>{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
+          <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
-        <Outlet />
+        {mission && !mission.registered ? <WaitingForControl /> : <Outlet />}
       </div>
 
-      {prefs.storyBar && <StoryBar />}
+      {prefs.storyBar && mission?.registered && <StoryBar />}
       {where && <WherePicker onClose={() => setWhere(false)} />}
       {emergency && <GuidedResponse onClose={() => setEmergency(false)} />}
       {askOpen && <AskCanary onClose={() => setAskOpen(false)} />}

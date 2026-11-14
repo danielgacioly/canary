@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 41 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 43 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -83,6 +83,8 @@ A sidebar in three groups (**Crew**: Crew, Tests, Mission plan, Ranking; **Your 
 | --- | --- |
 | **Intro** | Four beats of the canary story over a starfield while the body assembles, then **Your mission**: the configured itinerary draws itself in and the crew is introduced. Nothing to fill in |
 | **Admin setup preview** (`/setup`) | Not part of the crew flow; a preview of the future mission-admin flow. | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
+| **Mission** (`/mission`, the callsign chip in the top bar) | The mission and the crew as a whole, public on board: callsign and name, launch date, today's mission date, destination, where the crew is now, a card per astronaut (role, agency, home, nationality, languages, previous flights; no health) and the itinerary. From here, **Switch to Mission Control mode** |
+| **Canary Control** (`/control`, Mission Control mode) | The other side of the system, in its own mode with its own accent. Opens with the Mission Control PIN (demo `4242`). **Dashboard**: callsign, mission time, signal delay and dose; each astronaut with the operational status the ship's medical team reports, goals today and the last self-test; the five hazards; emergencies; **Start from zero** clears crew and mission. **Register crew and mission**: four seats with every field of My information plus each person's first PIN, a **Fill with the demo crew and mission** button, then callsign, name, launch date and mission profile, then review and **Save and activate Canary**. **Messages**: write to the ship's medical team and read the traffic coming down, all with the real signal delay |
 | **Crew** (home) | The four astronauts as neutral dots with today's routine. **Hazards here today**: NASA's five hazards of spaceflight (radiation, isolation, distance, gravity, closed environment) rated low, moderate or high for the current place, a solar storm warning on top when one hits; tap a hazard to see which body systems it acts on. **Crew missions** in their own full-width section with the crew streak. **Who sees what** folded at the bottom. No status, no scores, no vitals, no averages |
 | **My space** (private, under Your health) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, seven tabs: **Health**, **Goals**, **Suggestions**, **Patches**, **Dashboard** (every chart), **My information** and **Settings** (profile photo, Change PIN, Lock). Signed in, your profile at the foot of the sidebar opens a menu with **Open my space**, **My settings** and **Lock my space** |
 | My space · **Health** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. The **Physical / Mental** switch changes the body's lens and the numbers below it: Physical shows only the physical systems, Mental only the mental facets, always as number tiles (value, your normal, status colour). Click a part of the body or a tile and the top area becomes that system (what it means, what to do, a check to run), without repeating the numbers; the body column always matches the height of that panel. Charts are on the Dashboard tab |
@@ -161,6 +163,17 @@ Informed by the Impeccable (Operate mode: quieter, distill, craft floor), Emil K
 **Guided Response.** Not a panic button: a calm, deterministic guide. Protocols are data (`backend/canary/data/protocols.json`) with variants for 0 g, partial gravity and Earth, and for each place. Closing it adds follow-up goals for the patient and queues a report for Earth.
 
 **The ranking counts effort, never vital signs.** It is the one place where individuals are compared, and only by participation: goals done (routine, check-ins, doctor and alert goals) in the last 7 days. There are no points or levels. Goals come from goals done and check-ins sent. A hard day reported honestly earns the same as a good one, so nobody gains by hiding a symptom.
+
+---
+
+## No accounts: how crew and mission get on board
+
+Nobody creates an account in Canary. **Mission Control registers** the four astronauts (their record and a first PIN) and the mission (callsign, name, launch date, profile) in Canary Control; the crew terminals simply use what was registered. Before that, every crew screen says **Waiting for Mission Control**.
+
+- Each astronaut opens their space with the PIN Mission Control set and can change it on board. The medical console and Canary Control have their own PINs and their own tokens; one never opens the other.
+- Seats keep fixed ids, so a newly registered astronaut takes over that seat's simulated pre-flight baseline and the demo story still works.
+- A demo reset brings back the demo crew and mission; **Start from zero** in Canary Control clears them for a live registration.
+- Next step for a real mission: the registration travels to the ship as a signed mission package (Mission Control holds the private key, the ship only the public one), with signed incremental updates during flight.
 
 ---
 
@@ -308,10 +321,10 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
+    domain/              catalog, registry (crew and mission registered by Mission Control), plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
     assistant/           the AI slot: chat, briefing, suggestions, guard
     data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   41 tests
+  tests/test_canary.py   43 tests
   requirements.txt
 frontend/
   src/
@@ -321,7 +334,7 @@ frontend/
     hologram/            scene, shaders, procedural anatomy, React wrapper
     components/          Shell (sidebar, profile menu, top bar, demo bar), People (crew dots, profile picker), PinPad, Timeline, Hazards, Stars, BodyView (body + observations), goals, charts, patches
     features/            Guided Response, Ask Canary, self-tests and logs (Checks)
-    pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, My information, Settings), Tests, Settings, Ranking, MissionPlan, Medical, About
+    pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, My information, Settings), MissionInfo, Control (Canary Control), Tests, Settings, Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
 data/prepare_nasa_data.py
@@ -345,6 +358,8 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew/{id}` | One astronaut in full, with operational status: the astronaut and the medical team only |
 | `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, streak and patches · tick a goal |
+| `GET /api/mission/overview` | The mission and the crew as a whole (public on board, no health data) |
+| `POST /api/control/session` · `GET /api/control/overview` · `GET /api/control/demo` · `POST /api/control/register` · `POST /api/control/clear` | Canary Control (Mission Control PIN, its own token): sign in, follow the crew, the demo form, register crew and mission, start from zero |
 | `GET /api/crew/{id}/record` | My information: the personal record (the astronaut and the medical team) |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
 | `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only) · every test with its latest result and the recent log (self and medical team) |
