@@ -390,6 +390,7 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     if g:
         goals.set_done(body.crew_id, g, day, True)
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
+            "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
 
 

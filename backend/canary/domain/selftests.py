@@ -87,6 +87,47 @@ def normalise(kind: str, payload: dict) -> dict:
     return p
 
 
+# kind -> [(payload field, indicator)] for the tests that get a conclusion.
+CONCLUDES = {"pvt": [("ms", "react")], "dsst": [("correct", "dsst")], "span": [("span", "span")], "kss": [("level", "kss")],
+             "tlx": [("raw", "tlx")], "mood": [("mood", "mood")], "sleep": [("hours", "sleep")],
+             "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")]}
+_POP_TEXT = {"in": "Within the normal human range", "out": "Outside the usual adult range", "critical": "Past the safety limit"}
+_DIRECTION = {"react": ("slower", "faster")}  # words for above / below your own average
+_RANK = {"critical": 2, "out": 1, "in": 0}
+
+
+def conclusion(kind: str, payload: dict, crew_id: str) -> Optional[dict]:
+    """What a result means against the two references: the population range (safety) and the person's own
+    pre-flight average (early warning). Risk words only, never a diagnosis. None for tests with no number to compare."""
+    from . import health, reference
+    from .catalog import CREW_BY_ID, INDICATORS
+    base = health.baselines(crew_id)
+    picks = []
+    for field, ind in CONCLUDES.get(kind, []):
+        if payload.get(field) is None:
+            continue
+        v = float(payload[field])
+        pop = reference.check(ind, CREW_BY_ID[crew_id]["sex"], v)
+        z = (v - base[ind]["mean"]) / base[ind]["sd"]
+        picks.append((_RANK[pop["status"]], abs(z), ind, v, pop, z))
+    if not picks:
+        return None
+    _, _, ind, v, pop, z = max(picks, key=lambda t: (t[0], t[1]))
+    has_range = pop["low"] is not None or pop["high"] is not None
+    population = _POP_TEXT[pop["status"]] if has_range else "No population range for this scale"
+    mean = base[ind]["mean"]
+    pct = round(abs(100 * (v - mean) / mean)) if mean else 0
+    if pct < 3:
+        personal = "in line with your own average"
+    else:
+        if ind in _DIRECTION:
+            personal = f"{pct}% {_DIRECTION[ind][0] if v > mean else _DIRECTION[ind][1]} than your own average"
+        else:
+            personal = f"{pct}% {'above' if v > mean else 'below'} your own average"
+    subject = f"{INDICATORS[ind]['name']}: " if kind == "vitals" else ""
+    return {"population": population, "personal": personal, "text": f"{subject}{population}, {personal}."}
+
+
 def goal_for(kind: str, p: dict) -> Optional[str]:
     """The daily goal a test or log completes, if any."""
     if kind in ("mood", "pvt", "amsler", "vitals", "journal"):

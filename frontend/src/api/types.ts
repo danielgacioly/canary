@@ -28,6 +28,8 @@ export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number
   value: number; baseline: number; delta: number; z: number; bad: number; level: Level; source: string
   origin: 'user' | 'simulated' | 'real'; last_measured_day: number | null; age_days: number | null
+  spread: number; baseline_from: 'preflight' | 'catalog'; baseline_n: number
+  population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical'; source: string; verified: boolean }
 }
 export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null }
 export interface AlertGoal { id: string; area: Area; title: string }
