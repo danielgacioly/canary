@@ -365,9 +365,59 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
   .shell { grid-template-columns: 1fr; }
   .side { position: fixed; top: auto; bottom: 49px; left: 0; right: 0; height: auto; z-index: 40; flex-direction: row; padding: 6px; overflow-x: auto; border-right: 0; border-top: 1px solid var(--line); }
   .side .brand, .side .group, .side .foot, .nav span { display: none; }
+  .side > div { display: contents; }
   .topbar { gap: 14px; padding: 0 14px; overflow-x: auto; }
   .topbar .opt { display: none; }
   .page { padding: 18px 16px 150px; }
   .areas, .legs { grid-template-columns: 1fr; }
   .hero .bodycard { height: 58vh; min-height: 420px; }
 }
+
+/* ---------- people as dots (crew-first home) ---------- */
+.pdot { position: relative; display: grid; place-items: center; flex: none; border-radius: 50%; background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--c, var(--line-2)); }
+.pdot .ini { font: 600 12px var(--f-body); color: var(--ink); }
+.pdot > i { position: absolute; right: 0; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--c); border: 2px solid var(--bg); }
+.pdot.sm { width: 34px; height: 34px; }
+.pdot.md { width: 56px; height: 56px; } .pdot.md .ini { font-size: 16px; }
+.pdot.xl { width: 104px; height: 104px; box-shadow: inset 0 0 0 3px var(--c, var(--line-2)); }
+.pdot.xl .ini { font: 600 28px var(--f-display); }
+.pdot.xl > i { width: 18px; height: 18px; right: 6px; top: 6px; border-width: 3px; border-color: var(--surface); }
+.pdot.me { outline: 2px solid var(--ink); outline-offset: 3px; }
+.pdot.s2 > i { animation: beat 1.4s ease-in-out infinite; }
+.pdot.xl.s2::after, .pdot.xl.s1::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--c); animation: halo 2.6s ease-out infinite; }
+@keyframes halo { from { transform: scale(1); opacity: .7; } to { transform: scale(1.35); opacity: 0; } }
+.crewdots { display: flex; gap: 6px; }
+.crewdots button { border-radius: 50%; transition: transform .15s; }
+.crewdots button:hover { transform: translateY(-2px); }
+.constellation { padding: 34px 24px 20px; }
+.orbit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.member { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 10px; border-radius: var(--r); text-align: center; transition: background .15s; }
+.member:hover { background: var(--surface-2); }
+.member .pdot { margin-bottom: 10px; transition: transform .25s; }
+.member:hover .pdot { transform: scale(1.04); }
+.member > b { font: 600 17px var(--f-display); }
+.member .routine { display: flex; align-items: center; gap: 8px; width: min(180px, 100%); margin-top: 6px; }
+.member .routine .bar-track { flex: 1; }
+.legend { gap: 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.contract td { font-size: 14px; }
+.gate { max-width: 760px; margin: 6vh auto 0; display: flex; flex-direction: column; gap: 14px; padding: 36px; }
+.gate .lock { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); }
+.gate-people { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+.gate-people button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 8px; border-radius: var(--r); background: var(--bg); }
+.gate-people button:hover { background: var(--surface-2); }
+.gate-people .pdot { margin-bottom: 6px; }
+.privacy-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--r); background: var(--surface); font-size: 14px; }
+.switch { position: relative; width: 38px; height: 22px; border-radius: 22px; background: var(--line-2); transition: background .15s; flex: none; }
+.switch::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); transition: transform .15s; }
+.switch.on { background: var(--ok); }
+.switch.on::after { transform: translateX(16px); }
+@media (max-width: 860px) {
+  .orbit, .gate-people { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pdot.xl { width: 84px; height: 84px; }
+  .gate { padding: 24px; margin-top: 2vh; }
+  .crewdots { display: none; }
+}
+.public { display: flex; align-items: center; gap: 28px; padding: 32px; }
+.gate-mini { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.gate-mini .lock { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); }
+@media (max-width: 860px) { .public { flex-direction: column; align-items: flex-start; padding: 22px; } }

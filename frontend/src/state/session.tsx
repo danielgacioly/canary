@@ -1,4 +1,4 @@
-// Shared app state: the mission clock, who is using this terminal (no accounts), and a revision
+// Shared app state: the mission clock, who entered their private space (no accounts), and a revision
 // counter that every screen watches to refetch after anything changes.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
@@ -23,11 +23,12 @@ interface Session {
 
 const Ctx = createContext<Session | null>(null)
 
+// The personal space lives only for this browser tab: closing it locks the space again.
 function load(k: string): string | null {
-  try { return localStorage.getItem(k) } catch { return null }
+  try { return sessionStorage.getItem(k) } catch { return null }
 }
 function save(k: string, v: string | null) {
-  try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v) } catch { /* storage blocked */ }
+  try { v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v) } catch { /* storage blocked */ }
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -44,7 +45,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
 
   const bump = useCallback(() => setRev(r => r + 1), [])
-  const setMe = useCallback((id: string | null) => { setMeState(id); save('canary.me', id) }, [])
+  const setMe = useCallback((id: string | null) => { api.setViewer(id); setMeState(id); save('canary.me', id); setRev(r => r + 1) }, [])
   const toast = useCallback((t: string) => {
     const id = ++tid.current
     setToasts(x => [...x, { id, t }])
@@ -53,9 +54,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setStep = useCallback(async (i: number) => {
     const m = await api.setStep(i)
     setMission(m)
-    setMe(m.suggested_user)
     bump()
-  }, [bump, setMe])
+  }, [bump])
   const setLocation = useCallback(async (loc: string | null) => { setMission(await api.setLocation(loc)); bump() }, [bump])
 
   const value = useMemo(() => ({ catalog, mission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, askOpen, setAskOpen, toast, toasts }),

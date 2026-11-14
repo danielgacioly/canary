@@ -1,10 +1,12 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
-  AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, Emergency, GoalsResponse,
+  AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
   Leaderboard, Leg, MedGoal, MedicalOverview, Message, Mission, Plan, Protocols, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
+// Who entered their private space on this terminal. No crew accounts: the API trusts the terminal.
+let viewer: string | null = sessionStorageGet('canary.me')
 
 function sessionStorageGet(k: string): string | null {
   try { return sessionStorage.getItem(k) } catch { return null }
@@ -13,6 +15,7 @@ function sessionStorageGet(k: string): string | null {
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (medicalToken) headers.Authorization = `Bearer ${medicalToken}`
+  if (viewer) headers['X-Canary-Viewer'] = viewer
   const r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
   if (!r.ok) {
     let detail = r.statusText
@@ -40,7 +43,10 @@ export const api = {
   savePlan: (name: string, legs: Leg[]) => req<Plan>('/plan', { method: 'PUT', ...body({ name, legs }) }),
   usePreset: (preset: string) => req<Plan>('/plan/preset', { method: 'POST', ...body({ preset }) }),
 
+  setViewer: (id: string | null) => { viewer = id },
   crew: () => req<CrewList>('/crew'),
+  overview: () => req<CrewOverview>('/crew/overview'),
+  setSharing: (id: string, shared: boolean) => req<{ shared: boolean }>(`/crew/${id}/sharing`, { method: 'PUT', ...body({ shared }) }),
   crewDetail: (id: string) => req<CrewDetail>(`/crew/${id}`),
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),

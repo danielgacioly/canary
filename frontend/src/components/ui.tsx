@@ -21,6 +21,9 @@ const paths: Record<string, string> = {
   med: 'M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6V4Z',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-11v6m0-9v.01',
   plus: 'M12 5v14M5 12h14',
+  lock: 'M6 11h12v9H6Zm2.5 0V8a3.5 3.5 0 0 1 7 0v3',
+  open: 'M6 11h12v9H6Zm2.5 0V8a3.5 3.5 0 0 1 6.8-1.2',
+  shield: 'M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z',
 }
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {
   return (

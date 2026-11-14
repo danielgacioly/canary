@@ -57,7 +57,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="chat">
-          {!items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. Emergencies go to the red button.</p>}
+          {!me && <p className="muted small"><b style={{ color: 'var(--ink)' }}>Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
+          {me && !items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. Emergencies go to the red button.</p>}
           {items.map(a => (
             <div key={a.id} className="col" style={{ gap: 8 }}>
               <div className="bubble me">{a.question}</div>

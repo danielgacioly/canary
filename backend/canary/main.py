@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from . import __version__, db
 from .assistant import briefing, chat, providers, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, plan, protocols, telemetry
+from .domain import goals, health, mission, nasa, plan, privacy, protocols, telemetry
 from .domain.catalog import CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
@@ -53,6 +53,24 @@ def require_medical(authorization: Optional[str] = Header(None)) -> None:
             raise ValueError
     except ValueError:
         raise HTTPException(401, "medical team sign-in required")
+
+
+def _is_medical(authorization: Optional[str]) -> bool:
+    try:
+        require_medical(authorization)
+        return True
+    except HTTPException:
+        return False
+
+
+def viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> dict:
+    """Who is looking. No crew accounts on board: the terminal says who entered their space."""
+    return {"id": x_canary_viewer if x_canary_viewer in CREW_BY_ID else None, "medical": _is_medical(authorization)}
+
+
+def require_self(crew_id: str, v: dict) -> None:
+    if not (v["medical"] or v["id"] == crew_id):
+        raise HTTPException(403, f"private: only {CREW_BY_ID[crew_id]['name']} and the medical team can see this")
 
 
 _failed: List[float] = []
@@ -172,36 +190,79 @@ def _summary(c: dict, ms: dict, prof: dict) -> dict:
             "xp_week": prof["xp_week"], "level_xp": prof["level"], "streak": prof["streak"], "rank": prof.get("rank")}
 
 
-@app.get("/api/crew", tags=["crew"])
+@app.get("/api/crew", tags=["medical"], dependencies=[Depends(require_medical)])
 def crew_list():
+    """Full per-person health summary. Medical team only."""
     ms = mission.state()
     lb = goals.leaderboard(ms["day"])
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
-    phys = round(sum(r["areas"]["physical"]["score"] for r in rows) / len(rows))
-    ment = round(sum(r["areas"]["mental"]["score"] for r in rows) / len(rows))
-    return {"mission": ms, "crew": rows, "crew_readiness": {"physical": phys, "mental": ment},
-            "team": lb["team"], "dose": health.dose(ms), "space_weather": {k: v for k, v in nasa.space_weather(ms["storm"]).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+    return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
+            "space_weather": {k: v for k, v in nasa.space_weather(ms["storm"]).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+
+
+@app.get("/api/crew/overview", tags=["crew"])
+def crew_overview():
+    """What everyone on board may see: operational status, hazards, participation and crew goals."""
+    ms = mission.state()
+    board = goals.crew_board(ms["day"])
+    people, env = [], []
+    for c in CREW:
+        snap = health.snapshot(c["id"], ms)
+        env = [a for a in snap["alerts"] if a.get("env")] or env
+        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": privacy.operational(snap),
+                       "shared": privacy.shared(c["id"]), "today": board["people"][c["id"]]})
+    sw = nasa.space_weather(ms["storm"])
+    return {"mission": ms, "people": people, "fit": sum(1 for p in people if p["ops"]["key"] == "full"),
+            "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
+            "hazards": privacy.hazards(ms, env), "team": board["team"], "crew_streak": board["crew_streak"],
+            "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
+            "space_weather": {k: v for k, v in sw.items() if k in ("headline", "active", "kp_max", "sep_events")},
+            "contract": privacy.CONTRACT}
 
 
 @app.get("/api/crew/{crew_id}", tags=["crew"])
-def crew_detail(crew_id: str):
+def crew_detail(crew_id: str, v: dict = Depends(viewer)):
+    """Full health detail: the person, the medical team, or the crew if the person chose to share."""
     c = _crew(crew_id)
+    if not privacy.can_see_details(v["id"], crew_id, v["medical"]):
+        raise HTTPException(403, f"{c['name']} keeps their health details private")
     ms = mission.state()
     snap = health.snapshot(crew_id, ms)
+    access = "self" if v["id"] == crew_id else "medical" if v["medical"] else "shared"
+    ops = privacy.operational(snap)
+    if access == "shared":  # sharing opens data and history, never personal risks and advice
+        snap = {**snap, "alerts": [a for a in snap["alerts"] if a.get("env")]}
     trends = {i: telemetry.series(crew_id, i, ms["day"], 30) for i in INDICATORS}
     events = [{"kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"])}
               for r in db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 12", (crew_id,))]
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
-            "trends": trends, "goals": goals.personal_today(crew_id, ms, snap), "profile": goals.profile(crew_id, ms["day"]),
+            "trends": trends, "goals": [] if access == "shared" else goals.personal_today(crew_id, ms, snap),
+            "profile": goals.profile(crew_id, ms["day"]),
             "blood": nasa.blood(c["cbc_subject"]), "events": events,
-            "system_info": {k: {"space": v["space"], "hazard": v["hazard"]} for k, v in SYSTEMS.items()}}
+            "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
+            "ops": ops, "shared": privacy.shared(crew_id), "care_by": privacy.care_by(crew_id),
+            "access": access}
+
+
+class ShareIn(BaseModel):
+    shared: bool
+
+
+@app.put("/api/crew/{crew_id}/sharing", tags=["crew"])
+def crew_sharing(crew_id: str, body: ShareIn, v: dict = Depends(viewer)):
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "only the astronaut decides what to share")
+    privacy.set_shared(crew_id, body.shared)
+    return {"crew_id": crew_id, "shared": body.shared}
 
 
 # ---------------------------------------------------------------- goals and ranking
 @app.get("/api/goals/{crew_id}", tags=["goals"])
-def goals_for(crew_id: str):
+def goals_for(crew_id: str, v: dict = Depends(viewer)):
     _crew(crew_id)
+    require_self(crew_id, v)
     ms = mission.state()
     return {"personal": goals.personal_today(crew_id, ms), "team": goals.team_progress(ms["day"]),
             "profile": goals.profile(crew_id, ms["day"])}
@@ -212,10 +273,11 @@ class DoneIn(BaseModel):
 
 
 @app.post("/api/goals/{crew_id}/{goal_id}", tags=["goals"])
-def set_goal(crew_id: str, goal_id: str, body: DoneIn):
+def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)):
     _crew(crew_id)
+    require_self(crew_id, v)
     goals.set_done(crew_id, goal_id, mission.state()["day"], body.done)
-    return goals_for(crew_id)
+    return goals_for(crew_id, v)
 
 
 @app.get("/api/leaderboard", tags=["goals"])
@@ -236,8 +298,9 @@ class CheckinIn(BaseModel):
 
 
 @app.post("/api/checkins", tags=["crew"])
-def checkin(body: CheckinIn):
+def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
+    require_self(body.crew_id, v)
     day = mission.state()["day"]
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
          (body.crew_id, day, body.kind, json.dumps(body.payload), time.time()))
@@ -376,14 +439,16 @@ def assistant_status():
 
 
 @app.post("/api/assistant/ask", tags=["assistant"])
-def assistant_ask(body: AskIn):
+def assistant_ask(body: AskIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
+    require_self(body.crew_id, v)
     return chat.ask(body.crew_id, body.question)
 
 
 @app.get("/api/assistant/history/{crew_id}", tags=["assistant"])
-def assistant_history(crew_id: str):
+def assistant_history(crew_id: str, v: dict = Depends(viewer)):
     _crew(crew_id)
+    require_self(crew_id, v)
     return chat.history(crew_id)
 
 
@@ -392,8 +457,9 @@ class BriefingIn(BaseModel):
 
 
 @app.post("/api/briefings", tags=["assistant"])
-def briefing_new(body: BriefingIn):
+def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
+    require_self(body.crew_id, v)
     return briefing.build(body.crew_id)
 
 
@@ -403,8 +469,9 @@ def briefing_approve(bid: int):
 
 
 @app.get("/api/briefings/{crew_id}", tags=["assistant"])
-def briefing_list(crew_id: str):
+def briefing_list(crew_id: str, v: dict = Depends(viewer)):
     _crew(crew_id)
+    require_self(crew_id, v)
     return briefing.list_for(crew_id)
 
 

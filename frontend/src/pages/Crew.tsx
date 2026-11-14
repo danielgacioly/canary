@@ -1,50 +1,95 @@
+// Crew home: what everyone on board may see. Operational status, hazards, crew goals.
+// No scores, no averages (with four people an average gives individuals away), no vitals.
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import { Avatar, CountUp, Loading, Status } from '../components/ui'
+import { TeamRow } from '../components/GoalItems'
+import { Dot } from '../components/People'
+import { CountUp, Icon, Loading } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
-const SYS = ['brain', 'heart', 'lungs', 'skeleton', 'muscles', 'eyes', 'kidneys', 'gut', 'immune', 'skin']
-
 export default function Crew() {
-  const { catalog } = useSession()
-  const { data } = useApi(() => api.crew(), [])
+  const { me, catalog } = useSession()
+  const { data, error } = useApi(() => api.overview(), [])
   const nav = useNavigate()
+  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
   if (!data || !catalog) return <Loading what="crew" />
-  const need = data.crew.filter(c => c.level)
+  const n = data.people.length
+  const off = data.people.filter(p => p.ops.key !== 'full')
+  const storm = data.hazards.find(h => h.level === 2)
+  const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
+  const eva = storm ? { l: 2, t: 'EVA suspended for everyone', s: storm.title }
+    : data.eva_open ? { l: 0, t: 'EVA open', s: 'For those fit for all duties' }
+      : { l: 1, t: 'No EVA at this place', s: data.mission.place.name }
+  const ms = data.mission
+
   return (
     <div className="page">
-      <div className="head rise"><div><span className="eyebrow">Crew · {data.mission.day_label}</span>
-        <h1 style={{ marginTop: 6 }}>{need.length ? `${need.length} of ${data.crew.length} need attention` : 'The whole crew is on track'}</h1></div></div>
-
-      <div className="stats">
-        <div className="stat rise"><div className="k">Crew physical</div><b className="num"><CountUp value={data.crew_readiness.physical} /></b><div className="s">average of four</div></div>
-        <div className="stat rise" style={{ ['--d' as string]: 1 }}><div className="k">Crew mental</div><b className="num"><CountUp value={data.crew_readiness.mental} /></b><div className="s">average of four</div></div>
-        <div className="stat rise" style={{ ['--d' as string]: 2 }}><div className="k">Mission dose (simulated)</div><b className="num"><CountUp value={data.dose.mission_msv} dp={1} /><small>mSv</small></b><div className="s">{data.dose.pct_of_limit}% of the career limit</div></div>
-        <div className={`stat rise s${data.space_weather.active ? 2 : 0}`} style={{ ['--d' as string]: 3 }}><div className="k">Space weather</div><b className={data.space_weather.active ? 'c' : ''}>{data.space_weather.active ? 'Storm' : 'Calm'}</b><div className="s">NASA DONKI</div></div>
+      <div className="head rise">
+        <div>
+          <span className="eyebrow">Crew · {ms.day_label} · {ms.place.name}</span>
+          <h1 style={{ marginTop: 6 }}>{off.length === 0 ? `All ${n} fit for duty` : `${data.fit} of ${n} fit for all duties`}</h1>
+          <p className="sub">Operational status only. Each person's health stays with them and the medical team.</p>
+        </div>
+        <button className="btn right" onClick={() => nav('/today')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my health' : 'Enter my space'}</button>
       </div>
 
-      <section className="grid g4">
-        {[...data.crew].sort((a, b) => b.level - a.level).map((c, i) => (
-          <button key={c.id} className="detail-card person rise" style={{ ['--d' as string]: i + 2 }} onClick={() => nav(`/crew/${c.id}`)}>
-            <div className="row"><Avatar initials={c.initials} size="lg" /><div className="grow"><h3>{c.name}</h3><div className="small muted">{c.role}</div></div></div>
-            <Status level={c.level}>{c.top_alert ?? 'Within personal normal'}</Status>
-            <div className="dual">
-              <div><span className="k">Physical</span><b>{c.areas.physical.score}</b><Status level={c.areas.physical.level} /></div>
-              <div><span className="k">Mental</span><b>{c.areas.mental.score}</b><Status level={c.areas.mental.level} /></div>
-            </div>
-          </button>
-        ))}
+      <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
+        <div className="orbit">
+          {data.people.map((p, i) => (
+            <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} onClick={() => nav(p.id === me ? '/today' : `/crew/${p.id}`)}>
+              <Dot p={p} size="xl" me={p.id === me} />
+              <b>{p.name}</b>
+              <span className="small muted">{p.role}</span>
+              <span className={`status s${p.ops.level}`}><span className="dot" />{p.ops.label}</span>
+              <span className="routine" title="Routine goals done today">
+                <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
+                <span className="small dim num">{p.today.done}/{p.today.total} today</span>
+              </span>
+              <span className="small dim row" style={{ gap: 5 }}><Icon name={p.shared ? 'open' : 'lock'} size={13} />{p.id === me ? 'You' : p.shared ? 'Shares health with the crew' : 'Health private'}</span>
+            </button>
+          ))}
+        </div>
+        <div className="row wrap legend">
+          <span className="status s0"><span className="dot" />Fit for all duties</span>
+          <span className="status s1"><span className="dot" />Fit for duty, no EVA</span>
+          <span className="status s2"><span className="dot" />Off critical tasks</span>
+          <span className="small dim right">Status comes from each person's own alerts. Environment alerts are crew hazards, below.</span>
+        </div>
       </section>
 
-      <section className="detail-card rise" style={{ ['--d' as string]: 6 }}>
-        <div className="section-head"><h2>Body systems by person</h2><span className="sub">Each person against their own normal. Coloured: watch or act.</span></div>
-        <div className="scroll"><table className="t">
-          <thead><tr><th>Crew member</th>{SYS.map(s => <th key={s} style={{ textAlign: 'center' }}>{catalog.systems[s].name.split(/ & | /)[0]}</th>)}</tr></thead>
-          <tbody>{data.crew.map(c => (
-            <tr key={c.id} className="click" onClick={() => nav(`/crew/${c.id}`)}>
-              <td><div className="row"><Avatar initials={c.initials} /><span>{c.name}</span></div></td>
-              {SYS.map(s => <td key={s} style={{ textAlign: 'center' }}><span className={`sq s${c.systems[s]}`} title={`${catalog.systems[s].name}: ${['On track', 'Watch', 'Act'][c.systems[s]]}`} /></td>)}
-            </tr>))}</tbody>
+      <div className="stats">
+        <div className={`stat rise s${eva.l}`} style={{ ['--d' as string]: 3 }}><div className="k">Outside activity</div><b className="c" style={{ fontSize: 22 }}>{eva.t}</b><div className="s">{eva.s}</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 4 }}><div className="k">Crew streak</div><b className="num"><CountUp value={data.crew_streak} /><small>days</small></b><div className="s">Days when at least 3 of 4 kept their routine</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 5 }}><div className="k">Crew missions</div><b className="num"><CountUp value={data.team_done} /><small>of {data.team_total}</small></b><div className="s">done this week</div></div>
+        <div className="stat rise" style={{ ['--d' as string]: 6 }}><div className="k">Mission dose (simulated)</div><b className="num"><CountUp value={data.dose.mission_msv} dp={1} /><small>mSv</small></b><div className="s">{data.dose.pct_of_limit}% of the career limit · same for all</div></div>
+      </div>
+
+      <section className="grid g2">
+        <div className="detail-card rise" style={{ ['--d' as string]: 7 }}>
+          <div className="section-head"><h2>Hazards now</h2><span className="sub">The same for everyone on board</span></div>
+          <div className="list">
+            {data.hazards.map(h => (
+              <div key={h.title} className="item" style={{ alignItems: 'flex-start' }}>
+                <span className={`dot s${h.level}`} style={{ marginTop: 8 }} />
+                <div className="grow"><b>{h.title}</b><div className="small muted">{h.what}</div></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rise" style={{ ['--d' as string]: 8 }}>
+          <div className="section-head"><h2>Crew missions</h2><span className="sub">This week, everyone earns the XP</span></div>
+          <div className="col">{data.team.slice(0, 4).map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
+          {data.team.length > 4 && <button className="link" style={{ marginTop: 12 }} onClick={() => nav('/ranking')}>All {data.team.length} crew missions</button>}
+        </div>
+      </section>
+
+      <section className="detail-card rise" style={{ ['--d' as string]: 9 }}>
+        <div className="section-head"><Icon name="shield" size={18} /><h2>Who sees what</h2><span className="sub">Agreed by the crew on day 0. Anyone can choose to share more.</span></div>
+        <div className="scroll"><table className="t contract">
+          <thead><tr><th>Information</th><th>The astronaut</th><th>Medical team</th><th>The crew</th><th>Earth</th></tr></thead>
+          <tbody>{data.contract.map(r => (
+            <tr key={r.info}><td><b>{r.info}</b></td>{[r.self, r.doctor, r.crew, r.earth].map((v, i) => <td key={i} className={v === 'No' ? 'dim' : ''}>{v}</td>)}</tr>
+          ))}</tbody>
         </table></div>
       </section>
     </div>

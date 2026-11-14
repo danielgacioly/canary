@@ -1,38 +1,37 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
 import { useApi, useSession } from '../state/session'
-import { Avatar, CanaryMark, Icon } from './ui'
+import { CrewDots, Dot } from './People'
+import { CanaryMark, Icon } from './ui'
 
+// Crew first: the system always opens on the whole crew. Personal data sits behind "Your space".
 const NAV: { group: string; items: [string, string, string][] }[] = [
-  { group: 'You', items: [['/today', 'today', 'Today'], ['/goals', 'goals', 'Goals']] },
   { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/ranking', 'rank', 'Ranking']] },
   { group: 'Mission', items: [['/plan', 'plan', 'Mission plan'], ['/space-weather', 'weather', 'Space weather'], ['/link', 'link', 'Link to Earth']] },
+  { group: 'Your space', items: [['/today', 'today', 'My health'], ['/goals', 'goals', 'My goals']] },
 ]
 
 export default function Shell() {
-  const { mission, catalog, me, setMe, emergency, setEmergency, askOpen, setAskOpen, toasts } = useSession()
+  const { mission, me, setMe, emergency, setEmergency, askOpen, setAskOpen, toasts } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
-  const { data: crew } = useApi(() => api.crew(), [])
-  const meInfo = catalog?.crew.find(c => c.id === me)
-  const mine = crew?.crew.find(c => c.id === me)
-
-  useEffect(() => { if (!me) nav('/welcome') }, [me, nav])
+  const { data: crew } = useApi(() => api.overview(), [])
+  const mine = crew?.people.find(c => c.id === me)
 
   return (
     <div className="shell">
       <aside className="side">
-        <NavLink to="/today" className="brand"><CanaryMark />CANARY</NavLink>
+        <NavLink to="/crew" className="brand"><CanaryMark />CANARY</NavLink>
         {NAV.map(g => (
           <div key={g.group}>
             <div className="group">{g.group}</div>
             {g.items.map(([to, icon, label]) => (
               <NavLink key={to} to={to} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
                 <Icon name={icon} /><span>{label}</span>
-                {to === '/today' && mine && mine.level > 0 && <span className={`count s${mine.level}`}>{mine.alerts}</span>}
+                {(to === '/today' || to === '/goals') && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
               </NavLink>
             ))}
           </div>
@@ -42,10 +41,16 @@ export default function Shell() {
         <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
         <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
         <div className="foot">
-          {meInfo && (
-            <button className="me-chip" onClick={() => { setMe(null); nav('/welcome?pick=1') }} title="Switch crew member">
-              <Avatar initials={meInfo.initials} />
-              <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{meInfo.name}</b><span className="small muted">Switch crew member</span></span>
+          {mine ? (
+            <button className="me-chip" onClick={() => { setMe(null); nav('/crew') }} title="Lock your space">
+              <Dot p={mine} size="sm" />
+              <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine.name}</b><span className="small muted">Lock my space</span></span>
+              <Icon name="lock" />
+            </button>
+          ) : (
+            <button className="me-chip" onClick={() => nav('/today')} title="Enter your private space">
+              <span className="pdot sm"><Icon name="lock" /></span>
+              <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>Enter my space</b><span className="small muted">Your health is private</span></span>
             </button>
           )}
         </div>
@@ -64,7 +69,7 @@ export default function Shell() {
               {crew && <div className={`fact opt s${crew.space_weather.active ? 2 : 0}`}><span>Space weather</span><b className={crew.space_weather.active ? 'c' : ''}>{crew.space_weather.active ? 'Storm' : 'Calm'}</b></div>}
             </>
           )}
-          <div className="right"><HoldButton onFire={() => setEmergency(true)} /></div>
+          <div className="right row" style={{ gap: 18 }}>{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
         <Outlet />
       </div>
@@ -93,7 +98,8 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
 }
 
 function StoryBar() {
-  const { mission, setStep, catalog } = useSession()
+  const { mission, setStep, catalog, me, setMe } = useSession()
+  const nav = useNavigate()
   const [busy, setBusy] = useState(false)
   if (!mission || !catalog) return null
   const go = async (i: number) => { setBusy(true); try { await setStep(i) } finally { setBusy(false) } }
@@ -102,6 +108,11 @@ function StoryBar() {
       <span className="small" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Demo {mission.step + 1}/{mission.steps}</span>
       <div className="dots">{catalog.story.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b style={{ color: 'var(--ink)' }}>Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b style={{ color: 'var(--ink)' }}>{mission.story.when}.</b> {mission.story.text}</>}</p>
+      {!mission.custom_day && me !== mission.suggested_user && (
+        <button className="btn sm ghost" onClick={() => { setMe(mission.suggested_user); nav('/today') }} title="Demo shortcut">
+          Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
+        </button>
+      )}
       <button className="btn sm ghost" disabled={busy || mission.step === 0} onClick={() => go(mission.step - 1)} aria-label="Previous step"><Icon name="back" /></button>
       <button className="btn sm" disabled={busy || mission.step === mission.steps - 1} onClick={() => go(mission.step + 1)}>Next<Icon name="chev" /></button>
     </div>

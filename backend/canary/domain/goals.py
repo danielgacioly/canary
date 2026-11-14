@@ -187,6 +187,29 @@ def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = Non
             "daily_xp": [[d, days[d]["xp"]] for d in range(max(HISTORY_START, today - 13), today + 1)]}
 
 
+def crew_streak(today: int, histories: Dict[str, dict]) -> int:
+    """Shared streak: consecutive days on which at least 3 of the 4 kept their routine."""
+    def ok(d: int) -> bool:
+        return sum(1 for c in CREW if histories[c["id"]][d]["total"]
+                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= 3
+    n = 1 if ok(today) else 0
+    d = today - 1
+    while d >= HISTORY_START and ok(d):
+        n += 1
+        d -= 1
+    return n
+
+
+def crew_board(today: int) -> dict:
+    """Participation only, for the public crew view: no scores, no vitals."""
+    histories = {c["id"]: _history(c["id"], today) for c in CREW}
+    people = {c["id"]: {"done": len(histories[c["id"]][today]["done"]), "total": histories[c["id"]][today]["total"],
+                        "streak": _streak(histories[c["id"]], today)} for c in CREW}
+    team = team_progress(today, histories)
+    return {"people": people, "team": team, "crew_streak": crew_streak(today, histories),
+            "team_done": sum(1 for t in team if t["done"]), "team_total": len(team)}
+
+
 def leaderboard(today: int) -> dict:
     histories = {c["id"]: _history(c["id"], today) for c in CREW}
     rows = [profile(c["id"], today, histories) for c in CREW]

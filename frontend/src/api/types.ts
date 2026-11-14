@@ -57,7 +57,7 @@ export interface CrewSummary {
   systems: Record<string, Level>; xp_week: number; level_xp: number; streak: number
 }
 export interface CrewList {
-  mission: Mission; crew: CrewSummary[]; crew_readiness: Record<Area, number>; team: TeamGoal[]; dose: Dose
+  mission: Mission; crew: CrewSummary[]; team: TeamGoal[]; dose: Dose
   space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
 }
 export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string }
@@ -67,6 +67,20 @@ export interface CrewDetail {
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
+  ops: Ops; shared: boolean; care_by: string; access: 'self' | 'medical' | 'shared'
+}
+export interface Ops { key: 'full' | 'limited' | 'rest'; label: string; level: Level }
+export interface Person {
+  id: string; name: string; role: string; initials: string; home: string
+  ops: Ops; shared: boolean; today: { done: number; total: number; streak: number }
+}
+export interface Hazard { title: string; level: Level; what: string; sources: string[] }
+export interface ContractRow { info: string; self: string; doctor: string; crew: string; earth: string }
+export interface CrewOverview {
+  mission: Mission; people: Person[]; fit: number; eva_open: boolean; hazards: Hazard[]
+  team: TeamGoal[]; crew_streak: number; team_done: number; team_total: number; dose: Dose
+  space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
+  contract: ContractRow[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
 export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_xp_week: number; team_done: number; team_total: number }

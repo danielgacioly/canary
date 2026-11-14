@@ -10,10 +10,12 @@ import Medical from './pages/Medical'
 import { LinkToEarth, SpaceWeather } from './pages/Mission'
 import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
-import { useSession } from './state/session'
+
+function seenIntro(): boolean {
+  try { return sessionStorage.getItem('canary.intro') === '1' } catch { return true }
+}
 
 export default function App() {
-  const { me } = useSession()
   return (
     <Routes>
       <Route path="/welcome" element={<Intro />} />
@@ -31,7 +33,7 @@ export default function App() {
         <Route path="/medical" element={<Medical />} />
         <Route path="/about" element={<About />} />
       </Route>
-      <Route path="*" element={<Navigate to={me ? '/today' : '/welcome'} replace />} />
+      <Route path="*" element={<Navigate to={seenIntro() ? '/crew' : '/welcome'} replace />} />
     </Routes>
   )
 }

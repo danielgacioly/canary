@@ -3,15 +3,22 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import { GoalRow, TeamRow } from '../components/GoalItems'
+import { EnterGate } from '../components/People'
 import { CountUp, Loading, Patch } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { useApi, useSession } from '../state/session'
 
 export default function Goals() {
-  const { me, catalog } = useSession()
-  const { data } = useApi(() => (me ? api.goals(me) : Promise.reject(new Error('no user'))), [me])
+  const { me } = useSession()
+  if (!me) return <EnterGate what="your goals" />
+  return <MyGoals me={me} />
+}
+
+function MyGoals({ me }: { me: string }) {
+  const { catalog } = useSession()
+  const { data } = useApi(() => api.goals(me), [me])
   const [check, setCheck] = useState<CheckKind | null>(null)
-  if (!data || !me || !catalog) return <Loading what="goals" />
+  if (!data || !catalog) return <Loading what="goals" />
   const p = data.profile
   const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const done = data.personal.filter(g => g.done).length

@@ -21,6 +21,10 @@ def fresh():
     client.post("/api/demo/reset")
 
 
+def as_(cid):
+    return {"X-Canary-Viewer": cid}
+
+
 def at(step):
     return client.put("/api/mission", json={"step": step}).json()
 
@@ -62,9 +66,9 @@ def test_thresholds_change_levels():
 
 def test_checkin_overrides_and_completes_goal():
     at(2)
-    r = client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 5, "stress": 1}}).json()
+    r = client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 5, "stress": 1}}, headers=as_("h")).json()
     assert r["snapshot"]["indicators"]["mood"]["value"] > 4
-    g = {x["id"]: x for x in client.get("/api/goals/h").json()["personal"]}
+    g = {x["id"]: x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"]}
     assert g["mood"]["done"]
 
 
@@ -103,14 +107,14 @@ def test_guard_flags_invented_numbers():
 
 def test_assistant_answers_grounded_without_a_provider():
     at(2)
-    r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "Why is my sleep so bad?"}).json()
+    r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "Why is my sleep so bad?"}, headers=as_("h")).json()
     assert r["provider"] == "none" and r["mode"] == "grounded"
     assert r["claims"] and all(c["source_ids"] for c in r["claims"])
 
 
 def test_briefing_is_approved_then_queued():
     at(2)
-    b = client.post("/api/briefings", json={"crew_id": "h"}).json()
+    b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
     assert b["status"] == "draft" and "WHAT WORRIES" in b["text"]
     assert client.post(f"/api/briefings/{b['id']}/approve").json()["status"] == "queued"
 
@@ -127,7 +131,7 @@ def test_closing_an_emergency_creates_follow_up_goals_and_a_report():
     e = client.post("/api/emergencies", json={"responder": "k"}).json()
     client.post(f"/api/emergencies/{e['id']}", json={"protocol": "seizure", "patient": "t", "text": "Seizure stopped at 02:10"})
     client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"})
-    titles = [g["title"] for g in client.get("/api/goals/t").json()["personal"] if g["by"] == "medical"]
+    titles = [g["title"] for g in client.get("/api/goals/t", headers=as_("t")).json()["personal"] if g["by"] == "medical"]
     assert titles and any("Glucose" in t for t in titles)
     assert any(m["kind"] == "report" for m in client.get("/api/messages").json())
 
@@ -136,7 +140,7 @@ def test_plan_drives_the_place_and_goals():
     client.post("/api/plan/preset", json={"preset": "iss"})
     ms = client.put("/api/mission", json={"day": 100}).json()
     assert ms["location"] == "iss" and ms["leg"]["label"].startswith("Expedition")
-    titles = [g["title"] for g in client.get("/api/goals/h").json()["personal"]]
+    titles = [g["title"] for g in client.get("/api/goals/h", headers=as_("h")).json()["personal"]]
     assert any("treadmill" in t for t in titles) and any("cupola" in t for t in titles)
     assert client.put("/api/mission", json={"day": 200}).json()["location"] == "earth"
 
@@ -159,3 +163,34 @@ def test_bone_loss_depends_on_gravity_in_the_plan():
     client.post("/api/plan/preset", json={"preset": "moon"})
     moon = health.indicator("t", "bone", mission.state())["value"]  # day 147 is back on Earth after a short trip
     assert mars < moon
+
+
+def test_crew_overview_hides_private_health():
+    at(2)
+    o = client.get("/api/crew/overview").json()
+    helena = next(p for p in o["people"] if p["id"] == "h")
+    assert helena["ops"]["key"] == "rest" and not helena["shared"]
+    text = str(o)
+    for leak in ("indicators", "areas", "alerts", "score", "baseline", "Sleep, mood and focus"):
+        assert leak not in text
+
+
+def test_details_are_private_until_shared():
+    at(2)
+    assert client.get("/api/crew/h").status_code == 403
+    assert client.get("/api/crew/h", headers=as_("k")).status_code == 403
+    assert client.get("/api/crew/h", headers=as_("h")).json()["access"] == "self"
+    assert client.get("/api/goals/h", headers=as_("t")).status_code == 403
+    assert client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("k")).status_code == 403
+    client.put("/api/crew/h/sharing", json={"shared": True}, headers=as_("h"))
+    d = client.get("/api/crew/h", headers=as_("k")).json()
+    assert d["access"] == "shared" and d["alerts"] == [] and d["goals"] == [] and d["ops"]["key"] == "rest"
+    assert client.get("/api/goals/h", headers=as_("k")).status_code == 403  # sharing opens health, not advice
+
+
+def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
+    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    assert client.get("/api/crew/h", headers={"Authorization": f"Bearer {tok}"}).json()["access"] == "medical"
+    assert client.get("/api/crew").status_code == 401
+    o = client.get("/api/crew/overview").json() if at(3) else None
+    assert o["hazards"][0]["level"] == 2 and not o["eva_open"]
