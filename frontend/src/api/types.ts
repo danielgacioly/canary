@@ -165,7 +165,12 @@ export interface CrewOverview {
   contract: ContractRow[]; ridge: Ridge[]; warnings: Warning[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
-export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
+/** One person in the crew's ranking: routine goals only, never the split by area, daily counts or patch progress. */
+export interface LeaderRow {
+  crew_id: string; goals_week: number; completion_7d: number; streak: number; badges_earned: number
+  rank: number; name: string; initials: string; role: string
+}
+export interface Leaderboard { rows: LeaderRow[];team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
 export interface Step { i: number; t?: string; q?: string; yes?: number | string; no?: number | string; timer?: number; metro?: number; breath?: number; end?: number; variant?: string | null }
 export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; after_items: { title: string; days: number }[]; window_days: number; ops: 'full' | 'limited' | 'rest'; steps: Step[]; source: string }
 export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean; care_note?: { source: string; verified: boolean; note: string } }
