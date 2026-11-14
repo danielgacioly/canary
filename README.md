@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 40 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 81 backend tests (alerts, risks, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -226,15 +226,37 @@ baseline (pre-flight) ──┤  z = (recent − baseline) / personal spread
                         ▼
               level 0 / 1 / 2  by the medical team's thresholds (default 1.5σ / 2.5σ)
                         │
-cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  →  behavioural alert
+slow slide? ────────────┤  a line through the last 14 days crosses the level-1 limit within 10 days  →  "drifting towards your limit"
                         ▼
+RISK (domain/risk.py) ──┤  evidence from every related indicator and check-in, added up with a weight table
+ e.g. fatigue           │  → level 0 / 1 / 2 · score · trend (rising / stable / falling) · since_day · evidence list
+                        ▼
+cross-signal rules ─────┤  fatigue level 2  →  the `behaviour` alert (`risk: "fatigue"`); the other rules are unchanged
   missing data ─────────┤  no mood check-in for 3 days  →  `missing_mood` (level 1, never counts as a health risk)
                         ▼
          alert = { what it means, what to do now, goals added, sources }
                         │
                         ▼
-   body system status  →  colour on the 3D body  →  physical / mental readiness score
+   body system status = the highest risk level acting on it (one indicator alone: watch at most,
+   unless past the population safety limit)  →  colour on the 3D body  →  physical / mental readiness score
 ```
+
+### Risks
+
+A risk is a function of the day, never a stored value, so the demo clock can jump anywhere and the same day always gives the same answer. `GET /api/crew/{id}` and the snapshot carry `risks: [{id, name, nasa_red, systems, clock_days, level, score, trend, evidence, since_day}]`; each evidence is `{indicator | checkin, text, value, baseline, z, origin, source, points}`. Only **`fatigue`** (Behavioural health and performance) exists so far; the other NASA risks are a later step and join the same table (`risk.RISKS`).
+
+| Fatigue evidence | Points |
+| --- | --- |
+| each of sleep, reaction time, mood | 1.0 × the indicator's level (0, 1 or 2) |
+| processing speed (`dsst`) | 0.75 × level |
+| stress, time with crew, working memory, sleepiness (`kss`), workload (`tlx`) | 0.5 × level |
+| wellbeing check-in (PHQ-2 or GAD-2 of 3 or more in 14 days) | 1.0 |
+| no mood check-in for 3 days | 0.5 |
+| drifting towards the limit (level 0 but sliding) | 0.5 each, 1.0 at most |
+
+Level 1 from 2.0 points. Level 2 from 4.0 points **and** at least 3 distinct signals (drift does not count) **and** level 1 or more two days earlier, so one bad night, or two tired check-ins, never reaches level 2. The trend compares the score with 3 days ago (±0.5). `since_day` is found by walking back day by day and re-evaluating (cached, at most 60 days), never stored. Every weight and cut is a prototype assumption (`verified: false`, see [Limits, honestly](#limits-honestly)); the tables are at the top of `risk.py`. The AI never scores a risk: rules decide, the assistant only explains (`get_risks`).
+
+The suggestions use the same layer: each one is decided by the level of the indicator it cites, the risk evidence and the weekly goal counts, with no limits of their own, so a suggestion never contradicts an alert.
 
 Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. The baseline in that formula is the person's pre-flight mean, and a population range can raise the level by itself (see "Reference ranges and their sources"). Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
 
@@ -290,7 +312,7 @@ question ─► guard.precheck ─► tools (read-only) ─► LLMProvider ─�
 | --- | --- |
 | `assistant/providers.py` | `LLMProvider` interface. `NullProvider` (default), `AnthropicProvider` and `LocalProvider` are slots with a `TODO` |
 | `assistant/knowledge.py` | The only knowledge allowed: body-system cards and protocols, each with an id. Small enough for a cached prompt, no vector database |
-| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
+| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_risks`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
 | `assistant/guard.py` | Sends emergencies to Guided Response, refuses diagnosis and doses, drops any claim citing a source the tools did not return, rejects briefing text with invented numbers |
 | `assistant/chat.py` | Entry 1: an astronaut asks a question |
 | `assistant/briefing.py` | Entry 2: one-page weekly briefing for the flight surgeon. Code computes the facts, the model only writes prose, the astronaut approves it before it is queued for Earth |
@@ -356,7 +378,7 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, plan, telemetry, simdata, health, goals, privacy, protocols, nasa, mission, selftests
+    domain/              catalog, plan, telemetry, simdata, health, risk, goals, privacy, protocols, nasa, mission, selftests
     assistant/           the AI slot: chat, briefing, suggestions, guard
     data/                protocols.json, nasa_snapshot.json, observations.csv (generated)
   tests/test_canary.py   tests
@@ -405,6 +427,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET/POST /api/messages` | Messages with communication delay |
 | `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |
 | `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data (used by alerts and the story; no page of their own) |
+| `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence (fatigue so far) |
 | `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
 
@@ -441,6 +464,7 @@ Full, interactive documentation at `/docs`. The main routes:
 
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
 - **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
+- **Risk layer (prototype assumptions, `verified: false`):** the fatigue weights, the cuts (2.0 and 4.0 points), the minimum of 3 signals, the 2-day sustain rule, the 3-day trend (±0.5), the drift window (14 days, 10 days ahead, minimum slope 0.08 spreads a day) and the 60-day look-back. They were tuned on the simulated crew, not on flight data. The Physical and Mental readiness scores are also a design choice (18 points per spread beyond 0.6, minus 6 per level of eyes, skin and immune), not a published score.
 - **Reference ranges to verify:** every entry of `reference.POPULATION` is `verified: false` (table above). Simulated glucose of Tomás sits just above 99 mg/dL on a few isolated days (level 1, none in a story scene).
 - **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
