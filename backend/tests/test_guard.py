@@ -130,6 +130,7 @@ def test_precheck_lets_ordinary_questions_through(q):
     "What dose did I get during the solar storm?", "Is my dose higher than on the ISS? Radiation is my worry",
     "How much radiation can I take before the mission limit?", "How many mSv did the shelter save us?",
     "Can I reduce my radiation dose?", "Should I take a break?", "How much water should I drink?", "I drank 500 ml of water",
+    "What is my career dose?", "What is my mission dose so far?", "What dose will I get on the next EVA?",
 ])
 def test_precheck_lets_radiation_dose_questions_through(q):
     assert guard.precheck(q) is None
@@ -145,6 +146,7 @@ def test_precheck_lets_radiation_dose_questions_through(q):
     ("Radiation is high: what dose of potassium iodide?", "G-DOSE-01"),
     ("What is my dose?", "G-DOSE-01"),                  # no radiation word: still treated as medication
     ("Can I double my dose?", "G-DOSE-01"),
+    ("What career dose of melatonin is ok?", "G-DOSE-01"),  # a radiation word never lets a drug through
     ("How many capsules can I take?", "G-DOSE-01"),
     ("How much aspirin can we give her?", "G-DOSE-02"),
 ])
@@ -413,6 +415,21 @@ def test_claim_about_another_crew_members_health_is_dropped():
 def test_claim_citing_another_persons_data_id_is_dropped():
     res = run(good(observations=[obs("Sleep 6.1 h"), obs("Sleep 6.1 h", "telemetry:k:sleep:day147")]))
     assert len(res.response.observations) == 1 and res.report["dropped_claims"][0]["rule_id"] == "G-PRIV-01"
+
+
+def test_claim_citing_another_persons_dose_id_is_dropped():
+    # per-person dose (`dose:{crew}:day{n}`, get_dose_and_eva) is personal; mission-wide `dose:day{n}` is not
+    data = [{"data": {"career_msv": 107.0, "mission_msv": 52.3}, "sources": ["dose:h:day147", "dose:k:day147", "dose:day147"]}]
+    allowed = {"dose:h:day147", "dose:k:day147", "dose:day147"}
+    resp = good(answer="Your career dose is 107 mSv.", explanations=[], recommended_action_id=None,
+                observations=[obs("Career dose 107 mSv", "dose:h:day147"), obs("Career dose 107 mSv", "dose:k:day147"),
+                              obs("Mission dose 52.3 mSv", "dose:day147")])
+    res = guard.postcheck(resp, allowed, json.dumps(data), ctx=H)
+    assert not res.hard_fail, res.report
+    assert [o.source_ids for o in res.response.observations] == [["dose:h:day147"], ["dose:day147"]]
+    assert [d["rule_id"] for d in res.report["dropped_claims"]] == ["G-PRIV-01"]
+    assert guard._foreign_source("dose:k:day147", "h") and not guard._foreign_source("dose:h:day147", "h")
+    assert not guard._foreign_source("dose:day147", "h")
 
 
 def test_sentence_about_another_person_is_cut_from_the_answer():

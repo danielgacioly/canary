@@ -294,7 +294,9 @@
       "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)"
     ],
     "radiation": [
-      "\\b(radiation|radioactiv\\w*|irradiat\\w*|sieverts?|millisieverts?|msv|mgy|gray|dosimet\\w*|cosmic|solar (storm|flare|particle\\w*|event)|particle (storm|event)|spe|storm|shelter\\w*|exposure)\\b"
+      "\\b(radiation|radioactiv\\w*|irradiat\\w*|sieverts?|millisieverts?|msv|mgy|gray|dosimet\\w*|cosmic|solar (storm|flare|particle\\w*|event)|particle (storm|event)|spe|storm|shelter\\w*|exposure)\\b",
+      "\\b(career|mission|lifetime|cumulative) (dose|doses|limit)\\b",
+      "\\b(evas?|space ?walks?|extravehicular)\\b"
     ]
   }
 }

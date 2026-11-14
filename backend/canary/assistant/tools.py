@@ -24,9 +24,10 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .. import db
-from ..domain import goals, health, mission, protocols, selftests, telemetry
+from ..domain import goals, health, mission, privacy, protocols, selftests, standards, telemetry
 from ..domain.catalog import INDICATORS, LOCATIONS, SYSTEMS
-from .contracts import FIELDS_NEVER_RETURNED, PERSONAL_SOURCE_PREFIXES, SETTINGS_NEVER_RETURNED, ToolContext, ToolResult
+from .contracts import (FIELDS_NEVER_RETURNED, PERSONAL_SOURCE_PREFIXES, SCOPED_SOURCE_PREFIXES, SETTINGS_NEVER_RETURNED,
+                        ToolContext, ToolResult)
 from . import kb
 
 # ---------------------------------------------------------------- enums (from catalog / selftests / protocols)
@@ -184,6 +185,74 @@ def get_weekly_summary(ctx: ToolContext) -> ToolResult:
     return ToolResult(data=f, sources=[f"summary:{ctx.crew_id}:day{f['day']}:7d"])
 
 
+# "Ready for EVA?" (frontend components/EvaReadiness.tsx): the verdict is the highest NASA-STD-3001 level among the
+# rows the card shows, read from `health.indicator(...)["standard"]` (domain/standards.check). Same labels as the card.
+EVA_VERDICT = ("Ready", "Close to a limit", "Below a limit")
+EVA_ROWS = (("vo2", "VO2max"), ("grip", "Grip strength"), ("bone", "Bone density"))
+
+
+def _std_source(item: str) -> str:
+    return f"nasa:std3001v1:{item.replace(' ', '')}"
+
+
+def _eva(ctx: ToolContext, ms: dict, snap: dict) -> tuple:
+    """The EVA card for the bound person, from the domain: (data, sources). Nothing re-derived but the label."""
+    role, place = standards.eva_role(ctx.crew_id), LOCATIONS[ms["location"]]
+    who = "your" if ctx.viewer == ctx.crew_id else "this person's"
+    out = {"role": role, "place_eva": place.get("eva", "none"), "checked": False, "level": None, "verdict": None,
+           "note": None, "rows": []}
+    if role == "none":
+        return {**out, "note": f"No EVA in {who} role."}, []
+    if ms["learning"]:
+        return {**out, "note": "Nothing to check before launch: NASA's limits apply in flight."}, []
+    lim = standards.LIMITS
+    need = lim["vo2"].get(place.get("eva", "none"))
+    inds, rows, srcs = snap["indicators"], [], []
+    for iid, name in EVA_ROWS:
+        d, std = inds[iid], inds[iid].get("standard")
+        if iid == "vo2" and not (std and need):
+            rows.append({"id": iid, "name": name, "now": round(d["value"], 1), "unit": d["unit"], "limit": None, "level": None,
+                         "text": f"No EVA at {place['name']}, so NASA sets no minimum here."})
+            continue
+        if not std:
+            continue
+        if iid == "vo2":
+            now, limit = round(d["value"], 1), f"{need} {lim['vo2']['unit']}"
+        elif iid == "grip":
+            now, limit = round(100 * d["value"] / d["baseline"], 0) if d["baseline"] else 100.0, f"{lim['grip']['limit_pct']}% of pre-flight"
+        else:
+            now, limit = round(100 + d["value"], 1), f"{100 - lim['bone']['limit_loss_pct']:g}% of pre-flight"
+        rows.append({"id": iid, "name": name, "now": now, "unit": d["unit"] if iid == "vo2" else "% of pre-flight",
+                     "limit": limit, "level": std["level"], "status": std["status"], "text": std["text"], "item": std["item"],
+                     "verified": std["verified"]})
+        srcs += [d["source"], _std_source(std["item"])]
+    level = max([r["level"] for r in rows if r["level"] is not None] or [0])
+    return {**out, "checked": True, "level": level, "verdict": EVA_VERDICT[level], "rows": rows}, srcs
+
+
+def get_dose_and_eva(ctx: ToolContext) -> ToolResult:
+    """Mission and career dose against NASA's limit, today's dose rate and place, the EVA role and the "Ready for
+    EVA?" verdict with its reasons. Self or medical only (operational status never goes to the crew or Earth)."""
+    if not (ctx.medical or ctx.viewer == ctx.crew_id):
+        return ToolResult.fail("dose and EVA readiness are private: only the person and the medical team")
+    ms = _ms(ctx)
+    snap = health.snapshot(ctx.crew_id, ms)
+    d = snap["dose"]  # health.dose(ms, crew_id): the numbers the radiation bar shows
+    place = LOCATIONS[ms["location"]]
+    dose = {"mission_msv": d["mission_msv"], "career_msv": d["career_msv"], "prior_msv": d["prior_msv"],
+            "prior": "estimated" if d["prior_estimate"] else "recorded", "prior_source": d["prior_source"],
+            "career_limit_msv": d["career_limit_msv"], "career_pct_of_limit": d["career_pct_of_limit"],
+            "mission_pct_of_limit": d["pct_of_limit"], "limit_source": d["limit_source"],
+            "rate_msv_day": d["rate_msv_day"], "storm": ms["storm"], "simulated": d["simulated"]}
+    eva, eva_srcs = _eva(ctx, ms, snap)
+    ops = privacy.operational(snap)
+    duty = {"label": ops["label"], **({"reason": ops["reason"]} if ops.get("reason") else {})}
+    data = {"day": ms["day"], "place": {"id": ms["location"], "name": place["name"]}, "dose": dose, "eva": eva, "duty": duty}
+    day = ms["day"]
+    sources = [f"dose:{ctx.crew_id}:day{day}", _std_source(standards.RADIATION["items"][1])] + eva_srcs + [f"status:{ctx.crew_id}:day{day}"]
+    return ToolResult(data=data, sources=list(dict.fromkeys(sources)))
+
+
 NO_EVIDENCE = "No approved knowledge matched this question for the current place and gravity."
 
 
@@ -249,6 +318,13 @@ TOOLS: Dict[str, dict] = {
     "get_weekly_summary": {
         "fn": get_weekly_summary,
         "description": "The person's last 7 days as computed by the backend: readiness, alerts, biggest changes vs baseline, what was tried, goal completion.",
+        "input_schema": _obj({}),
+    },
+    "get_dose_and_eva": {
+        "fn": get_dose_and_eva,
+        "description": ("The person's radiation dose and EVA readiness: mission and career dose (mSv), dose before this mission "
+                        "(recorded or estimated), % of NASA's career limit and its source, today's dose rate and place, EVA role, "
+                        "and the 'Ready for EVA?' verdict with the NASA-STD-3001 reasons behind it."),
         "input_schema": _obj({}),
     },
     "search_knowledge": {
@@ -346,6 +422,8 @@ def _visibility_error(ctx: ToolContext, sources: List[str]) -> Optional[str]:
         parts = s.split(":")
         if parts[0] in _PERSONAL_PREFIXES and (len(parts) < 2 or parts[1] != ctx.crew_id):
             return "result withheld: it would show data about someone other than the person asked about"
+        if parts[0] in SCOPED_SOURCE_PREFIXES and len(parts) > 2 and parts[1] != ctx.crew_id:
+            return "result withheld: it would show data about someone other than the person asked about"
     return None
 
 
@@ -361,6 +439,8 @@ def run_tool(ctx: ToolContext, name: str, args: Optional[dict] = None) -> ToolRe
         res = TOOLS[name]["fn"](ctx, **args)
         if not isinstance(res, ToolResult):
             res = ToolResult(**res)
+        if not res.ok:  # a tool's own refusal stays a refusal
+            return ToolResult.fail(res.error)
         vis = _visibility_error(ctx, res.sources)
         if vis:
             return ToolResult.fail(vis)
@@ -388,6 +468,9 @@ _PROTO_WORDS = {"seizure": r"seizure|convuls", "choke": r"chok", "bleed": r"blee
                 "allergy": r"allerg", "cpr": r"cpr|not breathing", "crisis": r"panic|crisis", "rad": r"radiation storm|shelter"}
 
 
+_DOSE_EVA_WORDS = r"\beva\b|\bevas\b|space ?walk|extravehicular|\bdose\b|radiation|sievert|\bmsv\b"
+
+
 def _bind(crew_id: str) -> ToolContext:
     """Context for callers that already passed `require_self` for `crew_id` (chat.ask today)."""
     return ToolContext(crew_id=crew_id, viewer=crew_id, medical=False, mission=mission.state())
@@ -413,6 +496,8 @@ def route(crew_id: str, question: str, ctx: Optional[ToolContext] = None) -> Lis
     for pid, pat in _PROTO_WORDS.items():
         if re.search(pat, q):
             calls.append(("get_protocol", {"pid": pid}))
+    if re.search(_DOSE_EVA_WORDS, q):
+        calls.append(("get_dose_and_eva", {}))
     if re.search(r"what (should|do) i do|what now|today|how am i|status|overall", q) or not calls:
         calls.insert(0, ("get_status", {}))
     if re.search(r"risk|fatigue|exhaust|burn ?out|worn out|radiation|vision|sans|nutrition|kidney|immun|heart|cardio|bone|muscle|hazard|ridge|why", q):

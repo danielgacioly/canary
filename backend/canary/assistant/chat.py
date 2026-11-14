@@ -36,6 +36,8 @@ UNKNOWN = ("I don't know that from the data on board. The crew medical officer c
            "and I can prepare a message for the flight surgeon.")
 GROUNDED_LIMITATION = "Built from rules over your data, without the AI model."
 
+SUGGESTIONS_LOG = "suggestions"  # assistant_log.question of a suggestions build (not a chat turn)
+
 FIXED_LABELS = {"contact_cmo": "Talk to the crew medical officer",
                 "send_briefing": "Prepare a message for the flight surgeon"}
 
@@ -130,10 +132,44 @@ def _grounded(results: List[dict]) -> List[dict]:
         elif r["tool"] == "get_protocol":
             claims.append({"text": f"For {d['name'].lower()}, Guided Response starts with: {d['first_step']} "
                                    "In a real emergency, hold the EMERGENCY button.", "source_ids": src})
+        elif r["tool"] == "get_dose_and_eva":
+            claims += _dose_and_eva_claims(d, src)
         elif r["tool"] == "list_goals":
             left = [g["title"] for g in d if not g["done"]][:3]
             if left:
                 claims.append({"text": "Still open today: " + "; ".join(left) + ".", "source_ids": src})
+    return claims
+
+
+def _dose_and_eva_claims(d: dict, src: List[str]) -> List[dict]:
+    """Dose against the career limit and the EVA verdict with its reasons, only the tool's own numbers and texts.
+    Every sentence cites the person's `dose:{crew}:day{n}` id plus the ids behind that sentence."""
+    dose_id = next((s for s in src if s.startswith("dose:")), None)
+    if not dose_id:
+        return []
+
+    def cite(*ids: Optional[str]) -> List[str]:
+        return list(dict.fromkeys([dose_id] + [s for s in ids if s in src]))
+
+    def row_ids(row: dict) -> List[str]:  # the row's own telemetry id and its NASA-STD-3001 item
+        own = [s for s in src if s.startswith("telemetry:") and s.split(":")[2:3] == [row["id"]]]
+        return own + ([tools._std_source(row["item"])] if row.get("item") else [])
+
+    x = d["dose"]
+    limit_id = next((s for s in src if s.startswith("nasa:") and s != dose_id), None)
+    claims = [{"text": f"Mission dose {x['mission_msv']:g} mSv; career dose {x['career_msv']:g} mSv "
+                       f"({x['prior']} {x['prior_msv']:g} mSv from earlier flights), {x['career_pct_of_limit']:g}% of "
+                       f"NASA's {x['career_limit_msv']:g} mSv career limit ({x['limit_source']}).",
+               "source_ids": cite(limit_id)}]
+    eva = d["eva"]
+    if not eva["checked"]:
+        if eva.get("note"):
+            claims.append({"text": f"EVA readiness: {eva['note']}", "source_ids": cite()})
+        return claims
+    claims.append({"text": f"EVA readiness: {eva['verdict']}, checked against NASA's limits.",
+                   "source_ids": cite(*[s for r in eva["rows"] for s in row_ids(r)])})
+    for r in eva["rows"]:
+        claims.append({"text": f"{r['name']}: {r['text'].rstrip('.')}.", "source_ids": cite(*row_ids(r))})
     return claims
 
 
@@ -261,14 +297,9 @@ def _fallback(ctx: ToolContext, question: str, base: dict, provider: Any, out: P
 def _log(ctx: ToolContext, question: str, resp: dict, provider: Any, out: Optional[ProviderResult], t0: float,
          flags: List[str]) -> dict:
     model = (out.model if out and out.model else None) if provider.name != "none" else None
-    flags = list(dict.fromkeys(f for f in flags if f))
     resp["model"] = model
-    resp["id"] = db.x(
-        "INSERT INTO assistant_log(crew_id,question,response,created_at,provider,model,kb_version,outcome,guard_flags,"
-        "latency_ms,input_tokens,output_tokens) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        (ctx.crew_id, question, json.dumps(resp, ensure_ascii=False, default=str), time.time(), provider.name, model,
-         kb_version(), resp["mode"], json.dumps(flags), int((time.monotonic() - t0) * 1000),
-         out.input_tokens if out else 0, out.output_tokens if out else 0))
+    resp["id"] = record(ctx.crew_id, question, resp, provider.name, model, resp["mode"], flags, t0,
+                        out.input_tokens if out else 0, out.output_tokens if out else 0)
     for t in (out.turns if out else []):
         db.x("INSERT INTO assistant_turns(log_id,step,tool,args,sources,ok) VALUES(?,?,?,?,?,?)",
              (resp["id"], t["step"], t["tool"], json.dumps(t["args"], default=str), json.dumps(t["sources"]),
@@ -276,10 +307,22 @@ def _log(ctx: ToolContext, question: str, resp: dict, provider: Any, out: Option
     return resp
 
 
+def record(crew_id: str, question: str, stored: dict, provider: str, model: Optional[str], outcome: str,
+           flags: List[str], t0: float, input_tokens: int = 0, output_tokens: int = 0) -> int:
+    """One assistant_log row. Shared by chat and suggestions (which stores metadata only in `stored`)."""
+    flags = list(dict.fromkeys(f for f in flags if f))
+    return db.x(
+        "INSERT INTO assistant_log(crew_id,question,response,created_at,provider,model,kb_version,outcome,guard_flags,"
+        "latency_ms,input_tokens,output_tokens) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (crew_id, question, json.dumps(stored, ensure_ascii=False, default=str), time.time(), provider, model,
+         kb_version(), outcome, json.dumps(flags), int((time.monotonic() - t0) * 1000), input_tokens, output_tokens))
+
+
 # ---------------------------------------------------------------- reading the log
 
 def history(crew_id: str, limit: int = 20) -> List[dict]:
-    rows = db.q("SELECT id,question,response,created_at FROM assistant_log WHERE crew_id=? ORDER BY id DESC LIMIT ?", (crew_id, limit))
+    rows = db.q("SELECT id,question,response,created_at FROM assistant_log WHERE crew_id=? AND question != ? "
+                "ORDER BY id DESC LIMIT ?", (crew_id, SUGGESTIONS_LOG, limit))
     return [{"id": r["id"], "question": r["question"], "created_at": r["created_at"], **json.loads(r["response"])} for r in rows][::-1]
 
 

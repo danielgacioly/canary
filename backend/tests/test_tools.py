@@ -28,6 +28,7 @@ VALID_ARGS = {
     "get_checkins": {"kind": "any", "days": 14},
     "get_weekly_summary": {},
     "get_risks": {},
+    "get_dose_and_eva": {},
     "search_knowledge": {"query": "why is my sleep worse", "kind": "any", "k": 4},
 }
 
@@ -349,3 +350,109 @@ def test_missing_mood_evidence_uses_the_goals_prefix():
     day = mission.state()["day"]
     assert f"goals:h:mood:day{day}" in srcs
     assert not [s for s in srcs if isinstance(s, str) and s.startswith("goal:")]
+
+
+# ---------------------------------------------------------------- get_dose_and_eva
+
+def test_dose_and_eva_schema_is_strict_and_empty():
+    t = next(x for x in tools.anthropic_tools() if x["name"] == "get_dose_and_eva")
+    assert t["strict"] is True
+    assert t["input_schema"] == {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    assert "get_dose_and_eva" in [g["name"] for g in tools.gemini_tools()]
+    for bad in ({"crew_id": "k"}, {"viewer": "medical"}, {"day": 3}):
+        r = tools.run_tool(ctx("h"), "get_dose_and_eva", bad)
+        assert not r.ok and r.sources == []
+
+
+def test_dose_and_eva_reuses_the_domain_numbers():
+    from canary.domain import health, standards
+    ms = mission.state()
+    r = tools.run_tool(ctx("h"), "get_dose_and_eva", {})
+    assert r.ok, r.error
+    d, ref = r.data["dose"], health.dose(ms, "h")
+    assert d["mission_msv"] == ref["mission_msv"] and d["career_msv"] == ref["career_msv"]
+    assert d["prior_msv"] == ref["prior_msv"] and d["career_pct_of_limit"] == ref["career_pct_of_limit"]
+    assert d["career_limit_msv"] == catalog.CAREER_LIMIT_MSV and d["limit_source"] == ref["limit_source"]
+    assert d["rate_msv_day"] == catalog.LOCATIONS[ms["location"]]["dose_rate"]
+    assert d["prior"] == ("estimated" if standards.prior_dose("h")["estimate"] else "recorded")
+    assert r.data["place"]["id"] == ms["location"] and r.data["day"] == ms["day"]
+    eva = r.data["eva"]
+    assert eva["role"] == standards.eva_role("h")
+    snap = health.snapshot("h", ms)
+    for row in eva["rows"]:
+        std = snap["indicators"][row["id"]]["standard"]
+        if row["level"] is not None:  # the verdict's reasons are the domain's own NASA-STD-3001 texts
+            assert row["text"] == std["text"] and row["level"] == std["level"] and row["item"] == std["item"]
+    levels = [x["level"] for x in eva["rows"] if x["level"] is not None]
+    assert eva["verdict"] == tools.EVA_VERDICT[max(levels or [0])]
+    assert r.data["duty"]["label"] == __import__("canary.domain.privacy", fromlist=["x"]).operational(snap)["label"]
+
+
+def test_dose_and_eva_without_an_eva_role():
+    from canary.domain import standards
+    no_eva = next(c["id"] for c in catalog.CREW if standards.eva_role(c["id"]) == "none")
+    r = tools.run_tool(ctx(no_eva), "get_dose_and_eva", {})
+    assert r.ok and r.data["eva"]["checked"] is False and r.data["eva"]["verdict"] is None and r.data["eva"]["rows"] == []
+    assert "No EVA" in r.data["eva"]["note"]
+
+
+@pytest.mark.parametrize("cid", CREW_IDS)
+def test_dose_and_eva_sources_are_personal_and_guard_accepts_them(cid):
+    from canary.assistant import guard
+    r = tools.run_tool(ctx(cid), "get_dose_and_eva", {})
+    day = mission.state()["day"]
+    assert r.ok and r.sources[0] == f"dose:{cid}:day{day}"
+    for s in r.sources:
+        assert C.is_data_source(s), s
+        parts = s.split(":")
+        if parts[0] in C.PERSONAL_SOURCE_PREFIXES or (parts[0] in C.SCOPED_SOURCE_PREFIXES and len(parts) > 2):
+            assert parts[1] == cid, s
+    career = r.data["dose"]["career_msv"]
+    resp = {"status": "supported", "answer": f"Your career dose is {career:g} mSv.",
+            "observations": [{"statement": f"Career dose {career:g} mSv", "source_ids": [f"dose:{cid}:day{day}"]}],
+            "explanations": [], "limitations": [], "recommended_action_id": None}
+    res = guard.postcheck(resp, set(r.sources), json.dumps(r.data), ctx=ctx(cid))
+    assert not res.hard_fail, res.report
+    assert res.response.observations and res.response.observations[0].source_ids == [f"dose:{cid}:day{day}"]
+
+
+def test_dose_of_another_person_is_withheld(monkeypatch):
+    monkeypatch.setitem(tools.TOOLS["get_dose_and_eva"], "fn", lambda c: C.ToolResult(data={"career_msv": 1}, sources=["dose:k:day147"]))
+    r = tools.run_tool(ctx("h"), "get_dose_and_eva", {})
+    assert not r.ok and r.sources == [] and r.data is None
+    # the mission-wide form (same for everyone) is not personal
+    assert tools._visibility_error(ctx("h"), ["dose:day147"]) is None
+
+
+def test_dose_and_eva_only_for_self_or_medical():
+    # Other crew, Earth or Mission Control cannot bind a context about someone else.
+    for viewer in ("k", "a", "t", "earth", "mission_control", "medical"):
+        with pytest.raises(Exception):
+            C.ToolContext(crew_id="h", viewer=viewer, medical=False)
+    # A context that skipped validation still gets nothing: the tool checks the viewer itself.
+    forged = C.ToolContext.model_construct(crew_id="h", viewer="earth", medical=False, mission=mission.state())
+    r = tools.run_tool(forged, "get_dose_and_eva", {})
+    assert not r.ok and r.sources == [] and r.data is None
+    med = tools.run_tool(ctx("h", viewer="medical", medical=True), "get_dose_and_eva", {})
+    assert med.ok and med.data["eva"]["role"]
+
+
+def test_dose_and_eva_never_returns_settings_or_photos():
+    tok = client.post("/api/crew/h/session", json={"pin": "1001"}).json()["token"]
+    client.post("/api/checkins", headers={"X-Canary-Viewer": tok},
+                json={"crew_id": "h", "kind": "vitals", "payload": {"hr": 62}, "photo": _JPEG})
+    blob = json.dumps(tools.run_tool(ctx("h"), "get_dose_and_eva", {}).data)
+    assert "data:image/" not in blob
+    for key in C.SETTINGS_NEVER_RETURNED + C.FIELDS_NEVER_RETURNED:
+        assert f'"{key}"' not in blob
+
+
+@pytest.mark.parametrize("q", ["Am I ready for EVA?", "What is my career dose?", "How much radiation have I had?",
+                               "Can I go on a spacewalk?"])
+def test_route_picks_dose_and_eva(q):
+    out = tools.route("h", q, ctx("h"))
+    assert "get_dose_and_eva" in [o["tool"] for o in out]
+
+
+def test_route_does_not_pick_dose_and_eva_for_other_questions():
+    assert "get_dose_and_eva" not in [o["tool"] for o in tools.route("h", "Why is my sleep so bad? Evaluate it.", ctx("h"))]

@@ -36,7 +36,7 @@ PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", "3.75"))
 # Rough upper bound per model call for the warning before a real run.
 EST_IN_PER_CALL, EST_OUT_PER_CALL = 8000, 800
 
-SOURCE_RE = re.compile(r"^(telemetry|status|goals|checkin|nasa|summary|kb|card|protocol):\S+$")
+SOURCE_RE = re.compile(r"^(telemetry|status|goals|checkin|nasa|summary|dose|kb|card|protocol):\S+$")
 
 
 # ---------------------------------------------------------------- environment (before importing canary)

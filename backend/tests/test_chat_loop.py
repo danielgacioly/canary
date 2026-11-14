@@ -315,6 +315,30 @@ def test_no_provider_is_grounded():
     assert r["observations"] and r["guard"]["reason"] is None and r["model"] is None
 
 
+@pytest.mark.parametrize("cid,question", [("h", "Am I ready for EVA?"), ("h", "What is my career dose?"),
+                                           ("t", "Am I ready for EVA?"), ("k", "Am I ready for EVA?")])
+def test_no_provider_dose_and_eva_is_grounded_from_the_tool(cid, question):
+    r = client.post("/api/assistant/ask", json={"crew_id": cid, "question": question}, headers=as_(cid)).json()
+    assert r["provider"] == "none" and r["mode"] == "grounded" and r["status"] == "supported", r
+    day = mission.state()["day"]
+    dose_id = f"dose:{cid}:day{day}"
+    res = tools.run_tool(ctx(cid), "get_dose_and_eva", {})
+    d, eva = res.data["dose"], res.data["eva"]
+    claims = [c for c in r["claims"] if dose_id in c["source_ids"]]
+    assert claims and all(set(c["source_ids"]) <= set(res.sources) for c in claims)
+    text = " ".join(c["statement"] for c in r["observations"])
+    for n in (d["mission_msv"], d["career_msv"], d["career_pct_of_limit"], d["career_limit_msv"]):
+        assert f"{n:g}" in text
+    assert d["limit_source"] in text and "mSv" in text
+    if eva["checked"]:
+        assert f"EVA readiness: {eva['verdict']}" in text
+        for row in eva["rows"]:
+            assert row["text"].rstrip(".") in text
+    else:
+        assert eva["note"] in text
+    assert not any(s.split(":")[1] != cid for s in r["sources"] if s.startswith(("dose:", "telemetry:", "status:")) and s.count(":") > 1)
+
+
 def test_viewer_binds_the_tool_context(monkeypatch):
     p = use(monkeypatch, ScriptedProvider(messages=[final(good_answer())]))
     r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": QUESTION}, headers=medical())

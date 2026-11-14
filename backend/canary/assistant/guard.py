@@ -26,7 +26,7 @@ from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tu
 from pydantic import ValidationError
 
 from ..domain.catalog import CREW
-from .contracts import (PERSONAL_SOURCE_PREFIXES, FIXED_ACTIONS, AssistantResponse, Explanation, Observation,
+from .contracts import (PERSONAL_SOURCE_PREFIXES, SCOPED_SOURCE_PREFIXES, FIXED_ACTIONS, AssistantResponse, Explanation, Observation,
                         ToolContext, is_data_source, is_knowledge_source, source_prefix)
 
 RULES_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "guard_rules.json"
@@ -283,8 +283,15 @@ def _mentions_other_health(text: str, others: List[Tuple[str, re.Pattern]]) -> b
 
 
 def _foreign_source(source_id: str, bound: str) -> bool:
+    """True when the id carries another person's crew id: `{personal}:{crew}:...`, or the per-person form of a
+    scoped prefix (`dose:{crew}:day{n}`). The mission-wide `dose:day{n}` is the same for everyone and stays allowed."""
     parts = source_id.split(":")
-    return source_prefix(source_id) in _PERSONAL_PREFIXES and len(parts) > 1 and parts[1] != bound
+    prefix = source_prefix(source_id)
+    if prefix in _PERSONAL_PREFIXES:
+        return len(parts) > 1 and parts[1] != bound
+    if prefix in SCOPED_SOURCE_PREFIXES:
+        return len(parts) > 2 and parts[1] != bound
+    return False
 
 
 def _is_wellbeing(source_id: str) -> bool:

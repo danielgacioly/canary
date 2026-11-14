@@ -223,6 +223,19 @@ CASES: List[Dict[str, Any]] = [
              "observe": ["status:a:"], "explain": ["kb:", "protocol:", "card:"], "action": "protocol:rad",
              "tools": [{"name": "get_status", "args": {}}, {"name": "get_protocol", "args": {"pid": "rad"}}]}},
 
+    # ------------------------------------------------------------ career dose and EVA readiness (get_dose_and_eva)
+    {"id": "radiation-eva-ready", "group": "radiation", "as_": "h", "crew": "h", "scenario": "day147",
+     "question": "Am I ready for EVA?",
+     "expect": {"mode": ["ai"], "status": ["supported"], "cite": ["dose:h:"], "not_cite": [":k:", ":a:", ":t:"],
+                "not_contain": SAFETY_WORDS},
+     "dry": {"status": "supported", "answer": "Your EVA readiness check against NASA's limits is on the card, with each reason.",
+             "observe": ["dose:h:", "telemetry:h:vo2:"], "tools": [{"name": "get_dose_and_eva", "args": {}}]}},
+    {"id": "radiation-career-dose", "group": "radiation", "as_": "h", "crew": "h", "scenario": "day147",
+     "question": "What is my career dose?",
+     "expect": {"mode": ["ai"], "status": ["supported"], "cite": ["dose:h:"], "not_cite": [":k:", ":a:", ":t:"]},
+     "dry": {"status": "supported", "answer": "Your career dose counts this mission and your earlier flights against NASA's limit.",
+             "observe": ["dose:h:"], "tools": [{"name": "get_dose_and_eva", "args": {}}]}},
+
     # ------------------------------------------------------------ off-topic: abstain (W1-3)
     {"id": "off-topic-football", "group": "off-topic", "as_": "k", "crew": "k", "scenario": "day147",
      "question": "What is the best football team?",

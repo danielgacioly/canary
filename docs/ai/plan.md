@@ -406,6 +406,7 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 2. **`goal:` only means an action id.** The mood check-in evidence of the risk layer is `goals:{crew}:mood:day{n}` (was `goal:{crew}:mood:day{n}`); `goal` is no longer a source prefix (schema.md §2).
 3. **Risk cards and care windows in `kb.db`.** New kinds `risk` (`RISK-{ID}`) and `care_window` (`CARE-{PID}`, its own document so `PROTO-*@{version}` text is unchanged); `card:risk:*` and `card:hazard:*` are legacy aliases in `kb_map.json` (schema.md §3).
 4. **`frontend/.vite/`** (Vite's dependency cache) is untracked and ignored.
+5. **Dose and EVA readiness tool.** `get_dose_and_eva` (schema `{}`, self or medical only) returns the radiation bar's mission and career dose and the "Ready for EVA?" verdict from the domain, cited as `dose:{crew}:day{n}`; `route()` picks it for dose, radiation, EVA and spacewalk questions, and "career / mission dose" and EVA words count as radiation context in `guard_rules.json` (schema.md §2, §5).
 
 ### Brief template for each subagent
 

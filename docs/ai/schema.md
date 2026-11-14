@@ -58,6 +58,7 @@ Every fact the assistant may state carries a source id. The guard only accepts i
 | `summary` | `summary:{crew}:day{n}:7d` | `summary:h:day147:7d` | `tools.get_weekly_summary` | **new** |
 | `risk` | `risk:{crew}:day{n}` | `risk:h:day147` | `tools.get_risks` (no evidence) | from `main` (risk layer) |
 | `dose` | `dose:day{n}` | `dose:day147` | `risk.py` (mission dose, same for everyone) | from `main` |
+| `dose` (personal) | `dose:{crew}:day{n}` | `dose:h:day147` | `tools.get_dose_and_eva` (career dose, prior dose, EVA readiness of one person) | **new**; withheld when the crew id is not the bound person (`contracts.SCOPED_SOURCE_PREFIXES`) |
 | `recipe` | `recipe:{indicator}` | `recipe:urine_volume` | `telemetry` (simulated observation) | from `main` |
 | `emergency` | `emergency:{id}` | `emergency:3` | `care.py` (care window after Guided Response) | from `main` |
 | `card` (risk, hazard) | `card:risk:{risk}`, `card:hazard:{R,I,D,G,E}` | `card:risk:fatigue` | `tools.get_risks` (`knowledge.risk_cards`, `hazard_cards`) | from `main`; legacy alias of `kb:RISK-*` / `kb:HAZARD-*` (`kb_map.json`) |
@@ -69,6 +70,7 @@ Rules:
 - An id the model writes that no tool returned is dropped, and the claim with it.
 - `goal:` is never a source id; it only means an action id `goal:{goal_id}` (§6). No tool result source starts with `goal:` (`tests/test_tools.py`).
 - `contracts.PERSONAL_SOURCE_PREFIXES` (`telemetry`, `status`, `goals`, `checkin`, `summary`, `risk`) carry the crew id second: a result or claim with another person's id is withheld.
+- `dose` has two forms (`contracts.SCOPED_SOURCE_PREFIXES`): `dose:day{n}` is the mission dose, the same for everyone; `dose:{crew}:day{n}` is personal and `tools.run_tool` withholds it when the crew id is not the bound person. The guard's `_foreign_source` still only reads `PERSONAL_SOURCE_PREFIXES`, so for the personal form it relies on the same-turn rule (only ids the bound tools returned are accepted).
 - `checkin` kinds are the 13 tests and logs of `domain/selftests.TESTS`: `pvt`, `dsst`, `span`, `mood`, `kss`, `tlx`, `wellbeing`, `vitals`, `amsler`, `symptoms`, `sleep`, `reading`, `journal`. A journal check-in stores only a line count, never the text. Alerts `wellbeing`, `sleepy` (KSS ≥ 7) and `symptoms` (severity ≥ 3) cite `checkin:` ids (`domain/health.py`).
 - Knowledge document ids (§3) are `PROTO-*`, `CARD-*`, `LOC-*`, `NASA-*`, `HAZARD-{R,I,D,G,E}`, `PRIVACY-CONTRACT` and `TEST-{id}` (e.g. `kb:TEST-KSS@1#summary`).
 
@@ -251,6 +253,7 @@ One row per tool call, for audit and for the demo ("show me what Canary looked a
 | `list_goals` | `{}` | today's goals (`id`, `area`, `title`, `by`: routine · alert · medical · suggestion) and whether done; no XP, levels or points | existing (drop `crew_id`) |
 | `get_checkins` | `{kind: enum[pvt, dsst, span, mood, kss, tlx, wellbeing, vitals, amsler, symptoms, sleep, reading, journal, any], days: integer 1..14}` | test and log history (journal: line count only) | **new** |
 | `get_weekly_summary` | `{}` | 7-day means, trends and deltas computed by the backend (`briefing.facts`) | **new** |
+| `get_dose_and_eva` | `{}` | `{day, place {id, name}, dose {mission_msv, career_msv, prior_msv, prior: recorded · estimated, prior_source, career_limit_msv, career_pct_of_limit, mission_pct_of_limit, limit_source, rate_msv_day, storm, simulated}, eva {role, place_eva, checked, level, verdict: Ready · Close to a limit · Below a limit · null, note, rows [{id, name, now, unit, limit, level, status, text, item, verified}]}, duty {label, reason?}}`. Numbers from `health.dose(ms, crew)` (radiation bar) and `standards.check` via `health.snapshot` (the "Ready for EVA?" card), `duty` from `privacy.operational`; nothing re-derived. Self or medical only: the tool refuses any other viewer, so Earth and other crew never see why someone is restricted. Sources `dose:{crew}:day{n}`, `nasa:std3001v1:*`, `telemetry:{crew}:{vo2,grip,bone}:day{n}`, `status:{crew}:day{n}` | **new** |
 | `search_knowledge` | `{query: string ≤200, kind: enum[protocol, system_card, location, nasa_source, hazard, privacy, self_test, risk, care_window, any], k: integer 1..6}` | chunks `{chunk_id, title, text, score}`, filtered to the current gravity and place | **new** |
 
 Every tool result has the same envelope:

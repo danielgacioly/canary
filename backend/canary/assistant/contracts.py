@@ -42,6 +42,10 @@ DATA_SOURCE_PREFIXES = ("telemetry", "status", "goals", "checkin", "nasa", "summ
                         "risk", "dose", "recipe", "emergency")
 # Data prefixes whose second segment is a crew id: a result or claim citing another person's id is withheld.
 PERSONAL_SOURCE_PREFIXES = ("telemetry", "status", "goals", "checkin", "summary", "risk")
+# Data prefixes with two forms: mission-wide (`dose:day{n}`, same for everyone) and personal when a crew id sits second
+# (`dose:{crew}:day{n}`, career dose and EVA readiness, tools.get_dose_and_eva). The personal form is withheld like
+# PERSONAL_SOURCE_PREFIXES when its crew id is not the bound person.
+SCOPED_SOURCE_PREFIXES = ("dose",)
 # Approved knowledge: allowed in `explanations`. `card` and `protocol` are legacy aliases of `kb` documents.
 KNOWLEDGE_SOURCE_PREFIXES = ("kb",)
 LEGACY_KNOWLEDGE_PREFIXES = ("card", "protocol")
