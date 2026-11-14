@@ -309,7 +309,7 @@ def test_ridge_hazards_follow_place_and_storm():
 
 def test_plan_conditions_project_the_dose():
     c = client.get("/api/plan/conditions").json()
-    assert len(c["legs"]) == 4 and c["legs"][2]["location"] == "transit"
+    assert [l["location"] for l in c["legs"]] == ["earth", "rocket", "transit", "mars", "mars_rover", "mars"]
     doses = [v for _, v in c["dose"]["series"]]
     assert doses == sorted(doses) and c["dose"]["end_msv"] > c["dose"]["limit_msv"] * 0.5
 
@@ -386,3 +386,1096 @@ def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
     out = next(m for m in msgs if m["sender"] == "mission-control")
     back = next(m for m in msgs if m["recipient"] == "mission-control")
     assert not out["delivered"] and 10 <= out["eta_s"] <= 15 and back["text"].startswith("All four")
+
+
+# ---------------------------------------------------------------- the observation table (DatasetSource)
+def _gen(legs=None, real_dir=None):
+    from canary.domain import plan as plan_mod, simdata
+    legs = legs or plan_mod.PRESETS["mars"]["legs"]
+    return simdata.Generator(legs, simdata.load_recipes(), real_dir)
+
+
+def _mean(g, crew, ind, a, b):
+    return sum(g.value(crew, ind, d) for d in range(a, b + 1)) / (b - a + 1)
+
+
+def test_states_move_related_signals_together_only_for_helena():
+    g = _gen()
+    # fatigue: sleep falls while reaction time, sleepiness and workload rise, from days 100-130 to 140-153
+    for ind, sign in (("sleep", -1), ("react", 1), ("kss", 1), ("tlx", 1), ("dsst", -1), ("mood", -1)):
+        shift = (_mean(g, "h", ind, 140, 153) - _mean(g, "h", ind, 100, 130)) * sign
+        sd = catalog.INDICATORS[ind]["sd"] if ind in catalog.INDICATORS else g.sd("h", ind)
+        assert shift > 1.5 * sd, ind
+        for other in ("k", "a", "t"):
+            assert abs(_mean(g, other, ind, 140, 153) - _mean(g, other, ind, 100, 130)) < 0.8 * sd, (other, ind)
+
+
+def test_real_csv_in_data_real_replaces_the_simulated_row(tmp_path):
+    (tmp_path / "mine.csv").write_text("crew_id,day,indicator,value\nh,10,gluc,77\n")
+    rows = {(r[0], r[1], r[2]): r for r in _gen(real_dir=tmp_path).observations()}
+    r = rows[("h", 10, "gluc")]
+    assert r[5] == "real" and r[3] == "77" and r[4] == "mg/dL" and r[6] == "manual"
+    assert rows[("h", 12, "sleep")][5] == "simulated"
+
+
+def test_panel_indicators_only_have_rows_on_collection_days_and_last_observation_has_an_age():
+    from canary.domain import telemetry
+    days = sorted(r["day"] for r in _rows_of("h", "cortisol"))
+    assert len(days) > 15 and all((b - a) % 30 == 0 for a, b in zip(days, days[1:]))
+    a = days[3]
+    assert telemetry.last_observation("h", "cortisol", a)["age"] == 0
+    mid = telemetry.last_observation("h", "cortisol", a + 11)
+    assert mid["age"] == 11 and mid["day"] == a and mid["origin"] == "simulated" and mid["method"] == "blood"
+    assert telemetry.SOURCE.value("h", "cortisol", a + 11) == telemetry.SOURCE.value("h", "cortisol", a)
+    assert telemetry.last_observation("h", "cortisol", days[0] - 1) is None
+
+
+def _rows_of(crew, ind):
+    from canary.domain import simdata
+    return [{"day": int(r["day"])} for r in simdata.read_csv(simdata.OBS_FILE) if r["crew_id"] == crew and r["indicator"] == ind]
+
+
+def test_every_recipe_has_a_source_and_unsourced_ones_are_listed():
+    from canary.domain import simdata
+    rec = simdata.load_recipes()
+    md = simdata.REPORT_FILE.read_text(encoding="utf-8")
+    for name, r in rec["indicators"].items():
+        assert r["source"], name
+        if not r["verified"]:
+            assert r["source"] and f"`{name}`" in md.split("## Assumptions without a source")[1], name
+    for name, sd in ((k, v) for k, v in rec["indicators"].items() if k in catalog.INDICATORS and k != "bone"):
+        assert sd["sd"] == "catalog" and sd["baseline"] == {"kind": "catalog"}
+    assert {"dsst", "span", "kss", "tlx", "hrv", "weight", "creatinine", "cortisol", "urine_calcium", "co2"} <= set(rec["indicators"])
+
+
+def test_the_committed_file_is_what_the_generator_writes_and_is_small():
+    from canary.domain import plan as plan_mod, simdata
+    rec = simdata.load_recipes()
+    rows = simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations()
+    assert simdata.OBS_FILE.read_text(encoding="utf-8") == simdata.csv_text(rows), "run: python data/generate_dataset.py"
+    assert simdata.REPORT_FILE.read_text(encoding="utf-8") == simdata.report(rows, rec, plan_mod.PRESETS["mars"]["name"])
+    assert simdata.OBS_FILE.stat().st_size < 10_000_000
+    assert simdata.csv_text(rows) == simdata.csv_text(simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations())
+
+
+def test_osd569_rows_are_real_and_keep_the_original_label():
+    from canary.domain import nasa, simdata
+    real = [r for r in simdata.read_csv(simdata.OBS_FILE) if r["origin"] == "real"]
+    assert {r["source"] for r in real} == {"nasa:osd569", "nasa:osd575"}
+    assert len([r for r in real if r["source"] == "nasa:osd575"]) == 4 * 4 * 7  # creatinine, potassium, calcium, crp
+    rows = [r for r in real if r["source"] == "nasa:osd569"]
+    assert len(rows) == 4 * 7 * 7
+    h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C002", "F")["lymphocytes"]
+    assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
+    # pre-flight collections set the baseline of the simulated rows
+    pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
+    sim = [float(r["value"]) for r in simdata.read_csv(simdata.OBS_FILE)
+           if r["crew_id"] == "h" and r["indicator"] == "lym" and r["origin"] == "simulated"]
+    assert abs(sum(sim) / len(sim) - sum(pre) / len(pre)) < 600
+
+
+def test_simdata_follows_the_plan_the_same_way_plan_does():
+    from canary.domain import plan as plan_mod, simdata
+    for key in ("mars", "iss", "moon"):
+        client.post("/api/plan/preset", json={"preset": key})
+        legs = plan_mod.get()["legs"]
+        for d in range(-70, 800, 7):
+            assert simdata.location_at(legs, d) == plan_mod.location_at(d)
+            assert simdata.days_since_gravity_change(legs, d) == plan_mod.days_since_gravity_change(d)
+
+
+def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
+    from canary.domain import telemetry
+    good = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
+                                          {"location": "moon", "start": 3, "end": 40}]}
+    assert client.put("/api/plan", json=good).status_code == 200
+    assert telemetry.last_observation("h", "co2", 10) is None  # co2 belongs to "cabin"
+    assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
+    for d in (-500, 0, 20, 40, 41, 3000):
+        assert isinstance(telemetry.SOURCE.value("t", "hr", d), float)
+
+
+# ---------------------------------------------------------------- Prompt 1: everything the person measures is an observation
+def _day(d):
+    return client.put("/api/mission", json={"day": d}).json()
+
+
+def _checkin(cid, kind, payload):
+    return client.post("/api/checkins", json={"crew_id": cid, "kind": kind, "payload": payload}, headers=as_(cid))
+
+
+def test_a_pvt_checkin_shows_in_the_series_and_weighs_on_the_next_two_days():
+    from canary.domain import telemetry
+    _day(100)
+    before = {d: telemetry.current("a", "react", d) for d in (100, 101, 102, 103)}
+    assert _checkin("a", "pvt", {"ms": 600}).status_code == 200
+    assert dict(telemetry.series("a", "react", 100, 5))[100] == 600
+    assert dict(telemetry.series("a", "react", 102, 5))[100] == 600  # still there in later charts
+    assert telemetry.current("a", "react", 100) == pytest.approx(before[100] + 0.6 * (600 - telemetry.SOURCE.value("a", "react", 100)))
+    assert telemetry.current("a", "react", 101) > before[101] + 0.25 * 200
+    assert telemetry.current("a", "react", 102) > before[102] + 0.15 * 200
+    assert telemetry.current("a", "react", 103) == pytest.approx(before[103])
+
+
+@pytest.mark.parametrize("kind,payload,ind,value", [("dsst", {"correct": 10}, "dsst", 10), ("span", {"span": 3}, "span", 3),
+                                                    ("kss", {"level": 9}, "kss", 9), ("tlx", {"scores": {"a": 100, "b": 100}}, "tlx", 100)])
+def test_cognitive_and_self_report_tests_feed_their_indicator(kind, payload, ind, value):
+    _day(100)
+    before = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
+    assert before["origin"] == "simulated" and before["age_days"] is None
+    r = _checkin("a", kind, payload).json()["snapshot"]["indicators"][ind]
+    assert r["origin"] == "user" and r["age_days"] == 0 and r["last_measured_day"] == 100
+    assert r["value"] != before["value"] and r["bad"] > before["bad"]
+    assert dict(client.get("/api/crew/a", headers=as_("a")).json()["trends"][ind])[100] == value
+    _day(103)
+    later = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
+    assert later["origin"] != "user" and later["age_days"] == 3
+
+
+def test_crew_detail_has_the_four_new_indicators_with_origin_and_age():
+    _day(100)
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    for ind in ("dsst", "span", "kss", "tlx"):
+        i = d["indicators"][ind]
+        assert {"value", "baseline", "level", "origin", "age_days"} <= set(i) and i["origin"] in ("simulated", "real", "user")
+        assert ind in catalog.SYSTEMS["brain"]["indicators"] and catalog.INDICATOR_NOTES[ind]["verified"] is False
+
+
+def test_story_alerts_are_unchanged_by_the_new_indicators():
+    s = health.snapshot("h", at(2))
+    assert s["alerts"][0]["id"] == "behaviour" and s["alerts"][0]["level"] == 2
+    assert not any(a["id"].startswith("ind_") and a["id"][4:] in ("dsst", "span", "kss", "tlx") for a in s["alerts"])
+    for cid in ("k", "a", "t"):
+        assert not any(a["id"] == "behaviour" for a in health.snapshot(cid, mission.state())["alerts"])
+    ms = _day(-30)
+    assert all(health.snapshot(c["id"], ms)["alerts"] == [] for c in catalog.CREW)
+    ms = at(1)
+    assert [c["id"] for c in catalog.CREW if any(a["id"] == "sickness" for a in health.snapshot(c["id"], ms)["alerts"])] == ["t"]
+
+
+def test_missing_mood_after_three_days_without_the_goal_and_gone_after_a_checkin():
+    ms = _day(100)
+    for d in (98, 99, 100):
+        goals.set_done("a", "mood", d, False)
+    ids = lambda: [a["id"] for a in health.snapshot("a", mission.state())["alerts"]]  # noqa: E731
+    assert "missing_mood" in ids()
+    a = next(x for x in health.snapshot("a", ms)["alerts"] if x["id"] == "missing_mood")
+    assert a["level"] == 1 and a["sys"] == "brain" and "fault" not in a["why"].lower()
+    assert health.snapshot("a", ms)["level"] == 0  # missing data is not a health risk
+    assert _checkin("a", "mood", {"mood": 4, "stress": 2}).status_code == 200
+    assert "missing_mood" not in ids()
+    goals.set_done("a", "mood", 100, False)
+    goals.set_done("a", "mood", 99, True)
+    assert "missing_mood" not in ids()  # only three days in a row count
+    ms = _day(-5)  # learning: no alerts at all
+    for d in (-7, -6, -5):
+        goals.set_done("a", "mood", d, False)
+    assert health.snapshot("a", ms)["alerts"] == []
+
+
+def test_vitals_outside_what_can_be_typed_are_refused():
+    _day(100)
+    for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"bp": 0}, {"hr": "fast"}):
+        r = _checkin("a", "vitals", bad)
+        assert r.status_code == 400, bad
+    assert _checkin("a", "vitals", {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
+    latest = {t["id"]: t["latest"] for t in client.get("/api/checkins/a", headers=as_("a")).json()["tests"]}
+    assert latest["vitals"]["payload"]["hr"] == 62
+    assert selftests_limits_are_not_clinical()
+
+
+def selftests_limits_are_not_clinical():
+    from canary.domain import selftests
+    return selftests.VITALS_LIMITS_SOURCE["verified"] is False and "not clinical" in selftests.VITALS_LIMITS_SOURCE["source"]
+
+
+# ---------------------------------------------------------------- Prompt 2: two references (population safety limit + personal baseline)
+STORY_ALERTS = {  # scene step -> crew -> (alert id, level), as before the population ranges and the computed baseline
+    1: {"t": [("sickness", 1)]},
+    2: {"h": [("behaviour", 2), ("missing_mood", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
+    3: {"h": [("storm", 2), ("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("storm", 2), ("ind_bone", 1)],
+        "a": [("storm", 2)], "t": [("storm", 2), ("ind_bone", 1), ("ind_vo2", 1)]},
+    4: {"h": [("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
+    5: {"h": [("storm", 2), ("regravity", 1), ("ind_bone", 1)], "k": [("storm", 2), ("regravity", 1), ("ind_grip", 1), ("ind_bone", 1)],
+        "a": [("storm", 2), ("ind_hr", 2), ("ind_grip", 1), ("ind_bone", 1)], "t": [("storm", 2), ("ind_hr", 1), ("ind_bone", 1)]},
+}
+
+
+@pytest.mark.parametrize("step", range(6))
+def test_story_scenes_keep_the_same_alerts(step):
+    ms = at(step)
+    for c in catalog.CREW:
+        got = [(a["id"], a["level"]) for a in health.snapshot(c["id"], ms)["alerts"]]
+        assert got == STORY_ALERTS.get(step, {}).get(c["id"], []), (step, c["id"])
+
+
+def test_a_critical_reading_is_level_two_even_while_learning():
+    ms = _day(-30)
+    assert ms["learning"]
+    assert _checkin("a", "vitals", {"spo2": 85}).status_code == 200
+    s = health.snapshot("a", ms)
+    i = s["indicators"]["spo2"]
+    assert i["level"] == 2 and i["population"]["status"] == "critical" and i["population"]["verified"] is True
+    assert [(a["id"], a["level"]) for a in s["alerts"]] == [("ind_spo2", 2)]
+    assert s["systems"]["lungs"]["level"] == 2
+    assert health.snapshot("k", ms)["alerts"] == []  # nobody else is affected
+
+
+def test_outside_the_normal_range_is_at_least_level_one_after_launch():
+    ms = _day(100)
+    assert _checkin("a", "vitals", {"temp": 37.9}).status_code == 200  # fever range, not critical
+    i = health.snapshot("a", ms)["indicators"]["temp"]
+    assert i["population"]["status"] == "out" and i["level"] >= 1
+    assert _checkin("a", "vitals", {"temp": 41}).status_code == 200
+    assert health.snapshot("a", ms)["indicators"]["temp"]["level"] == 2
+
+
+def test_inside_the_population_range_the_personal_baseline_still_raises_level_two():
+    ms = _day(100)
+    assert _checkin("a", "pvt", {"ms": 450}).status_code == 200  # inside 150 to 500 ms, far from her own 250
+    i = health.snapshot("a", ms)["indicators"]["react"]
+    assert i["population"]["status"] == "in" and i["z"] >= 2.5 and i["level"] == 2
+
+
+def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the_seed():
+    for c in catalog.CREW:
+        for ind, B in health.baselines(c["id"]).items():
+            sd = catalog.INDICATORS[ind]["sd"]
+            assert B["from"] == "preflight" and B["n"] >= health.MIN_PREFLIGHT, (c["id"], ind)
+            assert abs(B["mean"] - c["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
+            assert B["sd"] >= sd  # the floor
+    _day(100)
+    d = client.get("/api/crew/h", headers=as_("h")).json()["indicators"]["sleep"]
+    assert d["baseline_from"] == "preflight" and d["baseline"] == health.baselines("h")["sleep"]["mean"] and d["spread"] >= 0.5
+
+
+def test_a_plan_without_preflight_falls_back_to_the_catalog_seed():
+    plan_no_pre = {"name": "No pre-flight", "legs": [{"location": "rocket", "start": 0, "end": 3}, {"location": "transit", "start": 4, "end": 100}]}
+    assert client.put("/api/plan", json=plan_no_pre).status_code == 200
+    b = health.baselines("h")
+    assert all(x["from"] == "catalog" and x["mean"] == catalog.CREW_BY_ID["h"]["base"][i] for i, x in b.items())
+
+
+def test_a_preflight_checkin_moves_the_baseline():
+    _day(-30)
+    before = health.baselines("a")["react"]["mean"]
+    for _ in range(3):
+        assert _checkin("a", "pvt", {"ms": 400}).status_code == 200
+    assert health.baselines("a")["react"]["mean"] != before
+
+
+def test_a_test_returns_a_conclusion_against_both_references():
+    _day(100)
+    c = _checkin("a", "pvt", {"ms": 330}).json()["conclusion"]
+    assert c["population"] == "Within the normal human range" and "slower than your own average" in c["personal"]
+    assert c["text"] == f"{c['population']}, {c['personal']}."
+    for kind, payload in (("dsst", {"correct": 50}), ("span", {"span": 6}), ("kss", {"level": 4}), ("tlx", {"scores": {"a": 50}}),
+                          ("mood", {"mood": 4, "stress": 2}), ("sleep", {"bed": "23:00", "wake": "06:00", "quality": 3}),
+                          ("vitals", {"hr": 60})):
+        c = _checkin("a", kind, payload).json()["conclusion"]
+        assert c and c["population"] and c["personal"], kind
+    assert _checkin("a", "journal", {"lines": 3}).json()["conclusion"] is None
+    assert "Past the safety limit" in _checkin("a", "vitals", {"spo2": 85}).json()["conclusion"]["text"]
+
+
+def test_thresholds_can_be_overridden_for_one_indicator():
+    ms = _day(100)
+    before = health.snapshot("a", ms)["indicators"]
+    db.set_setting("thresholds_by_indicator", {"sleep": {"watch": -9, "act": -8}})
+    after = health.snapshot("a", ms)["indicators"]
+    assert after["sleep"]["level"] == 2
+    assert {i: x["level"] for i, x in after.items() if i != "sleep"} == {i: x["level"] for i, x in before.items() if i != "sleep"}
+
+
+def test_every_population_range_has_a_source_and_the_readme_table_is_generated_from_it():
+    from canary.domain import reference
+    import pathlib
+    for ind, P in reference.POPULATION.items():
+        assert ind in catalog.INDICATORS and P["source"], ind
+        assert all("https://" in c for c in P["checked"]), ind  # each checked number names the page it was read on
+        assert P["verified"] is False or P["checked"], ind  # verified only when its numbers were read on the guideline
+    assert all(reference.POPULATION[i]["source"].find("assumption") >= 0 for i in ("react", "dsst", "span"))
+    readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
+    assert reference.table_md() in readme
+    assert reference.check("grip", "F", 15)["status"] == "out" and reference.check("grip", "M", 30)["status"] == "in"
+    assert reference.check("mood", "F", 1)["status"] == "in"
+
+
+def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
+    from canary.domain import nasa
+    b = nasa.blood("C001", "M")
+    assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
+                                                            "creatinine", "potassium", "calcium", "crp"}
+    for k, a in b["analytes"].items():
+        assert len(a["status"]) == len(b["timepoints"]) == len(a["values"]) and set(a["status"]) <= {"in", "out", None}
+        if k == "crp":  # no range in its panel
+            assert a["range"] is None and set(a["status"]) == {None}
+        else:
+            assert a["range"]["min"] < a["range"]["max"]
+    assert b["lymphocytes"] == b["analytes"]["lym"]["values"]
+
+
+# ---------------------------------------------------------------- Prompt 3: risks (fatigue), drift, since_day, one engine for suggestions
+def _fatigue(cid, day=None):
+    from canary.domain import risk
+    ms = mission.state() if day is None else {"day": day}
+    return next(r for r in risk.evaluate(cid, ms) if r["id"] == "fatigue")
+
+
+def test_helena_has_a_level_two_fatigue_risk_on_day_147_and_nobody_else_does():
+    ms = at(2)
+    r = _fatigue("h")
+    assert r["level"] == 2 and r["nasa_red"] and r["systems"] == ["brain"] and r["clock_days"] == 14
+    assert len(r["evidence"]) >= 3 and r["trend"] == "rising" and 132 <= r["since_day"] <= 147
+    for e in r["evidence"]:
+        assert e["text"] and e["origin"] in ("user", "simulated", "real") and e["source"] and (e.get("indicator") or e.get("checkin"))
+    assert [x["id"] for x in health.snapshot("h", ms)["risks"]] == ["fatigue", "radiation", "sans", "nutrition", "renal", "immune", "cardio", "bone_muscle"]
+    for cid in ("k", "a", "t"):
+        assert _fatigue(cid)["level"] == 0 and _fatigue(cid)["since_day"] is None
+    _day(100)
+    assert _fatigue("h")["level"] == 0
+
+
+def test_the_behaviour_alert_comes_from_the_fatigue_risk_and_keeps_its_shape():
+    a = next(x for x in health.snapshot("h", at(2))["alerts"] if x["id"] == "behaviour")
+    assert a["risk"] == "fatigue" and a["level"] == 2 and a["sys"] == "brain" and a["test"] == "pvt"
+    assert a["title"] == "Sleep, mood and focus are dropping together." and "slept" in a["why"] and len(a["goals"]) == 3
+    _day(100)
+    assert not any(x["id"] == "behaviour" for x in health.snapshot("h", mission.state())["alerts"])
+
+
+def test_one_bad_night_or_two_tired_check_ins_stay_at_level_one_at_most():
+    _day(100)
+    assert _fatigue("a")["level"] == 0
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    assert _checkin("a", "tlx", {"raw": 92}).status_code == 200
+    r = _fatigue("a")
+    assert r["level"] == 1 and {e.get("indicator") for e in r["evidence"]} >= {"kss", "tlx"}
+    assert _checkin("a", "sleep", {"hours": 3}).status_code == 200
+    assert _checkin("a", "pvt", {"ms": 400}).status_code == 200
+    assert _fatigue("a")["level"] <= 1  # a bad night shows on several signals at once, and still has not been building
+
+
+def test_since_day_is_the_same_whatever_order_the_clock_visits_the_days():
+    from canary.domain import risk
+    first = {d: _fatigue("h", d)["since_day"] for d in (147, 100, 153, 147, 139, 300)}
+    risk.clear_cache()
+    for d in (300, 139, 147, 153, 100, 147):
+        assert _fatigue("h", d)["since_day"] == first[d]
+    assert first[100] is None and first[300] is None and first[147] == first[153] == 139 and first[139] == 139
+
+
+def test_drift_flags_a_slow_slide_that_will_cross_the_limit_and_ignores_a_flat_line():
+    from canary.domain import risk
+    slide = [0.1 * i for i in range(14)]           # 0 to 1.3 spreads in 14 days, limit 1.5
+    assert risk.drift_of(slide, 1.5)["days_to_limit"] <= 10
+    assert risk.drift_of([0.2, -0.1, 0.1, 0.0, 0.2, -0.2] * 2, 1.5) is None
+    assert risk.drift_of([1.6] * 14, 1.5) is None  # already past it: that is a level, not a drift
+    assert risk.drift_of([0.01 * i for i in range(14)], 1.5) is None  # too slow to matter in 10 days
+
+
+def test_the_brain_stays_red_for_helena_and_a_lone_indicator_never_makes_a_system_red():
+    s = health.snapshot("h", at(2))
+    assert s["systems"]["brain"]["level"] == 2 and s["systems"]["brain"]["risks"] == ["fatigue"]
+    _day(100)
+    assert _checkin("a", "vitals", {"hr": 100}).status_code == 200
+    s = health.snapshot("a", mission.state())
+    assert s["indicators"]["hr"]["level"] == 2 and s["indicators"]["hr"]["population"]["status"] != "critical"
+    assert s["systems"]["heart"]["level"] == 1
+
+
+def test_suggestions_never_contradict_the_level_of_the_indicator_they_cite():
+    from canary.assistant import suggestions
+    cited = {"sleep": ["sleep"], "nap": ["kss"], "exercise": ["exer"], "bone": ["bone"], "water": ["water"], "breathe": ["stress", "mood"]}
+    for step in range(6):
+        at(step)
+        for c in catalog.CREW:
+            f = suggestions.facts(c["id"])
+            for s in suggestions.candidates(f):
+                if s["id"] in cited:
+                    ok = any(f["ind"][i]["level"] for i in cited[s["id"]]) or (s["id"] == "sleep" and "sleep" in f["risk"]["fatigue"]["signals"])
+                    assert ok, (step, c["id"], s["id"])
+    at(2)
+    assert "talk" not in [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]  # no wellbeing check-in, no "talk"
+    assert _checkin("h", "wellbeing", {"phq2": 4, "gad2": 1}).status_code == 200
+    assert "talk" in [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]
+
+
+def test_get_risks_is_a_read_only_tool_with_sources_and_chat_answers_from_it():
+    from canary.assistant import tools
+    at(2)
+    r = tools.get_risks("h")
+    assert r["data"][0]["level"] == 2 and r["sources"] and "get_risks" in tools.TOOLS
+    a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "Am I at risk of fatigue?"}, headers=as_("h")).json()
+    assert a["mode"] == "grounded" and any(t["tool"] == "get_risks" for t in a["tools_used"])
+    assert any("since day" in c["text"] for c in a["claims"]) and all(c["source_ids"] for c in a["claims"])
+    assert "risks" in client.get("/api/crew/h", headers=as_("h")).json()
+
+
+# ---------------------------------------------------------------- Prompt 4: the advice loop, alerts that last, lighter training under fatigue
+def _med():
+    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def _counts():
+    return {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("advice", "messages", "settings", "goal_log", "checkins")}
+
+
+def _advice_messages():
+    return db.q("SELECT * FROM messages WHERE kind='advice'")
+
+
+def test_alert_goals_and_suggestions_say_what_they_verify():
+    at(2)
+    g = {x["id"]: x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"]}
+    assert g["al_screens"]["verify"] == {"indicator": "sleep", "after_days": 3} and g["al_psy"]["verify"]["indicator"] == "mood"
+    items = client.get("/api/suggestions/h", headers=as_("h")).json()["items"]
+    assert all(s["verify"] is None or s["verify"]["after_days"] >= 1 for s in items)
+    assert next(s for s in items if s["id"] == "sleep")["verify"] == {"indicator": "sleep", "after_days": 7}
+
+
+def test_the_sleep_suggestion_becomes_an_experiment_whose_result_follows_the_day():
+    at(2)  # day 147
+    h = as_("h")
+    client.post("/api/suggestions/h/sleep/accept", headers=h)
+    a = client.get("/api/advice/h", headers=h).json()
+    assert [x["goal_id"] for x in a["active"]] == ["sg_sleep"] and a["active"][0]["check_day"] == 154 and a["done"] == []
+    _day(149)
+    a = client.get("/api/advice/h", headers=h).json()
+    assert a["active"][0]["status"] == "pending"
+    sg = next(x for x in client.get("/api/goals/h", headers=h).json()["personal"] if x["id"] == "sg_sleep")
+    assert sg["advice"] == {"status": "pending", "check_day": 154}
+
+    def result(day):
+        _day(day)
+        d = client.get("/api/advice/h", headers=h).json()["done"]
+        return (d[0]["status"], d[0]["bad_at_check"]) if d else None
+
+    first = {d: result(d) for d in (155, 154, 153, 160, 155, 222)}
+    assert first[153] is None and first[154] == first[155] == first[160] == first[222] == first[155]
+    assert first[155][0] in ("improved", "same", "worse")
+    assert result(155) == first[155]  # any order, any number of times
+    assert first[155][0] == "worse"  # the slide is still deepening at day 154 in the simulation
+
+
+def test_two_rounds_without_improvement_give_one_message_and_one_alternative():
+    from canary.assistant import suggestions
+    from canary.domain import advice
+    advice.start("h", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 140)
+    advice.start("h", "sg_breathe", "suggestion", {"indicator": "stress", "after_days": 7}, 147)
+    at(2)
+    _day(150)  # only the first round has concluded
+    assert _advice_messages() == [] and advice.escalation("h", 150) == []
+    for d in (154, 154, 160, 154):
+        _day(d)
+    msgs = _advice_messages()
+    assert len(msgs) == 1 and msgs[0]["recipient"] == "k" and msgs[0]["sender"] == "canary"
+    ids = [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]
+    assert ids.count("alt_fatigue") == 1
+    assert client.post("/api/suggestions/h/alt_fatigue/accept", headers=as_("h")).status_code == 200
+    assert len(_advice_messages()) == 1  # accepting does not repeat the message
+    # advice about the medical officer goes to the substitute
+    advice.start("k", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 100)
+    advice.start("k", "sg_talk", "suggestion", {"indicator": "mood", "after_days": 7}, 107)
+    _day(114)
+    assert [m["recipient"] for m in _advice_messages() if m["text"].startswith("Advice review for Kenji")] == ["h"]
+
+
+def test_advice_reviews_are_private_to_the_medical_officer():
+    from canary.domain import advice
+    advice.start("h", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 140)
+    advice.start("h", "sg_breathe", "suggestion", {"indicator": "stress", "after_days": 7}, 147)
+    _day(154)
+    assert len(_advice_messages()) == 1
+    assert not any(m["kind"] == "advice" for m in client.get("/api/messages").json())
+    assert not any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("t")).json())
+    assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=_med()).json())
+    assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("k")).json())
+
+
+def test_reading_never_writes():
+    at(2)
+    h = as_("h")
+    client.post("/api/suggestions/h/sleep/accept", headers=h)
+    before = _counts()
+    for url in ("/api/advice/h", "/api/goals/h", "/api/suggestions/h", "/api/crew/h", "/api/leaderboard", "/api/crew/overview"):
+        assert client.get(url, headers=h).status_code == 200
+    _day(160)
+    assert _counts() == before
+
+
+def test_a_seen_alert_stays_seen_but_a_new_episode_is_not():
+    _day(100)
+    a = as_("a")
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    al = next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")
+    assert al["since_day"] == 100 and al["days_active"] == 1 and al["seen"] is False
+    assert client.post("/api/alerts/a/sleepy/seen", headers=a).json()["seen"] is True
+    assert client.post("/api/alerts/a/sleepy/seen", headers=as_("t")).status_code == 403
+    assert next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")["seen"] is True
+    _day(101)  # a day without it
+    assert client.post("/api/alerts/a/sleepy/seen", headers=a).status_code == 404
+    _day(102)
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    al = next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")
+    assert al["since_day"] == 102 and al["seen"] is False
+    _day(100)
+    assert next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")["seen"] is True
+
+
+def test_alerts_know_how_long_they_have_been_active_whatever_the_visiting_order():
+    s = {d: {a["id"]: (a["since_day"], a["days_active"]) for a in health.snapshot("h", _day(d))["alerts"]} for d in (153, 147, 153)}
+    assert s[153]["behaviour"][0] == s[147]["behaviour"][0]
+    assert s[153]["behaviour"][1] == 153 - s[153]["behaviour"][0] + 1 and s[147]["behaviour"][0] <= 147
+
+
+def test_exercise_is_lighter_and_explained_under_fatigue_within_the_medical_limit():
+    _day(100)
+    plain = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert "lighter" not in plain["title"] and "adjusted" not in plain
+    at(2)  # day 147: fatigue level 2
+    base_board = client.get("/api/leaderboard").json()
+    g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert g["adjusted"] == {"pct": 30, "minutes": 84, "target": 120, "reason": "fatigue", "max_pct": 30}
+    assert "lighter today" in g["title"] and "30%" in g["why"] and "medical team" in g["why"]
+    r = client.put("/api/medical/exercise-adjust", json={"max_pct": 10, "level1": 15, "level2": 30}, headers=_med())
+    assert r.status_code == 200
+    g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert g["adjusted"]["pct"] == 10 and g["adjusted"]["minutes"] == 108  # never above the limit the doctors set
+    assert client.put("/api/medical/exercise-adjust", json={"max_pct": 10, "level1": 15, "level2": 30}).status_code == 401
+    assert client.get("/api/leaderboard").json() == base_board  # lighter training does not touch the ranking
+    k = next(x for x in client.get("/api/goals/k", headers=as_("k")).json()["personal"] if x["id"] == "exercise")
+    assert "adjusted" not in k  # no fatigue risk for Kenji
+
+
+def test_advice_is_private_to_the_person_and_the_medical_team():
+    at(2)
+    assert client.get("/api/advice/h", headers=as_("k")).status_code == 403
+    assert client.get("/api/advice/h").status_code == 403
+    assert client.get("/api/advice/h", headers=as_("h")).status_code == 200
+    assert client.get("/api/advice/h", headers=_med()).status_code == 200
+
+
+def test_ticking_an_alert_goal_opens_its_experiment_once():
+    at(2)
+    h = as_("h")
+    for _ in range(2):
+        assert client.post("/api/goals/h/al_screens", json={"done": True}, headers=h).status_code == 200
+    a = client.get("/api/advice/h", headers=h).json()
+    assert [(x["goal_id"], x["indicator"], x["check_day"], x["origin"]) for x in a["active"]] == [("al_screens", "sleep", 150, "alert")]
+
+
+# ---------------------------------------------------------------- Prompt 5: critical alerts reach the medical officer, emergencies leave a care window
+def _close(protocol, patient, outcome="stable"):
+    e = client.post("/api/emergencies", json={"responder": "k"}).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient})
+    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}).json()
+
+
+def _med_goals(who):
+    return {g["title"]: g["to_day"] - g["from_day"] for g in db.q("SELECT * FROM medical_goals WHERE who=?", (who,))}
+
+
+def test_every_protocol_with_a_window_has_days_ops_and_an_illustrative_note():
+    from canary.domain import protocols
+    bank = client.get("/api/protocols").json()
+    assert bank["care_note"]["verified"] is False and bank["care_note"]["source"] == "prototype assumption"
+    for pid, p in bank["protocols"].items():
+        assert p["source"] == f"protocol:{pid}"  # the care fields must not replace the protocol's own source
+        assert p["ops"] in ("full", "limited", "rest") and p["window_days"] >= 0
+        assert [i["title"] for i in p["after_items"]] == p["after"] and all(i["days"] >= 0 for i in p["after_items"])
+        assert all(i["days"] <= max(p["window_days"], 7) for i in p["after_items"])
+    sz = protocols.care("seizure")
+    assert sz["window_days"] == 3 and sz["ops"] == "rest"
+    assert {i["title"]: i["days"] for i in sz["after_items"]}["No critical task or spacewalk for 72 h"] == 3
+    assert next(i["days"] for i in protocols.care("rad")["after_items"] if i["title"].startswith("Blood count")) == 7
+    assert protocols.care("triage")["window_days"] == 0
+
+
+def test_closing_a_seizure_gives_follow_ups_their_own_days_and_a_restricted_window():
+    _day(153)
+    assert client.get("/api/crew/t", headers=as_("t")).json()["ops"]["key"] != "rest"
+    _close("seizure", "t")
+    days = _med_goals("t")
+    assert days["Glucose and vital signs every 30 min for 2 h"] == 1 and days["No critical task or spacewalk for 72 h"] == 3
+    assert days["Blood count and a review of current medication"] == 3
+    d = client.get("/api/crew/t", headers=as_("t")).json()
+    assert d["ops"]["key"] == "rest" and d["ops"]["until_day"] == 156 and "Seizure" in d["ops"]["reason"] and "156" in d["ops"]["reason"]
+    ev = d["care_events"][0]
+    assert (ev["protocol"], ev["day"], ev["outcome"], ev["origin"], ev["until_day"]) == ("seizure", 153, "stable", "user", 156)
+    for day, key in ((154, "rest"), (156, "rest"), (157, None)):
+        _day(day)
+        got = client.get("/api/crew/t", headers=as_("t")).json()["ops"]
+        assert (got["key"] == "rest") == (key == "rest") and ("until_day" in got) == (key == "rest")
+    _day(150)  # the clock can go back: the event is not on record yet
+    assert client.get("/api/crew/t", headers=as_("t")).json()["care_events"] == []
+
+
+def test_closing_twice_does_not_repeat_goals_or_the_window():
+    _day(153)
+    e = _close("seizure", "t")
+    n = (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'")))
+    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"})
+    assert (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'"))) == n
+    assert len(db.q("SELECT 1 FROM care_events")) == 1
+
+
+def test_the_report_to_earth_keeps_the_delay_of_the_place():
+    _day(153)
+    _close("seizure", "t")
+    r = next(m for m in db.q("SELECT * FROM messages WHERE kind='report'"))
+    assert r["recipient"] == "earth" and r["deliver_at"] - r["sent_at"] > 5
+
+
+def test_inside_the_window_thresholds_tighten_for_the_patient_only():
+    _day(153)
+    bad = health.indicator("t", "bone", mission.state())["bad"]
+    watch = round(bad * 1.1, 2)  # just above what Tomás has today: level 0 by the normal rule
+    client.put("/api/medical/thresholds", json={"watch": watch, "act": 5}, headers=_med())
+    ms = mission.state()
+    before = {c: health.indicator(c, "bone", ms) for c in "hkat"}
+    assert all(i["level"] == 0 and "sensitive_until" not in i for i in before.values())
+    _close("seizure", "t")
+    after = {c: health.indicator(c, "bone", ms) for c in "hkat"}
+    assert after["t"]["level"] == 1 and after["t"]["sensitive_until"] == 156
+    assert all(after[c]["level"] == before[c]["level"] and "sensitive_until" not in after[c] for c in "hka")
+    _day(157)  # back to normal alone
+    t = health.indicator("t", "bone", mission.state())
+    assert t["level"] == 0 and "sensitive_until" not in t
+    assert client.put("/api/medical/care-sensitivity", json={"factor": 1.0}, headers=_med()).json()["factor"] == 1.0
+    assert client.put("/api/medical/care-sensitivity", json={"factor": 0.2}, headers=_med()).status_code == 422
+    assert client.get("/api/medical/care-sensitivity").status_code == 401
+    assert client.get("/api/medical/care-sensitivity", headers=_med()).json()["verified"] is False
+
+
+def _alert_msgs(kind="alert"):
+    return db.q("SELECT * FROM messages WHERE kind=? ORDER BY id", (kind,))
+
+
+def test_a_critical_alert_reaches_the_medical_officer_once_per_episode():
+    from canary.domain import notify
+    _day(147)
+    to_k = [m for m in _alert_msgs() if m["recipient"] == "k"]
+    assert len(to_k) == 1 and "Helena" in to_k[0]["text"] and "Sleep, mood and focus" in to_k[0]["text"]
+    for _ in range(3):
+        assert notify.sync(mission.state()) == 0
+    _day(148), _day(147), _day(146)
+    client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 3, "stress": 3}}, headers=as_("h"))
+    assert len([m for m in _alert_msgs() if m["recipient"] == "k"]) == 1 and len(db.q("SELECT 1 FROM notices")) == 1
+    earth = _alert_msgs("alert_earth")
+    assert len(earth) == 1 and earth[0]["recipient"] == "earth" and earth[0]["deliver_at"] - earth[0]["sent_at"] > 5
+
+
+def test_a_critical_alert_of_the_medical_officer_goes_to_the_substitute():
+    _day(100)
+    assert _alert_msgs() == []
+    assert _checkin("k", "vitals", {"spo2": 85}).status_code == 200
+    msgs = _alert_msgs()
+    assert [m["recipient"] for m in msgs] == ["h"] and "Kenji" in msgs[0]["text"]
+    assert _checkin("k", "vitals", {"spo2": 84}).status_code == 200  # same episode: no second message
+    assert len(_alert_msgs()) == 1
+    assert [n["to"] for n in client.get("/api/medical/overview", headers=_med()).json()["notices"]] == ["h"]
+
+
+def test_alerts_and_windows_are_private_to_the_medical_team():
+    _day(147)
+    _close("seizure", "t")
+    _checkin("k", "vitals", {"spo2": 85})
+    assert client.get("/api/medical/overview").status_code == 401
+    ov = client.get("/api/medical/overview", headers=_med()).json()
+    assert {n["crew_id"] for n in ov["notices"]} >= {"h", "k"} and all(n["title"] and n["since_day"] <= 147 for n in ov["notices"])
+    assert any(c["id"] == "t" and c["care_events"] and c["ops"]["key"] == "rest" for c in ov["crew"])
+    kinds = lambda hdr: {m["kind"] for m in client.get("/api/messages", headers=hdr).json()}  # noqa: E731
+    assert not kinds({}) & {"alert", "alert_earth", "advice"}
+    assert not kinds(as_("a")) & {"alert", "alert_earth"} and not kinds(as_("t")) & {"alert", "alert_earth"}
+    assert "alert" in kinds(as_("k")) and "alert" in kinds(as_("h"))  # each sees only what is addressed to them
+    assert not any(m["kind"] == "alert" and m["recipient"] != "k" for m in client.get("/api/messages", headers=as_("k")).json())
+    assert "alert_earth" in kinds(_med())
+    o = str(client.get("/api/crew/overview").json())
+    for leak in ("care_events", "until_day", "notices", "Critical alert for", "Guided Response ("):
+        assert leak not in o
+    assert client.get("/api/crew/t", headers=as_("a")).status_code == 403
+
+
+def test_reading_never_writes_the_notice_tables():
+    _day(147)
+    _close("seizure", "t")
+    n = _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+    for path in ("/api/mission", "/api/crew", "/api/crew/overview", "/api/protocols", "/api/emergencies"):
+        client.get(path, headers=_med())
+    for cid in "hkat":
+        client.get(f"/api/crew/{cid}", headers=as_(cid))
+    client.get("/api/medical/overview", headers=_med())
+    assert n == _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+
+
+# ---------------------------------------------------------------- Prompt 6: the other risks, RIDGE from the plan, hazard labels
+RISK_IDS = ["fatigue", "radiation", "sans", "nutrition", "renal", "immune", "cardio", "bone_muscle"]
+
+
+def _risk(cid, rid, day=None, ms=None):
+    from canary.domain import risk
+    ms = ms or (mission.state() if day is None else {"day": day})
+    return next(r for r in risk.evaluate(cid, ms) if r["id"] == rid)
+
+
+@pytest.fixture
+def shift(monkeypatch):
+    """Move indicators away from a person's normal by some personal spreads, to build a level on purpose."""
+    from canary.domain import risk, telemetry
+    shifts = {}
+    orig = telemetry.current
+
+    def cur(crew, ind, day):
+        v = orig(crew, ind, day)
+        if (crew, ind) in shifts:
+            I = catalog.INDICATORS[ind]
+            v += (-1 if I["dir"] == "low" else 1) * shifts[(crew, ind)] * max(I["sd"], health.baselines(crew)[ind]["sd"])
+        return v
+
+    monkeypatch.setattr(telemetry, "current", cur)
+
+    def go(crew, ind, spreads):
+        shifts[(crew, ind)] = spreads
+        risk.clear_cache()
+        health._alert_cache.clear()
+    yield go
+    risk.clear_cache()
+    health._alert_cache.clear()
+
+
+@pytest.fixture
+def exam(monkeypatch):
+    """Make the latest row of an exam be this value, this old, from this origin (an exam the file has no row for that day)."""
+    from canary.domain import risk, telemetry
+    rows = {}
+    orig = telemetry.last_observation
+
+    def last(crew, ind, day):
+        if (crew, ind) in rows:
+            v, age, origin = rows[(crew, ind)]
+            return {"day": day - age, "value": v, "age": age, "origin": origin, "method": "blood", "source": f"test:{ind}", "note": ""}
+        return orig(crew, ind, day)
+
+    monkeypatch.setattr(telemetry, "last_observation", last)
+
+    def go(crew, ind, value, age=0, origin="real"):
+        rows[(crew, ind)] = (value, age, origin)
+        risk.clear_cache()
+    yield go
+    risk.clear_cache()
+
+
+def test_there_are_eight_risks_and_four_are_nasas_red_ones():
+    at(2)
+    r = client.get("/api/crew/h", headers=as_("h")).json()["risks"]
+    assert [x["id"] for x in r] == RISK_IDS
+    assert {x["id"] for x in r if x["nasa_red"]} == {"fatigue", "radiation", "sans", "nutrition"}
+    for x in r:
+        assert x["data"] in ("real", "partial", "simulated") and isinstance(x["hazards"], list) and x["clock_days"] > 0
+        assert x["source"] and x["verified"] is False
+
+
+def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_passes_it():
+    from canary.domain import risk, telemetry
+    curve = risk.dose_curve()
+    assert all(abs(curve[d] - telemetry.cumulative_dose(d, catalog.LOCATIONS and mission.plan.location_at(d), None)) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))
+    assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
+    _day(100)
+    assert _risk("a", "radiation")["level"] == 0
+    _day(156)
+    assert _risk("a", "radiation")["level"] == 0
+    _day(157)
+    r = _risk("a", "radiation")
+    assert r["level"] == 1 and any("projected to pass it on day 516" in e["text"] for e in r["evidence"])
+    assert r["dose"]["same_for_everyone"] and r["dose"]["cross_day"] == 516 and r["data"] == "simulated"
+    assert r["dose"]["prior_msv"] == 0 and r["dose"]["now_msv"] == r["dose"]["mission_msv"]
+    assert {_risk(c, "radiation")["dose"]["mission_msv"] for c in "hkat"} == {r["dose"]["mission_msv"]}  # one mission dose for the crew
+    _day(516)
+    assert _risk("a", "radiation")["level"] == 2 and "past NASA's 600 mSv limit" in _risk("a", "radiation")["evidence"][0]["text"]
+
+
+def test_radiation_is_level_two_in_both_storm_scenes_and_the_storm_alert_carries_it():
+    from canary.domain import standards
+    for step in (3, 5):
+        ms = at(step)
+        assert ms["storm"]
+        for c in "hkat":
+            r = _risk(c, "radiation", ms=ms)
+            assert r["level"] == 2 and r["nasa_red"] and r["hazards"] == ["R"]
+            # the storm is NASA's record; the dose adds a simulated number once the career dose passes half the limit
+            # (from the second storm on, or earlier for those who have flown before)
+            assert r["data"] == ("partial" if r["dose"]["pct"] >= 50 else "real"), (step, c, r["data"])
+            assert r["dose"]["prior_msv"] == standards.prior_dose(c)["msv"]
+        storm = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "storm")
+        assert storm["risk"] == "radiation" and storm["hazards"] == ["R"]
+
+
+def test_radiation_reads_a_low_lymphocyte_count_but_not_a_high_one(exam):
+    _day(100)
+    exam("a", "lym", 5000)  # above the range: not radiation's sign
+    assert _risk("a", "radiation")["level"] == 0
+    exam("a", "lym", 600)
+    r = _risk("a", "radiation")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "lym" and r["evidence"][0]["origin"] == "real"
+
+
+def test_sans_reads_the_amsler_grid_and_vision_symptoms_and_says_the_grid_is_weak():
+    _day(100)
+    r = _risk("h", "sans")
+    assert r["level"] == 0 and "weak indicator" in r["note"] and r["nasa_red"]
+    assert _checkin("h", "symptoms", {"items": ["Headache"], "severity": 2}).status_code == 200
+    assert _risk("h", "sans")["level"] == 0  # not a vision symptom
+    assert _checkin("h", "symptoms", {"items": ["Blurred vision"], "severity": 2}).status_code == 200
+    assert _risk("h", "sans")["level"] == 1
+    assert _checkin("h", "amsler", {"distortion": True}).status_code == 200
+    r = _risk("h", "sans")
+    assert r["level"] == 2 and r["data"] == "real" and {e["key"] for e in r["evidence"]} == {"amsler", "symptoms"}
+    assert health.snapshot("h", mission.state())["systems"]["eyes"]["level"] == 2
+
+
+def test_nutrition_reads_glucose_and_weight_against_the_persons_own_normal(shift, exam):
+    _day(100)
+    assert _risk("a", "nutrition")["level"] == 0
+    shift("a", "gluc", 2.0)
+    r = _risk("a", "nutrition")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "gluc" and r["nasa_red"]
+    assert health.snapshot("a", mission.state())["systems"]["gut"]["level"] == 1
+    shift("a", "gluc", 0.0)
+    assert _risk("a", "nutrition")["level"] == 0
+    exam("a", "weight", 60.0, origin="user")  # about 9% under a pre-flight near 66 kg
+    r = _risk("a", "nutrition")
+    assert r["level"] == 1 and "below your pre-flight" in r["evidence"][0]["text"] and r["evidence"][0]["origin"] == "user" and r["data"] == "real"
+
+
+def test_renal_reads_water_bone_loss_and_the_exams_and_a_stale_exam_is_not_a_risk(shift, exam):
+    _day(100)
+    assert _risk("a", "renal")["level"] == 0
+    shift("a", "water", 2.0)
+    assert _risk("a", "renal")["level"] == 1
+    shift("a", "water", 0.0)
+    exam("a", "creatinine", 2.5, origin="real")
+    r = _risk("a", "renal")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "creatinine" and not r["panel_due"]
+    exam("a", "creatinine", 2.5, age=40)  # an old exam: say it is due, do not count it
+    r = _risk("a", "renal")
+    assert r["level"] == 0 and r["panel_due"] and r["evidence"][0]["stale"] and r["evidence"][0]["due_every_days"] == 30
+    exam("a", "creatinine", 0.9, age=0)
+    exam("a", "urine_volume", 900, age=3)
+    r = _risk("a", "renal")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "urine_volume"
+
+
+def test_immune_reads_the_blood_count_temperature_and_the_days_after_the_storm(shift, exam):
+    _day(100)
+    assert _risk("a", "immune")["level"] == 0
+    shift("a", "temp", 3.0)
+    assert _risk("a", "immune")["level"] == 1
+    shift("a", "temp", 0.0)
+    exam("a", "hgb", 9.0)
+    exam("a", "hct", 28.0)
+    r = _risk("a", "immune")
+    assert r["level"] == 1 and {e["indicator"] for e in r["evidence"]} == {"hgb", "hct"} and r["data"] == "real"
+    exam("a", "hgb", 9.0, age=45)
+    exam("a", "hct", 28.0, age=45)
+    r = _risk("a", "immune")
+    assert r["level"] == 0 and r["panel_due"]
+    _day(160)
+    assert any(e["text"] == "Blood count due after the radiation storm" for e in _risk("h", "immune")["evidence"])
+
+
+def test_a_blood_value_that_was_already_outside_the_range_before_launch_is_not_a_new_signal(exam):
+    from canary.domain import telemetry
+    _day(100)
+    pre = telemetry.preflight_values("a", "lym")
+    assert pre  # Amara's pre-flight lymphocytes are in the file
+    exam("a", "wbc", 2000.0)  # far below the range of 4 to 11 thousand
+    assert _risk("a", "immune")["level"] in (0, 1)  # the pre-flight wbc of this file sits inside the range, so this one counts
+    ev = [e for e in _risk("a", "immune")["evidence"] if e["indicator"] == "wbc"]
+    assert ev and ev[0]["points"] == 0.5
+
+
+def test_cardio_absorbs_regravity_and_stays_level_zero_when_all_is_normal(shift):
+    _day(100)
+    assert _risk("a", "cardio")["level"] == 0
+    shift("a", "hr", 2.0)
+    r = _risk("a", "cardio")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "hr"
+    ms = at(5)  # Mars, partial gravity: pressure and pulse away from normal is the re-adaptation pattern
+    assert _risk("h", "cardio", ms=ms)["systems"] == ["heart", "lungs"]
+    regr = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "regravity")
+    assert regr["risk"] == "cardio"
+    assert any(e["key"] == "regravity" for e in _risk("h", "cardio", ms=ms)["evidence"])
+
+
+def test_bone_muscle_reads_bone_grip_and_exercise_and_colours_only_the_system_it_is_about(shift):
+    _day(100)
+    assert _risk("a", "bone_muscle")["level"] == 0
+    shift("a", "grip", 2.0)
+    r = _risk("a", "bone_muscle")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "grip"
+    s = health.snapshot("a", mission.state())["systems"]
+    assert s["muscles"]["level"] == 1 and s["skeleton"]["level"] == 0  # grip is about the muscles, not the bones
+
+
+def test_every_risk_says_where_its_data_comes_from():
+    from canary.domain import risk
+    assert risk.data_origin({"real"}) == "real" and risk.data_origin({"user", "real"}) == "real"
+    assert risk.data_origin({"real", "simulated"}) == "partial" and risk.data_origin({"user", "simulated"}) == "partial"
+    assert risk.data_origin({"simulated"}) == "simulated" and risk.data_origin(set()) == "simulated"
+    ms = at(2)
+    assert _risk("h", "fatigue", ms=ms)["data"] == "simulated" and _risk("h", "radiation", ms=ms)["data"] == "simulated"
+
+
+def test_ridge_on_day_147_in_transit_is_what_it_was_and_the_levels_follow_the_plan():
+    from canary.domain import privacy
+    lv = lambda loc, day, storm=None: {h["id"]: h["level"] for h in privacy.ridge(loc, storm, day)}  # noqa: E731
+    assert lv("transit", 147) == {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1}
+    assert lv("earth", -30) == {"R": 0, "I": 0, "D": 0, "G": 0, "E": 0}
+    assert lv("rocket", 2)["I"] == 1 and lv("transit", 147)["I"] == 2  # isolation grows with the days since launch
+    assert lv("mars", 215)["G"] == 2 and lv("mars", 300)["G"] == 1    # re-adaptation for 30 days after the change of gravity
+    assert lv("transit", 150, "sep")["R"] == 2 and lv("mars", 300)["R"] == 1
+    assert lv("iss", 10)["D"] == 0 and lv("moon", 10)["D"] == 1
+    h = privacy.ridge("transit", None, 147)
+    assert all(x["basis"] for x in h) and [x["assumption"] for x in h] == [False, False, False, False, True]
+    assert h[0]["here"] and h[0]["label"] == "High" and privacy.RIDGE_CUTS["verified"] is False
+
+
+def test_the_ridge_in_the_overview_uses_the_mission_day():
+    at(2)
+    o = client.get("/api/crew/overview").json()
+    assert {h["id"]: h["level"] for h in o["ridge"]} == {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1}
+    assert all("basis" in h for h in o["ridge"])
+
+
+def test_helenas_fatigue_risk_on_day_147_lists_isolation_as_a_possible_factor():
+    ms = at(2)
+    r = _risk("h", "fatigue", ms=ms)
+    assert "I" in r["hazards"] and r["hazard_note"].startswith("Possible factors here:") and "Isolation" in r["hazard_note"]
+    assert all(l["source"] and l["verified"] is False and l["why"] for l in r["hazard_links"])
+    assert "caused" not in r["hazard_note"].lower()
+    b = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "behaviour")
+    assert b["risk"] == "fatigue" and "I" in b["hazards"] and b["hazard_note"] == r["hazard_note"]
+    assert _risk("k", "fatigue", ms=ms)["hazards"] == []  # no hazard label without a risk
+
+
+def test_every_alert_keeps_its_id_and_gains_a_risk_and_hazards():
+    seen = set()
+    for step in range(6):
+        ms = at(step)
+        for c in "hkat":
+            for a in health.snapshot(c, ms)["alerts"]:
+                assert "risk" in a and isinstance(a["hazards"], list)
+                seen.add(a["id"])
+                if a["id"].startswith("ind_"):
+                    assert a["risk"] in ("fatigue", "cardio", "bone_muscle", "nutrition", "renal", "immune")
+    assert {"storm", "behaviour", "missing_mood", "ind_bone", "regravity", "sickness"} <= seen
+
+
+def test_the_hazard_matrix_is_the_teams_with_a_source_on_every_link():
+    from canary.domain.catalog import HAZARDS_BY_INDICATOR as M
+    assert {l["hazard"] for l in M["sleep"]} == {"I", "E"} and {l["hazard"] for l in M["dose"]} == {"R"}
+    assert {l["hazard"] for l in M["mood"]} == {"I", "D", "E"} and {l["hazard"] for l in M["bone"]} == {"D", "G"}
+    assert all(l["source"] and l["verified"] is False and l["why"] for links in M.values() for l in links)
+    assert all(l["source"].startswith("prototype assumption") for k in ("dsst", "span", "kss", "tlx", "urine_volume") for l in M[k])
+
+
+def test_the_assistant_exposes_the_risks_with_hazards_and_cards():
+    from canary.assistant import knowledge, tools
+    ms = at(2)
+    res = tools.get_risks("h")
+    assert [r["id"] for r in res["data"]] == RISK_IDS and "card:risk:fatigue" in res["sources"] and "card:hazard:I" in res["sources"]
+    cards = knowledge.by_id(ms["location"])
+    assert "card:risk:radiation" in cards and "card:hazard:G" in cards and "never a proven cause" in cards["card:hazard:I"]["text"]
+    a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "What is my fatigue risk and why?"}, headers=as_("h")).json()
+    assert any("Possible factors here" in c["text"] for c in a["claims"])
+
+
+# ---------------------------------------------------------------- NASA standards, blood corrections, rover, read cache
+def test_the_blood_files_are_corrected_and_each_seat_reads_a_subject_of_its_own_sex():
+    from canary.domain import nasa, simdata
+    snap = nasa.snapshot()
+    c3 = snap["cbc"]["crew"]["C003"]
+    assert (c3["lym"][0], c3["neu"][0], c3["plt"][0]) == (1997, 6826, 330)  # realigned from MCH on (was 6826, 10.1, 12.9)
+    assert snap["cbc"]["an"]["hgb"]["unit"] == "grams_per_deciliter"
+    assert snap["cbc"]["an"]["hgb"]["F"] == {"min": 11.7, "max": 15.5} and snap["cbc"]["an"]["hgb"]["M"] == {"min": 13.2, "max": 17.1}
+    i4_sex = {"C001": "M", "C002": "F", "C003": "F", "C004": "M"}  # OSD-569 sample metadata
+    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in catalog.CREW)
+    assert simdata.lab_range(snap, "creatinine", "F") == (0.5, 1.05) and simdata.lab_range(snap, "crp", "F") is None
+    assert "glucose" not in snap["cmp"]["an"]  # left out on purpose (R+45 samples processed late)
+
+
+def test_real_metabolic_panel_rows_feed_the_kidney_heart_and_immune_risks(exam):
+    from canary.domain import telemetry
+    o = telemetry.last_observation("h", "creatinine", -3)
+    assert o["origin"] == "real" and o["source"] == "nasa:osd575"
+    _day(100)
+    exam("t", "potassium", 6.2)  # above the laboratory range (3.5 to 5.3)
+    assert any(e["key"] == "potassium" and e["points"] for e in _risk("t", "cardio")["evidence"])
+    exam("a", "calcium", 11.0)  # above 8.6 to 10.4 (female range)
+    assert any(e["key"] == "calcium" and e["points"] for e in _risk("a", "renal")["evidence"])
+    pre = list(telemetry.preflight_values("k", "crp").values())
+    exam("k", "crp", 3 * sum(pre) / len(pre))  # three times the pre-flight mean: inflammation
+    assert any(e["key"] == "crp" and "above your pre-flight mean" in e["text"] for e in _risk("k", "immune")["evidence"])
+
+
+def test_the_aerobic_limit_depends_on_the_place_and_on_the_persons_eva_role():
+    from canary.domain import standards
+    assert standards.check("vo2", "t", "transit", 34.0, None)["level"] == 1    # enough for 0 g EVAs, not for Mars ahead
+    assert standards.check("vo2", "t", "mars", 34.0, None)["level"] == 2       # below 36.5 where EVAs are on the surface
+    assert standards.check("vo2", "t", "mars_rover", 37.0, None)["level"] == 0
+    assert standards.check("vo2", "t", "iss", 32.0, None)["item"] == "V1 4001"  # below 32.9 even for 0 g
+    assert standards.check("vo2", "k", "mars", 30.0, None) is None             # Kenji does no EVA
+    assert standards.check("vo2", "t", "rocket", 30.0, None) is None           # no EVA during launch
+
+
+def test_strength_and_bone_have_nasa_floors_and_the_risk_and_system_follow_them():
+    from canary.domain import standards
+    assert standards.check("grip", "h", "mars", 26.0, 34.0)["level"] == 2 and standards.check("grip", "h", "mars", 30.0, 34.0)["level"] == 1
+    assert standards.check("bone", "h", "transit", -5.2, 0)["level"] == 2 and standards.check("bone", "h", "transit", -3.5, 0)["verified"] is False
+    assert standards.check("bone", "h", "transit", -1.0, 0)["level"] == 0
+    assert standards.check("sleep", "h", "transit", 5.0, 7.4) is None  # V1 6001 plans a sleep period, it is not a measured limit
+
+
+def test_the_career_dose_counts_earlier_flights():
+    from canary.domain import standards
+    h, a = standards.prior_dose("h"), standards.prior_dose("a")
+    assert h["estimate"] and h["msv"] == 107.0 and a["msv"] == 0.0  # 214 days in space x 0.5 mSv/day
+    _day(120)
+    rh, ra = _risk("h", "radiation"), _risk("a", "radiation")
+    assert rh["dose"]["mission_msv"] == ra["dose"]["mission_msv"] and rh["dose"]["now_msv"] == ra["dose"]["now_msv"] + 107.0
+    assert rh["level"] == 1 and ra["level"] == 0 and rh["dose"]["cross_day"] < ra["dose"]["cross_day"]
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    assert d["dose"]["career_msv"] == round(d["dose"]["mission_msv"] + 107.0, 1) and d["standard_profile"]["eva"] == "surface"
+
+
+def test_a_rover_traverse_is_a_place_of_its_own_on_the_mars_plan():
+    from canary.domain import goals as goals_mod, privacy, protocols
+    ms = _day(305)
+    assert ms["location"] == "mars_rover" and ms["day_label"] == "Sol 95"  # the sol count keeps running from landing
+    assert ms["place"]["eva"] == "surface" and ms["place"]["body"] == "mars"
+    assert goals_mod._title({"id": "exercise"}, "mars_rover").startswith("30 min")
+    assert {h["id"] for h in privacy.ridge("mars_rover", None, 305)} == {"R", "I", "D", "G", "E"}
+    res = protocols.resolve("mars_rover")["protocols"]
+    mars = protocols.resolve("mars")["protocols"]
+    assert any(s["variant"] for p in res.values() for s in p["steps"])
+    assert [s["variant"] for s in res["rad"]["steps"]] == [s["variant"] for s in mars["rad"]["steps"]]
+    assert client.get("/api/crew/overview").status_code == 200
+
+
+def test_the_read_cache_never_outlives_a_write():
+    db.set_setting("cache_probe", 1)
+    assert db.get_setting("cache_probe") == 1
+    db.set_setting("cache_probe", 2)
+    assert db.get_setting("cache_probe") == 2
+    rows = db.q("SELECT value FROM settings WHERE key=?", ("cache_probe",))
+    rows[0]["value"] = "tampered"  # a caller editing its rows cannot change what the next caller reads
+    assert db.get_setting("cache_probe") == 2
+
+
+def test_the_standard_is_described_with_what_it_does_not_check():
+    s = client.get("/api/catalog").json()["standards"]
+    assert s["document"]["url"].startswith("https://www.nasa.gov/") and {"vo2", "grip", "bone", "radiation", "sleep"} <= set(s["checked"])
+    assert {i for n in s["not_checked"] for i in n["items"]} >= {"V1 4020", "Table 4.8-1"}

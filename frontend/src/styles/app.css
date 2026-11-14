@@ -343,6 +343,7 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: va
 /* ---------- mission plan ---------- */
 .p-earth { --pc: #4c7dd9; } .p-rocket { --pc: #9aa2b1; } .p-iss { --pc: #4fb3c9; }
 .p-moon { --pc: #c9ccd4; } .p-transit { --pc: #8a78e6; } .p-mars { --pc: #d0744a; }
+.p-moon_rover { --pc: #a3a7b1; } .p-mars_rover { --pc: #a8573a; }
 .timeline { position: relative; display: flex; height: 64px; border-radius: 10px; background: var(--surface-2); }
 .timeline .seg { position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; background: color-mix(in srgb, var(--pc) 24%, var(--surface)); border-left: 3px solid var(--pc); text-align: left; overflow: hidden; }
 .timeline .seg:first-child { border-radius: 10px 0 0 10px; } .timeline .seg:last-child { border-radius: 0 10px 10px 0; }

@@ -60,9 +60,15 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           <span className="small muted">{c.role}</span>
           <div className="ops-line"><span className="lbl">Operational status</span>
             <span className={`status s${c.ops.level}`}><span className="dot" />{c.ops.label}</span></div>
+          {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}
         </div>))}</div>
+      {ov.notices.length > 0 && <section className="card">
+        <div className="head"><h2>Critical alerts sent</h2><span className="small muted">once per episode · to the medical officer, or the substitute</span></div>
+        {ov.notices.map(n => <div key={`${n.crew_id}${n.alert_id}${n.since_day}`} className="small">
+          <b>{n.name}</b> · {n.title} <span className="muted">since day {n.since_day} · sent day {n.day} to {n.to_name}</span></div>)}
+      </section>}
       <section className="card">
         <div className="head"><h2>Every indicator, every person</h2><span className="small muted">value · deviation from own baseline (σ)</span></div>
         <div className="scroll"><table className="t">

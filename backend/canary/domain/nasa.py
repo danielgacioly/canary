@@ -18,7 +18,7 @@ from typing import Optional
 
 from ..config import settings
 
-_SNAPSHOT = json.loads((pathlib.Path(__file__).resolve().parents[1] / "data" / "nasa_snapshot.json").read_text())
+_SNAPSHOT = json.loads((pathlib.Path(__file__).resolve().parents[1] / "data" / "nasa_snapshot.json").read_text(encoding="utf-8"))
 _live_cache: dict = {"at": 0.0, "data": None}
 
 SOURCES = [
@@ -28,6 +28,11 @@ SOURCES = [
      "url": "https://spdf.gsfc.nasa.gov/pub/data/aaa_planetary/msl/rad/cdf/obs-l2/", "used_for": "Mars surface dose rate, quiet day vs 20 May 2024 storm"},
     {"id": "nasa:osd569", "name": "OSD-569 Inspiration4 blood counts", "org": "NASA OSDR",
      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-569", "used_for": "Real lymphocyte curves before and after spaceflight"},
+    {"id": "nasa:osd575", "name": "OSD-575 Inspiration4 metabolic panel and CRP", "org": "NASA OSDR",
+     "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-575", "used_for": "Real creatinine, potassium, calcium and C-reactive protein"},
+    {"id": "nasa:std3001v1", "name": "NASA-STD-3001 Volume 1, Revision C", "org": "NASA OCHMO",
+     "url": "https://www.nasa.gov/wp-content/uploads/2023/11/nasa-std-3001-vol-1-rev-c-with-signature.pdf",
+     "used_for": "In-flight limits: career dose, solar event dose, strength, bone density, aerobic capacity for EVA, sleep period"},
     {"id": "nasa:hrp", "name": "Human Research Program hazards and risks", "org": "NASA HRP",
      "url": "https://www.nasa.gov/hrp/hazards/", "used_for": "The five hazards (RIDGE) behind each body system"},
     {"id": "makehuman", "name": "MakeHuman base mesh (CC0)", "org": "MakeHuman community",
@@ -89,9 +94,26 @@ def rad() -> dict:
     return {**r, "peak": peak, "ratio": round(peak / r["quietMean"]), "source": "nasa:rad"}
 
 
-def blood(subject: str) -> dict:
-    cbc = _SNAPSHOT["cbc"]
-    return {"subject": subject, "timepoints": cbc["tp"], "lymphocytes": cbc["crew"][subject]["lym"],
-            "range": {"min": cbc["an"]["lym"]["min"], "max": cbc["an"]["lym"]["max"]}, "unit": "cells/µL",
-            "note": "Real Inspiration4 crew data (OSD-569), shown as a reference curve for this crew member.",
+def blood(subject: str, sex: str) -> dict:
+    """Inspiration4 lab results for one crew member: the lymphocyte curve (kept for the chart) and every analyte of
+    the blood count (OSD-569) and of the metabolic panel (OSD-575) with the laboratory's range for this sex and an
+    in/out status per collection. Real data. C-reactive protein has no range in its panel (status None)."""
+    analytes = {}
+    for section in ("cbc", "cmp"):
+        lab = _SNAPSHOT.get(section)
+        if not lab or subject not in lab["crew"]:
+            continue
+        for ind, series in lab["crew"][subject].items():
+            an = lab["an"][ind]
+            rng = an.get(sex)
+            analytes[ind] = {"unit": an["unit"], "range": rng, "values": series, "panel": section,
+                             "source": "nasa:osd569" if section == "cbc" else "nasa:osd575",
+                             "status": [None if v is None or rng is None else "in" if rng["min"] <= v <= rng["max"] else "out"
+                                        for v in series]}
+    lym = _SNAPSHOT["cbc"]["an"]["lym"][sex]
+    return {"subject": subject, "timepoints": _SNAPSHOT["cbc"]["tp"], "lymphocytes": _SNAPSHOT["cbc"]["crew"][subject]["lym"],
+            "range": {"min": lym["min"], "max": lym["max"]}, "unit": "cells/µL",
+            "analytes": analytes, "origin": "real",
+            "note": "Real Inspiration4 crew data (OSD-569 blood count, OSD-575 metabolic panel), from the subject of the same sex, "
+                    "shown as a reference for this crew member. Ranges are the laboratory's, by sex.",
             "source": "nasa:osd569"}

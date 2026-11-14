@@ -21,7 +21,7 @@ DEMO_RECORDS = copy.deepcopy(catalog.RECORDS)
 DEMO_MISSION = {"callsign": "Odyssey 1", "name": "Mars reference mission", "launch_date": "2035-06-01", "preset": "mars"}
 RECORD_FIELDS = ["dob", "sex", "nationality", "languages", "agency", "flights", "days_in_space", "height_cm", "weight_kg",
                  "blood_type", "skin_type", "handedness", "vision", "allergies", "medications", "conditions", "diet",
-                 "vaccinations", "emergency_contact"]
+                 "vaccinations", "emergency_contact", "eva", "prior_dose_msv"]
 
 
 def stored() -> Optional[dict]:
@@ -65,8 +65,10 @@ def load() -> None:
         crew, records = [], {}
         for p in r.get("crew", []):
             seat = demo_by_id[p["seat"]]
+            reg = str(p.get("sex") or "")[:1].upper()  # the registered sex picks the reference range; else the seat's
             crew.append({"id": p["seat"], "name": p["name"], "role": p["role"], "initials": _initials(p["name"]),
-                         "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"], "base": seat["base"]})
+                         "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"],
+                         "sex": reg if reg in ("F", "M") else seat["sex"], "base": seat["base"]})
             records[p["seat"]] = {k: p.get(k) for k in RECORD_FIELDS}
     catalog.CREW[:] = crew
     catalog.CREW_BY_ID.clear()

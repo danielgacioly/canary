@@ -19,6 +19,11 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
       <div className="grow">
         <div className="gt">{g.title}</div>
         {!compact && <div className="small dim">{g.why}</div>}
+        {!compact && g.advice && (
+          <div className="small dim">
+            {g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`}
+          </div>
+        )}
       </div>
       {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : g.by === 'suggestion' ? 'Your pick' : 'From an alert'}</span>}
     </div>

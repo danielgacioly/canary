@@ -44,6 +44,27 @@ KSS = ["Extremely alert", "Very alert", "Alert", "Rather alert", "Neither alert 
        "Sleepy, no effort to stay awake", "Sleepy, some effort to stay awake", "Very sleepy, fighting sleep"]
 
 
+# Typing limits for the vital signs: wide on purpose, only to catch typos and impossible numbers.
+# They are NOT clinical ranges and say nothing about what is healthy.
+VITALS_LIMITS = {"hr": (20, 250), "bp": (50, 260), "temp": (30, 45), "spo2": (50, 100)}
+VITALS_LIMITS_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
+
+
+def validate(kind: str, payload: dict) -> Optional[str]:
+    """An error message when the payload cannot be a real measurement, else None. Only vitals are checked."""
+    if kind != "vitals":
+        return None
+    for k, (lo, hi) in VITALS_LIMITS.items():
+        v = payload.get(k)
+        if v is None:
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
+            return f"{k} must be a number"
+        if not lo <= v <= hi:
+            return f"{k} {v} is outside what can be typed ({lo} to {hi}). Check the number and try again."
+    return None
+
+
 def _hours(bed: str, wake: str) -> float:
     bh, bm = (int(x) for x in bed.split(":"))
     wh, wm = (int(x) for x in wake.split(":"))
@@ -64,6 +85,47 @@ def normalise(kind: str, payload: dict) -> dict:
     if kind == "journal":
         p = {"lines": int(p.get("lines", 0))}
     return p
+
+
+# kind -> [(payload field, indicator)] for the tests that get a conclusion.
+CONCLUDES = {"pvt": [("ms", "react")], "dsst": [("correct", "dsst")], "span": [("span", "span")], "kss": [("level", "kss")],
+             "tlx": [("raw", "tlx")], "mood": [("mood", "mood")], "sleep": [("hours", "sleep")],
+             "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")]}
+_POP_TEXT = {"in": "Within the normal human range", "out": "Outside the usual adult range", "critical": "Past the safety limit"}
+_DIRECTION = {"react": ("slower", "faster")}  # words for above / below your own average
+_RANK = {"critical": 2, "out": 1, "in": 0}
+
+
+def conclusion(kind: str, payload: dict, crew_id: str) -> Optional[dict]:
+    """What a result means against the two references: the population range (safety) and the person's own
+    pre-flight average (early warning). Risk words only, never a diagnosis. None for tests with no number to compare."""
+    from . import health, reference
+    from .catalog import CREW_BY_ID, INDICATORS
+    base = health.baselines(crew_id)
+    picks = []
+    for field, ind in CONCLUDES.get(kind, []):
+        if payload.get(field) is None:
+            continue
+        v = float(payload[field])
+        pop = reference.check(ind, CREW_BY_ID[crew_id]["sex"], v)
+        z = (v - base[ind]["mean"]) / base[ind]["sd"]
+        picks.append((_RANK[pop["status"]], abs(z), ind, v, pop, z))
+    if not picks:
+        return None
+    _, _, ind, v, pop, z = max(picks, key=lambda t: (t[0], t[1]))
+    has_range = pop["low"] is not None or pop["high"] is not None
+    population = _POP_TEXT[pop["status"]] if has_range else "No population range for this scale"
+    mean = base[ind]["mean"]
+    pct = round(abs(100 * (v - mean) / mean)) if mean else 0
+    if pct < 3:
+        personal = "in line with your own average"
+    else:
+        if ind in _DIRECTION:
+            personal = f"{pct}% {_DIRECTION[ind][0] if v > mean else _DIRECTION[ind][1]} than your own average"
+        else:
+            personal = f"{pct}% {'above' if v > mean else 'below'} your own average"
+    subject = f"{INDICATORS[ind]['name']}: " if kind == "vitals" else ""
+    return {"population": population, "personal": personal, "text": f"{subject}{population}, {personal}."}
 
 
 def goal_for(kind: str, p: dict) -> Optional[str]:

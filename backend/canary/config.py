@@ -49,6 +49,8 @@ class Settings:
     # AI assistant provider: "none" (default), "anthropic" or "local". See canary/assistant/providers.py
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
     frontend_dist: str = os.environ.get("CANARY_FRONTEND_DIST", str(ROOT / "frontend" / "dist"))
+    # Compute the six demo-story days in the background at start-up, so the first click on a scene is quick.
+    warm_cache: bool = os.environ.get("CANARY_WARM", "1") == "1"
 
 
 settings = Settings()
