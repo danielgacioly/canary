@@ -759,3 +759,157 @@ def test_get_risks_is_a_read_only_tool_with_sources_and_chat_answers_from_it():
     assert a["mode"] == "grounded" and any(t["tool"] == "get_risks" for t in a["tools_used"])
     assert any("since day" in c["text"] for c in a["claims"]) and all(c["source_ids"] for c in a["claims"])
     assert "risks" in client.get("/api/crew/h", headers=as_("h")).json()
+
+
+# ---------------------------------------------------------------- Prompt 4: the advice loop, alerts that last, lighter training under fatigue
+def _med():
+    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def _counts():
+    return {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("advice", "messages", "settings", "goal_log", "checkins")}
+
+
+def _advice_messages():
+    return db.q("SELECT * FROM messages WHERE kind='advice'")
+
+
+def test_alert_goals_and_suggestions_say_what_they_verify():
+    at(2)
+    g = {x["id"]: x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"]}
+    assert g["al_screens"]["verify"] == {"indicator": "sleep", "after_days": 3} and g["al_psy"]["verify"]["indicator"] == "mood"
+    items = client.get("/api/suggestions/h", headers=as_("h")).json()["items"]
+    assert all(s["verify"] is None or s["verify"]["after_days"] >= 1 for s in items)
+    assert next(s for s in items if s["id"] == "sleep")["verify"] == {"indicator": "sleep", "after_days": 7}
+
+
+def test_the_sleep_suggestion_becomes_an_experiment_whose_result_follows_the_day():
+    at(2)  # day 147
+    h = as_("h")
+    client.post("/api/suggestions/h/sleep/accept", headers=h)
+    a = client.get("/api/advice/h", headers=h).json()
+    assert [x["goal_id"] for x in a["active"]] == ["sg_sleep"] and a["active"][0]["check_day"] == 154 and a["done"] == []
+    _day(149)
+    a = client.get("/api/advice/h", headers=h).json()
+    assert a["active"][0]["status"] == "pending"
+    sg = next(x for x in client.get("/api/goals/h", headers=h).json()["personal"] if x["id"] == "sg_sleep")
+    assert sg["advice"] == {"status": "pending", "check_day": 154}
+
+    def result(day):
+        _day(day)
+        d = client.get("/api/advice/h", headers=h).json()["done"]
+        return (d[0]["status"], d[0]["bad_at_check"]) if d else None
+
+    first = {d: result(d) for d in (155, 154, 153, 160, 155, 222)}
+    assert first[153] is None and first[154] == first[155] == first[160] == first[222] == first[155]
+    assert first[155][0] in ("improved", "same", "worse")
+    assert result(155) == first[155]  # any order, any number of times
+    assert first[155][0] == "worse"  # the slide is still deepening at day 154 in the simulation
+
+
+def test_two_rounds_without_improvement_give_one_message_and_one_alternative():
+    from canary.assistant import suggestions
+    from canary.domain import advice
+    advice.start("h", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 140)
+    advice.start("h", "sg_breathe", "suggestion", {"indicator": "stress", "after_days": 7}, 147)
+    at(2)
+    _day(150)  # only the first round has concluded
+    assert _advice_messages() == [] and advice.escalation("h", 150) == []
+    for d in (154, 154, 160, 154):
+        _day(d)
+    msgs = _advice_messages()
+    assert len(msgs) == 1 and msgs[0]["recipient"] == "k" and msgs[0]["sender"] == "canary"
+    ids = [s["id"] for s in suggestions.candidates(suggestions.facts("h"))]
+    assert ids.count("alt_fatigue") == 1
+    assert client.post("/api/suggestions/h/alt_fatigue/accept", headers=as_("h")).status_code == 200
+    assert len(_advice_messages()) == 1  # accepting does not repeat the message
+    # advice about the medical officer goes to the substitute
+    advice.start("k", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 100)
+    advice.start("k", "sg_talk", "suggestion", {"indicator": "mood", "after_days": 7}, 107)
+    _day(114)
+    assert [m["recipient"] for m in _advice_messages() if m["text"].startswith("Advice review for Kenji")] == ["h"]
+
+
+def test_advice_reviews_are_private_to_the_medical_officer():
+    from canary.domain import advice
+    advice.start("h", "sg_sleep", "suggestion", {"indicator": "sleep", "after_days": 7}, 140)
+    advice.start("h", "sg_breathe", "suggestion", {"indicator": "stress", "after_days": 7}, 147)
+    _day(154)
+    assert len(_advice_messages()) == 1
+    assert not any(m["kind"] == "advice" for m in client.get("/api/messages").json())
+    assert not any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("t")).json())
+    assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=_med()).json())
+    assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("k")).json())
+
+
+def test_reading_never_writes():
+    at(2)
+    h = as_("h")
+    client.post("/api/suggestions/h/sleep/accept", headers=h)
+    before = _counts()
+    for url in ("/api/advice/h", "/api/goals/h", "/api/suggestions/h", "/api/crew/h", "/api/leaderboard", "/api/crew/overview"):
+        assert client.get(url, headers=h).status_code == 200
+    _day(160)
+    assert _counts() == before
+
+
+def test_a_seen_alert_stays_seen_but_a_new_episode_is_not():
+    _day(100)
+    a = as_("a")
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    al = next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")
+    assert al["since_day"] == 100 and al["days_active"] == 1 and al["seen"] is False
+    assert client.post("/api/alerts/a/sleepy/seen", headers=a).json()["seen"] is True
+    assert client.post("/api/alerts/a/sleepy/seen", headers=as_("t")).status_code == 403
+    assert next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")["seen"] is True
+    _day(101)  # a day without it
+    assert client.post("/api/alerts/a/sleepy/seen", headers=a).status_code == 404
+    _day(102)
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    al = next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")
+    assert al["since_day"] == 102 and al["seen"] is False
+    _day(100)
+    assert next(x for x in client.get("/api/crew/a", headers=a).json()["alerts"] if x["id"] == "sleepy")["seen"] is True
+
+
+def test_alerts_know_how_long_they_have_been_active_whatever_the_visiting_order():
+    s = {d: {a["id"]: (a["since_day"], a["days_active"]) for a in health.snapshot("h", _day(d))["alerts"]} for d in (153, 147, 153)}
+    assert s[153]["behaviour"][0] == s[147]["behaviour"][0]
+    assert s[153]["behaviour"][1] == 153 - s[153]["behaviour"][0] + 1 and s[147]["behaviour"][0] <= 147
+
+
+def test_exercise_is_lighter_and_explained_under_fatigue_within_the_medical_limit():
+    _day(100)
+    plain = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert "lighter" not in plain["title"] and "adjusted" not in plain
+    at(2)  # day 147: fatigue level 2
+    base_board = client.get("/api/leaderboard").json()
+    g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert g["adjusted"] == {"pct": 30, "minutes": 84, "target": 120, "reason": "fatigue", "max_pct": 30}
+    assert "lighter today" in g["title"] and "30%" in g["why"] and "medical team" in g["why"]
+    r = client.put("/api/medical/exercise-adjust", json={"max_pct": 10, "level1": 15, "level2": 30}, headers=_med())
+    assert r.status_code == 200
+    g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
+    assert g["adjusted"]["pct"] == 10 and g["adjusted"]["minutes"] == 108  # never above the limit the doctors set
+    assert client.put("/api/medical/exercise-adjust", json={"max_pct": 10, "level1": 15, "level2": 30}).status_code == 401
+    assert client.get("/api/leaderboard").json() == base_board  # lighter training does not touch the ranking
+    k = next(x for x in client.get("/api/goals/k", headers=as_("k")).json()["personal"] if x["id"] == "exercise")
+    assert "adjusted" not in k  # no fatigue risk for Kenji
+
+
+def test_advice_is_private_to_the_person_and_the_medical_team():
+    at(2)
+    assert client.get("/api/advice/h", headers=as_("k")).status_code == 403
+    assert client.get("/api/advice/h").status_code == 403
+    assert client.get("/api/advice/h", headers=as_("h")).status_code == 200
+    assert client.get("/api/advice/h", headers=_med()).status_code == 200
+
+
+def test_ticking_an_alert_goal_opens_its_experiment_once():
+    at(2)
+    h = as_("h")
+    for _ in range(2):
+        assert client.post("/api/goals/h/al_screens", json={"done": True}, headers=h).status_code == 200
+    a = client.get("/api/advice/h", headers=h).json()
+    assert [(x["goal_id"], x["indicator"], x["check_day"], x["origin"]) for x in a["active"]] == [("al_screens", "sleep", 150, "alert")]
