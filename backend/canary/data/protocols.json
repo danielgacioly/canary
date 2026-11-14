@@ -1,0 +1,456 @@
+{
+ "order": [
+  "cpr",
+  "seizure",
+  "choke",
+  "chest",
+  "allergy",
+  "bleed",
+  "eye",
+  "crisis",
+  "rad",
+  "triage"
+ ],
+ "protocols": {
+  "cpr": {
+   "n": "Not responding, not breathing",
+   "s": "Start CPR",
+   "kit": [
+    "Defibrillator",
+    "Bag-valve mask",
+    "Medical restraint board"
+   ],
+   "steps": [
+    {
+     "t": "Call their name and tap both shoulders hard. Watch the chest for up to 10 seconds.",
+     "q": "Breathing normally?",
+     "yes": 6,
+     "no": 1
+    },
+    {
+     "t": "Shout for help. One person fetches the defibrillator and the medical kit.",
+     "v": {
+      "g0": "Move them to the restraint board and strap chest and legs. Without a rigid surface behind the back, compressions do nothing.",
+      "gp": "Lay them on their back on the habitat floor.",
+      "g1": "Lay them on their back on a firm surface."
+     }
+    },
+    {
+     "t": "Push the centre of the chest 100 to 120 times a minute, 5 to 6 cm deep. Follow the pulsing circle.",
+     "metro": 1,
+     "v": {
+      "g0": "You have no weight. Hook your feet under the floor loops, or do the handstand method: feet on the ceiling, arms straight on the chest. Alone with no board: Evetts-Russomano method, your legs wrapped around their torso.",
+      "gp": "With little weight your body will not help. Bend and straighten your arms hard.",
+      "g1": "Arms straight, shoulders over your hands. Use your body weight."
+     }
+    },
+    {
+     "t": "After every 30 compressions give 2 breaths with the mask, if someone is trained. If not, compressions only.",
+     "metro": 1
+    },
+    {
+     "t": "Defibrillator is here: switch it on, stick the pads on the bare chest and follow its voice. Nobody touches the patient during a shock.",
+     "v": {
+      "g0": "Check that nobody is floating against the patient or the board."
+     }
+    },
+    {
+     "t": "Swap the person doing compressions every 2 minutes. Do not stop.",
+     "metro": 1,
+     "timer": 120,
+     "q": "Breathing or moving again?",
+     "yes": 6,
+     "no": 2
+    },
+    {
+     "t": "Turn them on their side with the airway clear. Check pulse, pressure and oxygen every 5 minutes.",
+     "v": {
+      "g0": "Keep them strapped, on their side. Vomit does not drain in 0 g: keep suction ready."
+     },
+     "end": 1
+    }
+   ],
+   "after": [
+    "Continuous heart monitoring for 24 h",
+    "Someone at their side at all times",
+    "Send the defibrillator trace to Earth"
+   ]
+  },
+  "seizure": {
+   "n": "Seizure",
+   "s": "Stiff or jerking body",
+   "kit": [
+    "Rescue medication",
+    "Oxygen",
+    "Portable suction",
+    "Glucose meter"
+   ],
+   "steps": [
+    {
+     "t": "The timer is already running. Do not hold them down. Put nothing in their mouth."
+    },
+    {
+     "t": "Move them away from edges, panels and loose objects. Cushion the head.",
+     "v": {
+      "g0": "Tether them loosely at the waist so they do not drift into equipment. Leave slack for the body to move.",
+      "gp": "Lay them on the floor and clear benches and tools.",
+      "g1": "Lay them on the floor and clear the furniture."
+     }
+    },
+    {
+     "t": "Loosen the collar. Notice how it started: one side or both? The doctor will ask."
+    },
+    {
+     "t": "Look at the timer. Most seizures stop on their own within 1 to 3 minutes.",
+     "q": "Has the seizure stopped?",
+     "yes": 5,
+     "no": 4
+    },
+    {
+     "t": "Past 5 minutes, or a second seizure: the medical officer gives the rescue medication from the kit, at the protocol dose. Get oxygen ready.",
+     "q": "Has it stopped now?",
+     "yes": 5,
+     "no": 4
+    },
+    {
+     "t": "Turn them on their side and check breathing. They will wake confused and tired. Speak softly and stay close.",
+     "v": {
+      "g0": "On their side and strapped to the board. Suction and bags within reach: in 0 g vomit stays in the mouth."
+     }
+    },
+    {
+     "t": "Measure glucose, oxygen, pulse and temperature. Look for a head bump or a bitten tongue.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Glucose and vital signs every 30 min for 2 h",
+    "No critical task or spacewalk for 72 h",
+    "Someone nearby for the next 24 h of sleep",
+    "Blood count and a review of current medication"
+   ]
+  },
+  "choke": {
+   "n": "Choking",
+   "s": "Cannot speak or cough",
+   "kit": [
+    "Portable suction"
+   ],
+   "steps": [
+    {
+     "t": "Ask: \"Are you choking?\"",
+     "q": "Can they cough or speak?",
+     "yes": 1,
+     "no": 2
+    },
+    {
+     "t": "Tell them to cough hard and stay beside them. Do not slap the back while the cough is working.",
+     "q": "Did it come out?",
+     "yes": 5,
+     "no": 2
+    },
+    {
+     "t": "Give 5 firm blows between the shoulder blades, with the person leaning forward.",
+     "v": {
+      "g0": "Hook your feet under the floor loops and hold their chest with your other arm. Otherwise you both spin."
+     }
+    },
+    {
+     "t": "Give 5 abdominal thrusts: fist above the navel, pull in and up.",
+     "v": {
+      "g0": "Hug from behind with your legs around their waist, or with your feet anchored. All the force comes from your arms."
+     },
+     "q": "Is the airway clear?",
+     "yes": 5,
+     "no": 4
+    },
+    {
+     "t": "Alternate 5 back blows and 5 thrusts. If they pass out, start CPR.",
+     "q": "Is the airway clear?",
+     "yes": 5,
+     "no": "cpr"
+    },
+    {
+     "t": "Keep them seated and breathing slowly. Pain or a cough that lingers after thrusts needs an exam.",
+     "v": {
+      "g0": "Collect what came out. A floating fragment can be inhaled by someone else."
+     },
+     "end": 1
+    }
+   ],
+   "after": [
+    "Abdominal exam by the medical officer",
+    "Watch for cough and fever for 48 h"
+   ]
+  },
+  "chest": {
+   "n": "Chest pain",
+   "s": "Pressure, sweating, short of breath",
+   "kit": [
+    "Defibrillator",
+    "ECG",
+    "Aspirin",
+    "Oxygen"
+   ],
+   "steps": [
+    {
+     "t": "Stop everything. Put them in the most comfortable position and loosen tight clothing.",
+     "v": {
+      "g0": "Tether them lightly so they spend no effort staying in place."
+     }
+    },
+    {
+     "t": "Measure pulse, pressure and oxygen. Run the ECG if the device is at hand.",
+     "q": "Is the pain a pressure, spreading to arm or jaw, or with sweating and breathlessness?",
+     "yes": 2,
+     "no": 4
+    },
+    {
+     "t": "Treat it as a heart attack until proven otherwise. Chewable aspirin from the kit if there is no allergy, per the medical protocol. Oxygen if saturation is below 94%."
+    },
+    {
+     "t": "Keep the defibrillator switched on beside them.",
+     "q": "Did they pass out and stop breathing?",
+     "yes": "cpr",
+     "no": 4
+    },
+    {
+     "t": "Repeat vital signs every 5 minutes and note pain from 0 to 10. Send the ECG to Earth.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Full rest until the flight surgeon answers",
+    "Repeat ECG at 1 h and 6 h"
+   ]
+  },
+  "allergy": {
+   "n": "Severe allergic reaction",
+   "s": "Swelling, wheezing, rash",
+   "kit": [
+    "Epinephrine auto-injector",
+    "Oxygen",
+    "Antihistamine"
+   ],
+   "steps": [
+    {
+     "t": "Signs: swollen lips or tongue, wheezing, rash, dizziness. If in doubt, treat."
+    },
+    {
+     "t": "Press the epinephrine auto-injector into the outer thigh and hold for 10 seconds. Through clothing is fine.",
+     "timer": 300
+    },
+    {
+     "t": "Give oxygen if they are short of breath.",
+     "v": {
+      "g0": "You cannot raise the legs in 0 g. Tether them and watch blood pressure closely.",
+      "gp": "Lay them down with legs raised. If breathing is hard, let them sit.",
+      "g1": "Lay them down with legs raised. If breathing is hard, let them sit."
+     },
+     "q": "After 5 minutes, are they better?",
+     "yes": 4,
+     "no": 3
+    },
+    {
+     "t": "Give the second dose in the other thigh. Get oxygen and airway gear ready."
+    },
+    {
+     "t": "Antihistamine and steroid from the kit, per the medical officer. Watch for at least 6 hours: the reaction can return.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Observation for 6 to 12 h",
+    "Find and isolate the cause",
+    "Restock the epinephrine used"
+   ]
+  },
+  "bleed": {
+   "n": "Heavy bleeding",
+   "s": "Cut or puncture",
+   "kit": [
+    "Gauze and pads",
+    "Tourniquet",
+    "Gloves and goggles"
+   ],
+   "steps": [
+    {
+     "t": "Gloves and goggles on. Press gauze straight onto the wound, hard, without lifting to look.",
+     "v": {
+      "g0": "In 0 g blood forms a dome on the skin, then breaks into floating drops. Cover with an absorbent pad from the start."
+     }
+    },
+    {
+     "t": "Hold the pressure for a full 10 minutes.",
+     "timer": 600,
+     "q": "Has the bleeding stopped?",
+     "yes": 3,
+     "no": 2
+    },
+    {
+     "t": "Arm or leg that will not stop bleeding: tourniquet 5 to 7 cm above the wound. Write down the time."
+    },
+    {
+     "t": "Apply a pressure dressing. Check pulse and pressure: a fast pulse and cold skin mean heavy loss.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Vital signs every 15 min for 1 h",
+    "Blood count in 6 h",
+    "Clean drops from air and surfaces"
+   ]
+  },
+  "eye": {
+   "n": "Eye injury",
+   "s": "Chemical, dust, fragment",
+   "kit": [
+    "Eyewash goggles",
+    "Saline"
+   ],
+   "steps": [
+    {
+     "t": "Do not rub. Remove contact lenses if any."
+    },
+    {
+     "t": "Rinse the eye for 15 minutes.",
+     "timer": 900,
+     "v": {
+      "g0": "Use the eyewash goggles: water circulates inside them and is suctioned away. Loose water does not run off the eye in 0 g.",
+      "gp": "Lunar and Martian dust is fine and sharp. Rinse even if it looks minor.",
+      "g1": "Running water, from the nose outward."
+     }
+    },
+    {
+     "t": "Cover the eye without pressing. Test vision in the other eye, then do the Amsler grid.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Photo of the eye to Earth",
+    "Amsler grid daily for a week"
+   ]
+  },
+  "crisis": {
+   "n": "Emotional crisis",
+   "s": "Panic, despair, risk of self-harm",
+   "kit": [
+    "A quiet corner",
+    "Private line to the psychologist"
+   ],
+   "steps": [
+    {
+     "t": "Stay with them. Speak slowly, in short sentences. Move to a place with less noise and light."
+    },
+    {
+     "t": "Breathe together: in while the circle grows, out while it shrinks. Two minutes.",
+     "breath": 1,
+     "timer": 120
+    },
+    {
+     "t": "Ask them to name 5 things they see, 4 they can touch, 3 they hear. It brings them back to now."
+    },
+    {
+     "t": "Asking does not put the idea in anyone’s head. It protects.",
+     "q": "Ask directly: \"Have you thought about hurting yourself?\" Was the answer yes?",
+     "yes": 4,
+     "no": 5
+    },
+    {
+     "t": "Do not leave them alone. Lock away medication and sharp tools. The medical officer takes over and Earth is told at top priority."
+    },
+    {
+     "t": "Agree on the next 24 hours: sleep, one light task and a private talk with the mission psychologist.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Private conference with behavioural health",
+    "Critical tasks reassigned for 48 h",
+    "Mood check-in twice a day"
+   ]
+  },
+  "rad": {
+   "n": "Radiation storm",
+   "s": "Solar particle alert",
+   "kit": [
+    "Personal dosimeters",
+    "Water and food for 24 h",
+    "Medical kit"
+   ],
+   "steps": [
+    {
+     "t": "Everyone to the shelter now. Whoever is outside comes in first.",
+     "v": {
+      "transit": "Shelter: the central compartment, surrounded by water tanks and cargo.",
+      "moon": "Shelter: the regolith-covered habitat. In the rover, head back to base.",
+      "mars": "Shelter: the habitat. In the rover, head back or park against a cliff.",
+      "iss": "Move to the best-shielded modules.",
+      "rocket": "Rebuild the cargo around the seats, as trained.",
+      "earth": "The atmosphere protects you on Earth. Use this as a drill."
+     }
+    },
+    {
+     "t": "Check the personal dosimeters and write down each reading."
+    },
+    {
+     "t": "Stop all activity outside. Bring water, food and the medical kit into the shelter.",
+     "q": "Has the particle alert ended?",
+     "yes": 3,
+     "no": 2
+    },
+    {
+     "t": "Log each person’s dose. Blood count in 24 hours and again in 7 days: lymphocytes drop first.",
+     "end": 1
+    }
+   ],
+   "after": [
+    "Blood count at 24 h and 7 days",
+    "Dose added to career record",
+    "Review this week’s outside plan"
+   ]
+  },
+  "triage": {
+   "n": "I don’t know",
+   "s": "Answer yes or no",
+   "kit": [],
+   "steps": [
+    {
+     "q": "Do they respond when you call?",
+     "yes": 1,
+     "no": "cpr"
+    },
+    {
+     "q": "Is the body stiff or jerking?",
+     "yes": "seizure",
+     "no": 2
+    },
+    {
+     "q": "Can they speak and breathe?",
+     "yes": 3,
+     "no": "choke"
+    },
+    {
+     "q": "Are they bleeding a lot?",
+     "yes": "bleed",
+     "no": 4
+    },
+    {
+     "q": "Do they have chest pain or pressure?",
+     "yes": "chest",
+     "no": 5
+    },
+    {
+     "q": "Are they panicking, crying or not themselves?",
+     "yes": "crisis",
+     "no": 6
+    },
+    {
+     "t": "Measure pulse, pressure, oxygen and temperature. Call the medical officer and note what changed.",
+     "end": 1
+    }
+   ],
+   "after": []
+  }
+ }
+}

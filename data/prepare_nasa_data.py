@@ -1,9 +1,14 @@
+"""Rebuild backend/canary/data/nasa_snapshot.json from the original NASA files.
+
+Usage: python data/prepare_nasa_data.py <download_dir> <rad_dir> backend/canary/data/nasa_snapshot.json
+  <download_dir> holds cbc.csv (OSD-569 LSDS-7 CBC, TRANSFORMED), donki_SEP.json, donki_GST.json,
+                 donki_CME.json (api.nasa.gov/DONKI, 2024-05-05 to 2024-05-16)
+  <rad_dir>      holds msl_rad_obs-l2_2024130_v04.cdf (9 May 2024) and msl_rad_obs-l2_2024141_v04.cdf (20 May 2024)
+Needs numpy and cdflib.
+"""
 import csv,json,sys,glob,os,struct
 import cdflib,numpy as np
 D,RAD,OUT=sys.argv[1],sys.argv[2],sys.argv[3]
-# glb info
-b=open(D+"/Astronaut.glb","rb").read(); n=struct.unpack("<I",b[12:16])[0]; g=json.loads(b[20:20+n])
-print("glb ext:",g.get("extensionsUsed"),"meshes",len(g.get("meshes",[])),"anims",len(g.get("animations",[])),"images",[(i.get("mimeType")) for i in g.get("images",[])])
 # CBC
 rows=list(csv.DictReader(open(D+"/cbc.csv",encoding="utf-8-sig")))
 keys={"wbc":"white_blood_cell_count","lym":"absolute_lymphocytes","neu":"absolute_neutrophils","hgb":"hemoglobin","hct":"hematocrit","plt":"platelet_count","rbc":"red_blood_cell_count"}
@@ -45,6 +50,6 @@ def series(f):
 quiet=series(RAD+"/msl_rad_obs-l2_2024130_v04.cdf"); storm=series(RAD+"/msl_rad_obs-l2_2024141_v04.cdf")
 print("quiet n",len(quiet),quiet[:3],"storm n",len(storm),"max",max(storm,key=lambda x:x[1]))
 qm=round(sum(v for _,v in quiet)/len(quiet))
-data={"cbc":cbc,"donki":{"sep":S,"flares":fl,"kp":K,"cme":C},"rad":{"quietMean":qm,"quiet":quiet[::3],"storm":storm,"unit":"µGy/dia","det":"detector E (plástico equivalente a tecido)"}}
-open(OUT,"w").write("const NASA="+json.dumps(data,separators=(",",":"),ensure_ascii=False)+";")
+data={"cbc":cbc,"donki":{"sep":S,"flares":fl,"kp":K,"cme":C},"rad":{"quietMean":qm,"quiet":quiet[::3],"storm":storm,"unit":"µGy/day","det":"detector E (tissue-equivalent plastic)"}}
+open(OUT,"w").write(json.dumps(data,separators=(",",":"),ensure_ascii=False))
 print("bytes",os.path.getsize(OUT))
