@@ -15,7 +15,9 @@ type Dest = 'mars' | 'iss' | 'moon'
 type Vals = Record<string, number>
 interface Field { key: string; label: string; hint: string; min: number; max: number }
 interface Step { loc: string; key: string; label: string; title?: string; optional?: 'return' }
-interface Spec { name: string; line: string; fields: Field[]; defaults: Vals; steps: Step[]; returnFields?: Field[]; returnDefaults?: Vals }
+/** A pressurized rover traverse cut out of the surface stay: it starts `at` days into the stay and lasts `len` days. */
+interface Rover { loc: string; at: number; len: number; label: string }
+interface Spec { name: string; line: string; fields: Field[]; defaults: Vals; steps: Step[]; returnFields?: Field[]; returnDefaults?: Vals; rover?: Rover }
 
 // First step is always pre-flight training, which ends on day -1; day 0 is launch.
 const SPECS: Record<Dest, Spec> = {
@@ -28,6 +30,7 @@ const SPECS: Record<Dest, Spec> = {
       { key: 'cruise', label: 'Cruise to Mars', hint: 'Days in deep space', min: 120, max: 300 },
       { key: 'stay', label: 'Surface stay', hint: 'Days on Mars', min: 30, max: 800 },
     ],
+    rover: { loc: 'mars_rover', at: 90, len: 14, label: 'Pressurized rover traverse to Mount Sharp' },
     defaults: { training: 60, launch: 4, cruise: 206, stay: 511, back: 206, recovery: 60 },
     returnFields: [
       { key: 'back', label: 'Cruise back to Earth', hint: 'Days in deep space', min: 120, max: 300 },
@@ -71,6 +74,7 @@ const SPECS: Record<Dest, Spec> = {
       { key: 'back', label: 'Return trip', hint: 'Days back to Earth', min: 3, max: 8 },
       { key: 'recovery', label: 'Recovery on Earth', hint: 'Days of rehabilitation', min: 14, max: 180 },
     ],
+    rover: { loc: 'moon_rover', at: 15, len: 5, label: 'Pressurized rover traverse' },
     defaults: { training: 60, launch: 5, stay: 30, back: 5, recovery: 81 },
     steps: [
       { loc: 'earth', key: 'training', label: 'Pre-flight training and baseline' },
@@ -86,14 +90,23 @@ const STEP_NAMES = ['Destination', 'Timeline', 'Crew', 'Review']
 
 interface Seg extends Leg { title?: string }
 
+/** The rover needs a stay with at least a day on the surface before and after it. */
+const roverFits = (dest: Dest, stay: number) => { const r = SPECS[dest].rover; return !!r && stay >= r.len + 2 }
+
 /** Turn the numbers into legs: training ends on day -1, launch is day 0, every leg starts the day after the last. */
-export function buildLegs(dest: Dest, v: Vals, withReturn: boolean): Seg[] {
+export function buildLegs(dest: Dest, v: Vals, withReturn: boolean, withRover = false): Seg[] {
   const legs: Seg[] = []
   let day = -v.training
   for (const s of SPECS[dest].steps) {
     if (s.optional === 'return' && !withReturn) continue
     const len = v[s.key]
-    legs.push({ location: s.loc, start: day, end: day + len - 1, label: s.label, title: s.title })
+    const r = SPECS[dest].rover
+    const cut = withRover && r && s.key === 'stay' && roverFits(dest, len) ? Math.min(r.at, len - r.len - 1) : 0  // days of stay before the rover
+    if (cut && r) {
+      legs.push({ location: s.loc, start: day, end: day + cut - 1, label: s.label, title: s.title })
+      legs.push({ location: r.loc, start: day + cut, end: day + cut + r.len - 1, label: r.label })
+      legs.push({ location: s.loc, start: day + cut + r.len, end: day + len - 1, label: s.label, title: s.title })
+    } else legs.push({ location: s.loc, start: day, end: day + len - 1, label: s.label, title: s.title })
     day += len
     if (s.key === 'training') day = 0
   }
@@ -107,6 +120,7 @@ export default function Setup() {
   const [dest, setDest] = useState<Dest>('mars')
   const [vals, setVals] = useState<Record<Dest, Vals>>({ mars: { ...SPECS.mars.defaults }, iss: { ...SPECS.iss.defaults }, moon: { ...SPECS.moon.defaults } })
   const [withReturn, setWithReturn] = useState(false)
+  const [withRover, setWithRover] = useState(true)
   const [name, setName] = useState(SPECS.mars.name)
   const [nameEdited, setNameEdited] = useState(false)
   const [phase, setPhase] = useState<'edit' | 'launching'>('edit')
@@ -130,7 +144,7 @@ export default function Setup() {
   }, [])
 
   const v = vals[dest]
-  const legs = useMemo(() => buildLegs(dest, v, dest === 'mars' && withReturn), [dest, v, withReturn])
+  const legs = useMemo(() => buildLegs(dest, v, dest === 'mars' && withReturn, withRover), [dest, v, withReturn, withRover])
 
   const pick = (d: Dest) => {
     setDest(d)
@@ -159,7 +173,7 @@ export default function Setup() {
     }
   }, [bump, nav, setMission, clear])
 
-  const useDemo = () => launch(SPECS.mars.name, buildLegs('mars', SPECS.mars.defaults, false), false)
+  const useDemo = () => launch(SPECS.mars.name, buildLegs('mars', SPECS.mars.defaults, false, true), false)
   const next = () => { if (step < 3 && clear()) setStep(step + 1) }
   const back = () => { if (step > 0) setStep(step - 1) }
 
@@ -240,6 +254,14 @@ export default function Setup() {
                   <input value={name} maxLength={80} onChange={e => { setName(e.target.value); setNameEdited(true) }} />
                   <span className="hint">Up to 80 characters. Left empty, the plan is called Mission plan.</span></label>
                 {SPECS[dest].fields.map(f => <NumField key={f.key} f={f} value={v[f.key]} onChange={n => setVal(f.key, n)} report={report} />)}
+                {SPECS[dest].rover && (
+                  <div className="col" style={{ gap: 4 }}>
+                    <button className="row small toggle" onClick={() => setWithRover(!withRover)} aria-pressed={withRover} disabled={!roverFits(dest, v.stay)}>
+                      <span className={`switch ${withRover && roverFits(dest, v.stay) ? 'on' : ''}`} />Include a rover traverse ({SPECS[dest].rover!.len} days)
+                    </button>
+                    {!roverFits(dest, v.stay) && <span className="small dim">The surface stay needs at least {SPECS[dest].rover!.len + 2} days for a rover traverse.</span>}
+                  </div>
+                )}
                 {dest === 'mars' && (
                   <>
                     <button className="row small toggle" onClick={() => setWithReturn(!withReturn)} aria-pressed={withReturn}>

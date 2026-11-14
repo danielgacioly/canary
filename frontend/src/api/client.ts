@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  CheckinResult, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
+  CheckinResult, ControlDemo, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -160,7 +160,7 @@ export const api = {
   controlSignOut: () => { controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
   isControl: () => controlToken !== null,
   controlOverview: () => req<ControlOverview>('/control/overview'),
-  controlDemo: () => req<{ crew: SeatForm[]; mission: MissionForm; presets: Record<string, string> }>('/control/demo'),
+  controlDemo: () => req<ControlDemo>('/control/demo'),
   controlRegister: (crew: SeatForm[], mission: MissionForm) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission }) }),
   controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),

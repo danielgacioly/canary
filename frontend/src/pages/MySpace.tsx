@@ -238,6 +238,7 @@ function GoalsStrip({ days }: { days: [number, number, number][] }) {
 
 /* ---------------------------------------------------------------- my information: the record Mission Control registered */
 const SKIN: Record<string, string> = { I: 'Always burns, never tans', II: 'Burns easily, tans little', III: 'Sometimes burns, tans gradually', IV: 'Rarely burns, tans well', V: 'Very rarely burns', VI: 'Never burns' }
+const EVA_ROLE: Record<string, string> = { surface: 'Surface EVAs', microgravity: 'Microgravity EVAs', none: 'No EVA' }
 function InfoTab({ me }: { me: string }) {
   const { data: r } = useApi<PersonalRecord>(() => api.record(me), [me])
   if (!r) return <Loading what="your information" />
@@ -247,7 +248,7 @@ function InfoTab({ me }: { me: string }) {
     ['Identity', [['Full name', r.name], ['Date of birth', dob], ['Age', `${r.age}`], ['Sex', r.sex], ['Nationality', r.nationality], ['Home', r.home], ['Languages', r.languages.join(', ')]]],
     ['Body', [['Height', `${r.height_cm} cm`], ['Weight', `${r.weight_kg} kg`], ['Body mass index', `${r.bmi}`], ['Blood type', r.blood_type], ['Skin type', `${r.skin_type} (Fitzpatrick) · ${SKIN[r.skin_type] ?? ''}`], ['Dominant hand', r.handedness], ['Vision', r.vision]]],
     ['Medical', [['Allergies', list(r.allergies)], ['Medications', list(r.medications)], ['Conditions', list(r.conditions)], ['Diet', r.diet], ['Vaccinations', r.vaccinations]]],
-    ['Mission', [['Role', r.role], ['Agency', r.agency], ['Previous flights', `${r.flights}`], ['Days in space before this mission', `${r.days_in_space}`], ['Emergency contact', r.emergency_contact]]],
+    ['Mission', [['Role', r.role], ['Agency', r.agency], ['Previous flights', `${r.flights}`], ['Days in space before this mission', `${r.days_in_space}`], ['EVA role', EVA_ROLE[r.eva] ?? r.eva], ['Dose from earlier flights', `${r.prior_dose.msv} mSv${r.prior_dose.estimate ? ' (estimated from days in space)' : ''}`], ['Emergency contact', r.emergency_contact]]],
   ]
   return (
     <div className="info">
