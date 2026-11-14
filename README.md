@@ -116,12 +116,14 @@ Canary follows the team's data-use draft: a visibility contract the crew agrees 
 | Personal risks and advice | Yes | Yes | No | No |
 | Operational status (e.g. fit for EVA) | Yes | Yes | No | Via the medical team |
 | Critical alert | Immediately | Immediately | No | Delayed briefing |
+| Photo of a vitals display (check-in photo) | Yes | Yes | No | No |
 | Hazards and crew goals | Yes | Yes | Yes | Yes |
 
 How the API enforces it:
 
 - **Operational status is medical-only.** Diagnoses such as "Fit for all duties" or "Off critical tasks" are visible to the medical team and to the person themself in their private space. The crew never sees anyone's status; the Crew page shows only whether EVA is possible at all (environment) and says the medical team clears each person.
 - **Entry is by PIN.** `POST /api/crew/{id}/session {"pin"}` returns a signed token `{id}.{exp}.{sig}` (HMAC-SHA256 over `crew:{id}:{exp}`, one hour). The web app keeps it in `sessionStorage` and sends it in the `X-Canary-Viewer` header; a bare id, a forged or an expired token is nobody (403 on private routes). Five wrong PINs in 60 seconds lock that person for a minute (429). `PUT /api/crew/{id}/pin` changes your PIN (needs your token and the current PIN). The medical console works the same way with its own PIN and a bearer token.
+- **Check-in photos (C2).** On a vital-signs check-in you can add a photo of the device's display (`<input capture="environment">` on a phone). The browser shrinks it to 1024 px on the long edge as a JPEG before sending; `POST /api/checkins` takes it as the optional `photo` data URL, for vitals only (PNG, JPEG or WebP checked by its first bytes, at most 600 KB, else 422 with field `photo`). It lives in its own table, `checkin_photos(checkin_id, crew_id, data_url, created_at)`, never in the check-in payload, so it feeds no chart, alert or assistant answer: the numbers typed are what counts, the photo is evidence. `GET /api/checkins/{id}` and the crew detail only say `has_photo`; `GET /api/checkins/{id}/{checkin_id}/photo` returns it to that person and the medical team (403 to anyone else), and a demo reset deletes it. It never appears in the crew overview, leaderboard, mission overview or Canary Control.
 - `GET /api/crew/overview` is the only crew-wide view: participation (goals done today, streaks), hazards, crew missions. No status, indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
 - `GET /api/crew/{id}` answers only the astronaut (session token) and the medical team (bearer token). There is no sharing switch: health never leaves those two.
 - Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. `GET /api/crew` with full summaries is medical-only.
@@ -528,7 +530,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/control/session` · `GET /api/control/overview` · `GET /api/control/demo` · `POST /api/control/register` · `POST /api/control/clear` | Canary Control (Mission Control PIN, its own token): sign in, follow the crew, the demo form, register crew and mission, start from zero |
 | `GET /api/crew/{id}/record` | My information: the personal record (the astronaut and the medical team) |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
-| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log, returns `conclusion` {population, personal, text} (self only; a value outside the typing limits, such as a pulse of 900, returns 422 with the field that is wrong) · every test with its latest result and the recent log (self and medical team) |
+| `POST /api/checkins` · `GET /api/checkins/{id}` · `GET /api/checkins/{id}/{checkin_id}/photo` | Save a test or log (vitals take an optional `photo`), returns `conclusion` {population, personal, text} (self only; a value outside the typing limits, such as a pulse of 900, returns 422 with the field that is wrong) · every test with its latest result and the recent log (self and medical team) · the photo kept with a vitals check-in (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
