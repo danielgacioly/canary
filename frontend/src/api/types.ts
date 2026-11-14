@@ -38,16 +38,26 @@ export interface SystemState { id: string; name: string; area: Area; level: Leve
 export interface AlertGoal { id: string; area: Area; title: string }
 export interface Alert {
   id: string; level: Level; title: string; why: string; todo: string[]; sys?: string | null
-  protocol?: string; test?: string; env?: boolean; data?: boolean; risk?: string
+  protocol?: string; test?: string; env?: boolean; data?: boolean; risk?: string | null
+  /** hazards (R I D G E) that are possible factors here, from the team's matrix; never a cause */
+  hazards?: HazardId[]; hazard_note?: string
   since_day?: number; days_active?: number; seen?: boolean; sources: string[]; goals: AlertGoal[]
 }
+export type HazardId = 'R' | 'I' | 'D' | 'G' | 'E'
+export interface HazardLink { hazard: HazardId; key: string; why: string; source: string; verified: boolean }
 export interface RiskEvidence {
-  indicator?: string; checkin?: string; text: string; value: number | null; baseline: number | null; z: number | null
+  indicator?: string; checkin?: string; key?: string; text: string; value: number | null; baseline: number | null; z: number | null
   origin: 'user' | 'simulated' | 'real'; source: string; points: number; drift?: { slope: number; days_to_limit: number }
+  /** exams: how old the last one is, and whether it is overdue (shown, never counted as a health signal) */
+  age_days?: number; stale?: boolean; due_every_days?: number; baseline_outside?: boolean
 }
 export interface Risk {
   id: string; name: string; nasa_red: boolean; systems: string[]; clock_days: number; level: Level; score: number
   trend: 'rising' | 'stable' | 'falling'; evidence: RiskEvidence[]; since_day: number | null; source: string; verified: boolean
+  /** real = measured (NASA data or typed in the app), simulated = none of it, partial = a mix */
+  data: 'real' | 'partial' | 'simulated'; panel_due: boolean
+  hazards: HazardId[]; hazard_links: HazardLink[]; hazard_note: string; system_levels?: Record<string, Level>
+  note?: string; dose?: { now_msv: number; limit_msv: number; pct: number; cross_day: number | null; same_for_everyone: boolean; note: string }
 }
 export interface AreaState { score: number; level: Level; status: string }
 export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean }
@@ -111,7 +121,7 @@ export interface Person {
   today: { done: number; total: number; streak: number }
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
-export interface Ridge { id: 'R' | 'I' | 'D' | 'G' | 'E'; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[] }
+export interface Ridge { id: HazardId; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[]; basis?: string; assumption?: boolean }
 export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[] }
 export interface LegConditions extends Leg { days: number; gravity_key: string; ridge: Ridge[]; dose_leg_msv: number }
 export interface PlanConditions {
