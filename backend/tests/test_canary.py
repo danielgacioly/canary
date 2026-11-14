@@ -722,7 +722,7 @@ def test_helena_has_a_level_two_fatigue_risk_on_day_147_and_nobody_else_does():
     assert len(r["evidence"]) >= 3 and r["trend"] == "rising" and 132 <= r["since_day"] <= 147
     for e in r["evidence"]:
         assert e["text"] and e["origin"] in ("user", "simulated", "real") and e["source"] and (e.get("indicator") or e.get("checkin"))
-    assert [x["id"] for x in health.snapshot("h", ms)["risks"]] == ["fatigue"]
+    assert [x["id"] for x in health.snapshot("h", ms)["risks"]] == ["fatigue", "radiation", "sans", "nutrition", "renal", "immune", "cardio", "bone_muscle"]
     for cid in ("k", "a", "t"):
         assert _fatigue(cid)["level"] == 0 and _fatigue(cid)["since_day"] is None
     _day(100)
@@ -975,6 +975,7 @@ def test_every_protocol_with_a_window_has_days_ops_and_an_illustrative_note():
     bank = client.get("/api/protocols").json()
     assert bank["care_note"]["verified"] is False and bank["care_note"]["source"] == "prototype assumption"
     for pid, p in bank["protocols"].items():
+        assert p["source"] == f"protocol:{pid}"  # the care fields must not replace the protocol's own source
         assert p["ops"] in ("full", "limited", "rest") and p["window_days"] >= 0
         assert [i["title"] for i in p["after_items"]] == p["after"] and all(i["days"] >= 0 for i in p["after_items"])
         assert all(i["days"] <= max(p["window_days"], 7) for i in p["after_items"])
@@ -1100,3 +1101,280 @@ def test_reading_never_writes_the_notice_tables():
         client.get(f"/api/crew/{cid}", headers=as_(cid))
     client.get("/api/medical/overview", headers=_med())
     assert n == _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+
+
+# ---------------------------------------------------------------- Prompt 6: the other risks, RIDGE from the plan, hazard labels
+RISK_IDS = ["fatigue", "radiation", "sans", "nutrition", "renal", "immune", "cardio", "bone_muscle"]
+
+
+def _risk(cid, rid, day=None, ms=None):
+    from canary.domain import risk
+    ms = ms or (mission.state() if day is None else {"day": day})
+    return next(r for r in risk.evaluate(cid, ms) if r["id"] == rid)
+
+
+@pytest.fixture
+def shift(monkeypatch):
+    """Move indicators away from a person's normal by some personal spreads, to build a level on purpose."""
+    from canary.domain import risk, telemetry
+    shifts = {}
+    orig = telemetry.current
+
+    def cur(crew, ind, day):
+        v = orig(crew, ind, day)
+        if (crew, ind) in shifts:
+            I = catalog.INDICATORS[ind]
+            v += (-1 if I["dir"] == "low" else 1) * shifts[(crew, ind)] * max(I["sd"], health.baselines(crew)[ind]["sd"])
+        return v
+
+    monkeypatch.setattr(telemetry, "current", cur)
+
+    def go(crew, ind, spreads):
+        shifts[(crew, ind)] = spreads
+        risk.clear_cache()
+        health._alert_cache.clear()
+    yield go
+    risk.clear_cache()
+    health._alert_cache.clear()
+
+
+@pytest.fixture
+def exam(monkeypatch):
+    """Make the latest row of an exam be this value, this old, from this origin (an exam the file has no row for that day)."""
+    from canary.domain import risk, telemetry
+    rows = {}
+    orig = telemetry.last_observation
+
+    def last(crew, ind, day):
+        if (crew, ind) in rows:
+            v, age, origin = rows[(crew, ind)]
+            return {"day": day - age, "value": v, "age": age, "origin": origin, "method": "blood", "source": f"test:{ind}", "note": ""}
+        return orig(crew, ind, day)
+
+    monkeypatch.setattr(telemetry, "last_observation", last)
+
+    def go(crew, ind, value, age=0, origin="real"):
+        rows[(crew, ind)] = (value, age, origin)
+        risk.clear_cache()
+    yield go
+    risk.clear_cache()
+
+
+def test_there_are_eight_risks_and_four_are_nasas_red_ones():
+    at(2)
+    r = client.get("/api/crew/h", headers=as_("h")).json()["risks"]
+    assert [x["id"] for x in r] == RISK_IDS
+    assert {x["id"] for x in r if x["nasa_red"]} == {"fatigue", "radiation", "sans", "nutrition"}
+    for x in r:
+        assert x["data"] in ("real", "partial", "simulated") and isinstance(x["hazards"], list) and x["clock_days"] > 0
+        assert x["source"] and x["verified"] is False
+
+
+def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_passes_it():
+    from canary.domain import risk, telemetry
+    curve = risk.dose_curve()
+    assert all(abs(curve[d] - telemetry.cumulative_dose(d, catalog.LOCATIONS and mission.plan.location_at(d), None)) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))
+    assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
+    _day(100)
+    assert _risk("h", "radiation")["level"] == 0
+    _day(156)
+    assert _risk("h", "radiation")["level"] == 0
+    _day(157)
+    r = _risk("h", "radiation")
+    assert r["level"] == 1 and any("projected to pass the career limit on day 516" in e["text"] for e in r["evidence"])
+    assert r["dose"]["same_for_everyone"] and r["dose"]["cross_day"] == 516 and r["data"] == "simulated"
+    assert {_risk(c, "radiation")["dose"]["now_msv"] for c in "hkat"} == {r["dose"]["now_msv"]}  # one dose for the whole crew
+    _day(516)
+    assert _risk("h", "radiation")["level"] == 2 and "past the 600 mSv" in _risk("h", "radiation")["evidence"][0]["text"]
+
+
+def test_radiation_is_level_two_in_both_storm_scenes_and_the_storm_alert_carries_it():
+    for step in (3, 5):
+        ms = at(step)
+        assert ms["storm"]
+        for c in "hkat":
+            r = _risk(c, "radiation", ms=ms)
+            assert r["level"] == 2 and r["nasa_red"] and r["hazards"] == ["R"]
+            assert r["data"] == ("real" if step == 3 else "partial")  # the storm is NASA's record; from the second one on the dose adds a simulated number
+        storm = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "storm")
+        assert storm["risk"] == "radiation" and storm["hazards"] == ["R"]
+
+
+def test_radiation_reads_a_low_lymphocyte_count_but_not_a_high_one(exam):
+    _day(100)
+    exam("a", "lym", 5000)  # above the range: not radiation's sign
+    assert _risk("a", "radiation")["level"] == 0
+    exam("a", "lym", 600)
+    r = _risk("a", "radiation")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "lym" and r["evidence"][0]["origin"] == "real"
+
+
+def test_sans_reads_the_amsler_grid_and_vision_symptoms_and_says_the_grid_is_weak():
+    _day(100)
+    r = _risk("h", "sans")
+    assert r["level"] == 0 and "weak indicator" in r["note"] and r["nasa_red"]
+    assert _checkin("h", "symptoms", {"items": ["Headache"], "severity": 2}).status_code == 200
+    assert _risk("h", "sans")["level"] == 0  # not a vision symptom
+    assert _checkin("h", "symptoms", {"items": ["Blurred vision"], "severity": 2}).status_code == 200
+    assert _risk("h", "sans")["level"] == 1
+    assert _checkin("h", "amsler", {"distortion": True}).status_code == 200
+    r = _risk("h", "sans")
+    assert r["level"] == 2 and r["data"] == "real" and {e["key"] for e in r["evidence"]} == {"amsler", "symptoms"}
+    assert health.snapshot("h", mission.state())["systems"]["eyes"]["level"] == 2
+
+
+def test_nutrition_reads_glucose_and_weight_against_the_persons_own_normal(shift, exam):
+    _day(100)
+    assert _risk("a", "nutrition")["level"] == 0
+    shift("a", "gluc", 2.0)
+    r = _risk("a", "nutrition")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "gluc" and r["nasa_red"]
+    assert health.snapshot("a", mission.state())["systems"]["gut"]["level"] == 1
+    shift("a", "gluc", 0.0)
+    assert _risk("a", "nutrition")["level"] == 0
+    exam("a", "weight", 60.0, origin="user")  # about 9% under a pre-flight near 66 kg
+    r = _risk("a", "nutrition")
+    assert r["level"] == 1 and "below your pre-flight" in r["evidence"][0]["text"] and r["evidence"][0]["origin"] == "user" and r["data"] == "real"
+
+
+def test_renal_reads_water_bone_loss_and_the_exams_and_a_stale_exam_is_not_a_risk(shift, exam):
+    _day(100)
+    assert _risk("a", "renal")["level"] == 0
+    shift("a", "water", 2.0)
+    assert _risk("a", "renal")["level"] == 1
+    shift("a", "water", 0.0)
+    exam("a", "creatinine", 2.5, origin="real")
+    r = _risk("a", "renal")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "creatinine" and not r["panel_due"]
+    exam("a", "creatinine", 2.5, age=40)  # an old exam: say it is due, do not count it
+    r = _risk("a", "renal")
+    assert r["level"] == 0 and r["panel_due"] and r["evidence"][0]["stale"] and r["evidence"][0]["due_every_days"] == 30
+    exam("a", "creatinine", 0.9, age=0)
+    exam("a", "urine_volume", 900, age=3)
+    r = _risk("a", "renal")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "urine_volume"
+
+
+def test_immune_reads_the_blood_count_temperature_and_the_days_after_the_storm(shift, exam):
+    _day(100)
+    assert _risk("a", "immune")["level"] == 0
+    shift("a", "temp", 3.0)
+    assert _risk("a", "immune")["level"] == 1
+    shift("a", "temp", 0.0)
+    exam("a", "hgb", 9.0)
+    exam("a", "hct", 28.0)
+    r = _risk("a", "immune")
+    assert r["level"] == 1 and {e["indicator"] for e in r["evidence"]} == {"hgb", "hct"} and r["data"] == "real"
+    exam("a", "hgb", 9.0, age=45)
+    exam("a", "hct", 28.0, age=45)
+    r = _risk("a", "immune")
+    assert r["level"] == 0 and r["panel_due"]
+    _day(160)
+    assert any(e["text"] == "Blood count due after the radiation storm" for e in _risk("h", "immune")["evidence"])
+
+
+def test_a_blood_value_that_was_already_outside_the_range_before_launch_is_not_a_new_signal(exam):
+    from canary.domain import telemetry
+    _day(100)
+    pre = telemetry.preflight_values("a", "lym")
+    assert pre  # Amara's pre-flight lymphocytes are in the file
+    exam("a", "wbc", 2000.0)  # far below the range of 4 to 11 thousand
+    assert _risk("a", "immune")["level"] in (0, 1)  # the pre-flight wbc of this file sits inside the range, so this one counts
+    ev = [e for e in _risk("a", "immune")["evidence"] if e["indicator"] == "wbc"]
+    assert ev and ev[0]["points"] == 0.5
+
+
+def test_cardio_absorbs_regravity_and_stays_level_zero_when_all_is_normal(shift):
+    _day(100)
+    assert _risk("a", "cardio")["level"] == 0
+    shift("a", "hr", 2.0)
+    r = _risk("a", "cardio")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "hr"
+    ms = at(5)  # Mars, partial gravity: pressure and pulse away from normal is the re-adaptation pattern
+    assert _risk("h", "cardio", ms=ms)["systems"] == ["heart", "lungs"]
+    regr = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "regravity")
+    assert regr["risk"] == "cardio"
+    assert any(e["key"] == "regravity" for e in _risk("h", "cardio", ms=ms)["evidence"])
+
+
+def test_bone_muscle_reads_bone_grip_and_exercise_and_colours_only_the_system_it_is_about(shift):
+    _day(100)
+    assert _risk("a", "bone_muscle")["level"] == 0
+    shift("a", "grip", 2.0)
+    r = _risk("a", "bone_muscle")
+    assert r["level"] == 1 and r["evidence"][0]["indicator"] == "grip"
+    s = health.snapshot("a", mission.state())["systems"]
+    assert s["muscles"]["level"] == 1 and s["skeleton"]["level"] == 0  # grip is about the muscles, not the bones
+
+
+def test_every_risk_says_where_its_data_comes_from():
+    from canary.domain import risk
+    assert risk.data_origin({"real"}) == "real" and risk.data_origin({"user", "real"}) == "real"
+    assert risk.data_origin({"real", "simulated"}) == "partial" and risk.data_origin({"user", "simulated"}) == "partial"
+    assert risk.data_origin({"simulated"}) == "simulated" and risk.data_origin(set()) == "simulated"
+    ms = at(2)
+    assert _risk("h", "fatigue", ms=ms)["data"] == "simulated" and _risk("h", "radiation", ms=ms)["data"] == "simulated"
+
+
+def test_ridge_on_day_147_in_transit_is_what_it_was_and_the_levels_follow_the_plan():
+    from canary.domain import privacy
+    lv = lambda loc, day, storm=None: {h["id"]: h["level"] for h in privacy.ridge(loc, storm, day)}  # noqa: E731
+    assert lv("transit", 147) == {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1}
+    assert lv("earth", -30) == {"R": 0, "I": 0, "D": 0, "G": 0, "E": 0}
+    assert lv("rocket", 2)["I"] == 1 and lv("transit", 147)["I"] == 2  # isolation grows with the days since launch
+    assert lv("mars", 215)["G"] == 2 and lv("mars", 300)["G"] == 1    # re-adaptation for 30 days after the change of gravity
+    assert lv("transit", 150, "sep")["R"] == 2 and lv("mars", 300)["R"] == 1
+    assert lv("iss", 10)["D"] == 0 and lv("moon", 10)["D"] == 1
+    h = privacy.ridge("transit", None, 147)
+    assert all(x["basis"] for x in h) and [x["assumption"] for x in h] == [False, False, False, False, True]
+    assert h[0]["here"] and h[0]["label"] == "High" and privacy.RIDGE_CUTS["verified"] is False
+
+
+def test_the_ridge_in_the_overview_uses_the_mission_day():
+    at(2)
+    o = client.get("/api/crew/overview").json()
+    assert {h["id"]: h["level"] for h in o["ridge"]} == {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1}
+    assert all("basis" in h for h in o["ridge"])
+
+
+def test_helenas_fatigue_risk_on_day_147_lists_isolation_as_a_possible_factor():
+    ms = at(2)
+    r = _risk("h", "fatigue", ms=ms)
+    assert "I" in r["hazards"] and r["hazard_note"].startswith("Possible factors here:") and "Isolation" in r["hazard_note"]
+    assert all(l["source"] and l["verified"] is False and l["why"] for l in r["hazard_links"])
+    assert "caused" not in r["hazard_note"].lower()
+    b = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "behaviour")
+    assert b["risk"] == "fatigue" and "I" in b["hazards"] and b["hazard_note"] == r["hazard_note"]
+    assert _risk("k", "fatigue", ms=ms)["hazards"] == []  # no hazard label without a risk
+
+
+def test_every_alert_keeps_its_id_and_gains_a_risk_and_hazards():
+    seen = set()
+    for step in range(6):
+        ms = at(step)
+        for c in "hkat":
+            for a in health.snapshot(c, ms)["alerts"]:
+                assert "risk" in a and isinstance(a["hazards"], list)
+                seen.add(a["id"])
+                if a["id"].startswith("ind_"):
+                    assert a["risk"] in ("fatigue", "cardio", "bone_muscle", "nutrition", "renal", "immune")
+    assert {"storm", "behaviour", "missing_mood", "ind_bone", "regravity", "sickness"} <= seen
+
+
+def test_the_hazard_matrix_is_the_teams_with_a_source_on_every_link():
+    from canary.domain.catalog import HAZARDS_BY_INDICATOR as M
+    assert {l["hazard"] for l in M["sleep"]} == {"I", "E"} and {l["hazard"] for l in M["dose"]} == {"R"}
+    assert {l["hazard"] for l in M["mood"]} == {"I", "D", "E"} and {l["hazard"] for l in M["bone"]} == {"D", "G"}
+    assert all(l["source"] and l["verified"] is False and l["why"] for links in M.values() for l in links)
+    assert all(l["source"].startswith("prototype assumption") for k in ("dsst", "span", "kss", "tlx", "urine_volume") for l in M[k])
+
+
+def test_the_assistant_exposes_the_risks_with_hazards_and_cards():
+    from canary.assistant import knowledge, tools
+    ms = at(2)
+    res = tools.get_risks("h")
+    assert [r["id"] for r in res["data"]] == RISK_IDS and "card:risk:fatigue" in res["sources"] and "card:hazard:I" in res["sources"]
+    cards = knowledge.by_id(ms["location"])
+    assert "card:risk:radiation" in cards and "card:hazard:G" in cards and "never a proven cause" in cards["card:hazard:I"]["text"]
+    a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "What is my fatigue risk and why?"}, headers=as_("h")).json()
+    assert any("Possible factors here" in c["text"] for c in a["claims"])
