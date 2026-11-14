@@ -5,6 +5,15 @@ import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 import { Icon } from './ui'
 
+/** The one quiet line under a goal: why, or, when it applies, the lightened load for fatigue and the advice check. */
+function goalLine(g: Goal): string {
+  const parts: string[] = []
+  if (g.adjusted) parts.push(`${g.adjusted.pct}% lighter for fatigue, within your team's ${g.adjusted.max_pct}% limit`)
+  else parts.push(g.why)
+  if (g.advice) parts.push(g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`)
+  return parts.join(' · ')
+}
+
 export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; crewId: string; onCheck?: (k: CheckKind) => void; readOnly?: boolean; compact?: boolean }) {
   const { bump, toast } = useSession()
   const act = useAction('toast')
@@ -22,12 +31,7 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
       <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly || act.busy}><Icon name="check" size={14} /></button>
       <div className="grow">
         <div className="gt">{g.title}</div>
-        {!compact && <div className="small dim">{g.why}</div>}
-        {!compact && g.advice && (
-          <div className="small dim">
-            {g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`}
-          </div>
-        )}
+        {!compact && <div className="small dim quiet">{goalLine(g)}</div>}
       </div>
       {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : g.by === 'suggestion' ? 'Your pick' : 'From an alert'}</span>}
     </div>
