@@ -1479,3 +1479,22 @@ def test_the_standard_is_described_with_what_it_does_not_check():
     s = client.get("/api/catalog").json()["standards"]
     assert s["document"]["url"].startswith("https://www.nasa.gov/") and {"vo2", "grip", "bone", "radiation", "sleep"} <= set(s["checked"])
     assert {i for n in s["not_checked"] for i in n["items"]} >= {"V1 4020", "Table 4.8-1"}
+
+
+def test_the_indicator_guide_maps_to_ids_canary_has():
+    import pathlib
+    from canary.domain import risk, simdata
+    d = pathlib.Path(__file__).resolve().parents[2] / "data" / "indicator_guide"
+    guide = json.loads((d / "indicadores.json").read_text(encoding="utf-8"))
+    m = json.loads((d / "id_map.json").read_text(encoding="utf-8"))["map"]
+    assert set(m) == {i["id"] for i in guide["indicadores"]}  # every guide entry is mapped, nothing more
+    recipes = simdata.load_recipes()["indicators"]
+    where = {"indicator": set(catalog.INDICATORS), "lab": set(recipes), "risk": set(risk.RISKS)}
+    for gid, e in m.items():
+        assert (e["v1"] is None) == (e["kind"] == "none"), gid
+        if e["v1"] is not None:
+            assert e["v1"] in where[e["kind"]], (gid, e)
+    covered = {e["v1"] for e in m.values() if e["kind"] == "indicator"}
+    readme = (d / "README.md").read_text(encoding="utf-8")
+    for ind in set(catalog.INDICATORS) - covered:  # the README names every indicator the guide leaves without text
+        assert f"`{ind}`" in readme.split("does not cover")[1], ind

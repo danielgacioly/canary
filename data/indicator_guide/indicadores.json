@@ -1,0 +1,1323 @@
+{
+  "titulo": "Indicadores de saúde para astronautas — faixas, alertas e ações",
+  "versao": "2026-11-14c",
+  "aviso": "Material de apoio para o NASA Space Apps 2026 (desafio Health Monitoring Software). Não é orientação médica. Os limites marcados com origem 'app' são escolhas de projeto, não norma clínica — ajuste com um profissional de saúde.",
+  "niveis": {
+    "verde": "Dentro do esperado. Seguir a rotina.",
+    "amarelo": "Atenção. Repetir a medida, aplicar a ação sugerida e acompanhar.",
+    "vermelho": "Alerta. Aplicar a ação imediata e avisar o médico de voo (flight surgeon)."
+  },
+  "fontes": {
+    "aha_pa": "https://www.heart.org/en/health-topics/high-blood-pressure/understanding-blood-pressure-readings",
+    "medline_sinais": "https://medlineplus.gov/ency/article/002341.htm",
+    "medline_febre": "https://medlineplus.gov/ency/article/003090.htm",
+    "medline_oximetria": "https://medlineplus.gov/lab-tests/pulse-oximetry/",
+    "ada_hipoglicemia": "https://diabetes.org/living-with-diabetes/hypoglycemia-low-blood-glucose",
+    "cdc_sono": "https://www.cdc.gov/sleep/about/index.html",
+    "i4_metabolico": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-575",
+    "i4_hemograma": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-569",
+    "nasa_radiacao": "https://www.nasa.gov/wp-content/uploads/2023/03/radiation-protection-technical-brief-ochmo.pdf",
+    "nasa_exercicio_brief": "https://www.nasa.gov/wp-content/uploads/2023/12/ochmo-tb-031-exercise-overview.pdf",
+    "radlab": "https://visualization.osdr.nasa.gov/radlab/gui/",
+    "nhanes": "https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?Cycle=2021-2023",
+    "medline_vitd": "https://medlineplus.gov/lab-tests/vitamin-d-test/",
+    "ods_vitd": "https://ods.od.nih.gov/factsheets/VitaminD-HealthProfessional/",
+    "medline_testosterona": "https://medlineplus.gov/ency/article/003707.htm",
+    "nasa_std3001_v1": "https://www.nasa.gov/wp-content/uploads/2023/11/nasa-std-3001-vol-1-rev-c-with-signature.pdf",
+    "nasa_risco_aptidao": "https://www.nasa.gov/reference/risk-of-reduced-cardiorespiratory-and-musculoskeletal-fitness/"
+  },
+  "indicadores": [
+    {
+      "id": "pa_sistolica",
+      "tema": "Coração e circulação",
+      "parte_do_corpo": "coracao",
+      "nome": "Pressão arterial sistólica (máxima)",
+      "unidade": "mmHg",
+      "como_medir": "Manguito de pressão no braço, sentado e em repouso há 5 min.",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "90 a 119",
+          "min": 90,
+          "max": 119,
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa",
+            "medline_sinais"
+          ]
+        },
+        "amarelo": {
+          "regra": "120 a 139, ou abaixo de 90",
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa",
+            "medline_sinais"
+          ]
+        },
+        "vermelho": {
+          "regra": "140 ou mais (acima de 180 = emergência)",
+          "min": 140,
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Sem gravidade, o coração e os vasos se adaptam e o coração pode ficar mais arredondado. Ao voltar à gravidade, a pressão pode cair (risco de tontura e desmaio).",
+      "acoes": {
+        "verde": "Manter exercício diário e hidratação.",
+        "amarelo": "Repetir em 15 min. Abaixo de 90: hidratar e sentar/deitar antes de levantar. Entre 120 e 139: reduzir sal e manter o exercício.",
+        "vermelho": "Repetir a medida; se confirmar, avisar o médico de voo. Acima de 180, ou com dor no peito, falta de ar ou alteração da visão: emergência."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-cardiovascular-adaptations/",
+      "exemplo_real_fora_do_normal": null,
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "mmHg",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1389,
+            "p5": 94.7,
+            "p25": 104.0,
+            "p50": 110.7,
+            "p75": 119.0,
+            "p95": 137.7
+          },
+          "Masculino": {
+            "n_pessoas": 1072,
+            "p5": 104.0,
+            "p25": 113.0,
+            "p50": 120.3,
+            "p75": 127.3,
+            "p95": 143.7
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "pa_diastolica",
+      "tema": "Coração e circulação",
+      "parte_do_corpo": "coracao",
+      "nome": "Pressão arterial diastólica (mínima)",
+      "unidade": "mmHg",
+      "como_medir": "Mesma medida da sistólica.",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "60 a 79",
+          "min": 60,
+          "max": 79,
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa",
+            "medline_sinais"
+          ]
+        },
+        "amarelo": {
+          "regra": "80 a 89, ou abaixo de 60",
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa",
+            "medline_sinais"
+          ]
+        },
+        "vermelho": {
+          "regra": "90 ou mais (acima de 120 = emergência)",
+          "min": 90,
+          "origem": "fonte",
+          "fonte": [
+            "aha_pa"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Igual à sistólica.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Repetir em 15 min e acompanhar a tendência no gráfico.",
+        "vermelho": "Avisar o médico de voo. Acima de 120: emergência."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-cardiovascular-adaptations/",
+      "exemplo_real_fora_do_normal": null,
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "mmHg",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1389,
+            "p5": 59.0,
+            "p25": 66.7,
+            "p50": 73.3,
+            "p75": 80.0,
+            "p95": 93.0
+          },
+          "Masculino": {
+            "n_pessoas": 1072,
+            "p5": 61.7,
+            "p25": 70.7,
+            "p50": 76.7,
+            "p75": 83.3,
+            "p95": 95.3
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "fc_repouso",
+      "tema": "Coração e circulação",
+      "parte_do_corpo": "coracao",
+      "nome": "Frequência cardíaca em repouso",
+      "unidade": "bpm",
+      "como_medir": "Relógio/cinta cardíaca ou ECG, ao acordar, antes de levantar.",
+      "frequencia_sugerida": "Contínua (wearable) ou diária",
+      "faixas": {
+        "verde": {
+          "regra": "60 a 100",
+          "min": 60,
+          "max": 100,
+          "origem": "fonte",
+          "fonte": [
+            "medline_sinais"
+          ]
+        },
+        "amarelo": {
+          "regra": "40 a 59, ou 101 a 120",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 40, ou acima de 120 em repouso",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Mesmas adaptações cardiovasculares da pressão. Pessoas muito treinadas podem ter frequência normal abaixo de 60.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Ver se houve sono ruim, estresse, cafeína ou febre. Repetir após 10 min de repouso.",
+        "vermelho": "Fazer ECG se houver equipamento e avisar o médico de voo. Com dor no peito, desmaio ou falta de ar: emergência."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-cardiovascular-adaptations/",
+      "exemplo_real_fora_do_normal": "Sinais reais com arritmia (pessoas na Terra): https://physionet.org/content/mitdb/1.0.0/",
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "bpm",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1389,
+            "p5": 58.0,
+            "p25": 66.7,
+            "p50": 73.7,
+            "p75": 81.0,
+            "p95": 93.7
+          },
+          "Masculino": {
+            "n_pessoas": 1072,
+            "p5": 54.0,
+            "p25": 63.0,
+            "p50": 70.0,
+            "p75": 78.7,
+            "p95": 94.0
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "temperatura",
+      "tema": "Imunidade e infecção",
+      "parte_do_corpo": "corpo_todo",
+      "nome": "Temperatura corporal (oral)",
+      "unidade": "°C",
+      "como_medir": "Termômetro oral.",
+      "frequencia_sugerida": "Diária, e sempre que houver mal-estar",
+      "faixas": {
+        "verde": {
+          "regra": "36,5 a 37,3",
+          "min": 36.5,
+          "max": 37.3,
+          "origem": "fonte",
+          "fonte": [
+            "medline_sinais"
+          ]
+        },
+        "amarelo": {
+          "regra": "37,4 a 39,3 (febre), ou abaixo de 36,5",
+          "origem": "fonte",
+          "fonte": [
+            "medline_febre"
+          ]
+        },
+        "vermelho": {
+          "regra": "39,4 ou mais, ou febre por mais de 48 a 72 h",
+          "min": 39.4,
+          "origem": "fonte",
+          "fonte": [
+            "medline_febre"
+          ]
+        }
+      },
+      "efeito_no_espaco": "O sistema imune muda no espaço; astronautas já tiveram herpes labial, alergias atípicas, manchas na pele e infecções por reativação de vírus latentes.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Hidratar, descansar e medir de novo em 4 h. Registrar outros sintomas.",
+        "vermelho": "Avisar o médico de voo. Isolar-se da tripulação se houver suspeita de infecção."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-altered-immune-system-responses/",
+      "exemplo_real_fora_do_normal": null,
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "spo2",
+      "tema": "Respiração e oxigênio",
+      "parte_do_corpo": "pulmoes",
+      "nome": "Saturação de oxigênio (SpO2)",
+      "unidade": "%",
+      "como_medir": "Oxímetro de dedo.",
+      "frequencia_sugerida": "Diária, e antes/depois de caminhada espacial (EVA)",
+      "faixas": {
+        "verde": {
+          "regra": "95 a 100",
+          "min": 95,
+          "max": 100,
+          "origem": "fonte",
+          "fonte": [
+            "medline_oximetria"
+          ]
+        },
+        "amarelo": {
+          "regra": "89 a 94 (92 ou menos: avisar o médico)",
+          "min": 89,
+          "max": 94,
+          "origem": "fonte",
+          "fonte": [
+            "medline_oximetria"
+          ]
+        },
+        "vermelho": {
+          "regra": "88 ou menos",
+          "max": 88,
+          "origem": "fonte",
+          "fonte": [
+            "medline_oximetria"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Naves futuras terão cabine com pressão reduzida, o que aumenta o risco de hipóxia leve: confusão, dor de cabeça, alteração da visão e sono ruim.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Repetir a medida com a mão aquecida e parada (o oxímetro erra de 2 a 4%). Com 92 ou menos, avisar o médico de voo.",
+        "vermelho": "Atendimento imediato: oxigênio suplementar conforme protocolo e médico de voo."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-hypoxia/",
+      "exemplo_real_fora_do_normal": null,
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "glicemia",
+      "tema": "Nutrição e metabolismo",
+      "parte_do_corpo": "pancreas",
+      "nome": "Glicemia (açúcar no sangue) em jejum",
+      "unidade": "mg/dL",
+      "como_medir": "Glicosímetro de ponta de dedo, em jejum.",
+      "frequencia_sugerida": "Semanal, ou com sintomas (tremor, suor, confusão)",
+      "faixas": {
+        "verde": {
+          "regra": "70 a 99",
+          "min": 70,
+          "max": 99,
+          "origem": "fonte",
+          "fonte": [
+            "i4_metabolico",
+            "ada_hipoglicemia"
+          ]
+        },
+        "amarelo": {
+          "regra": "acima de 99",
+          "min": 100,
+          "origem": "fonte",
+          "fonte": [
+            "i4_metabolico"
+          ]
+        },
+        "vermelho": {
+          "regra": "abaixo de 70 (hipoglicemia)",
+          "max": 69,
+          "origem": "fonte",
+          "fonte": [
+            "ada_hipoglicemia"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Alimentação, sono e exercício mudam a rotina metabólica a bordo.",
+      "acoes": {
+        "verde": "Manter a dieta planejada.",
+        "amarelo": "Repetir em jejum no dia seguinte e revisar a alimentação.",
+        "vermelho": "Regra 15/15: comer 15 g de carboidrato rápido e medir de novo em 15 min. Se não subir, ou se houver confusão ou desmaio: emergência."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-inadequate-food-and-nutrition/",
+      "exemplo_real_fora_do_normal": "Inspiration4, tripulante C003, 1 dia após voltar (R+1): 103 mg/dL (OSD-575).",
+      "norma_nasa": {
+        "itens": [
+          "V1 4019"
+        ],
+        "texto": "A norma pede avaliar o estado nutricional e corrigir deficiências; não fixa número de glicose."
+      }
+    },
+    {
+      "id": "potassio",
+      "tema": "Nutrição e metabolismo",
+      "parte_do_corpo": "rins",
+      "nome": "Potássio no sangue",
+      "unidade": "mmol/L",
+      "como_medir": "Exame de sangue (analisador portátil; hoje a maioria das amostras volta congelada para análise na Terra).",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "3,5 a 5,3",
+          "min": 3.5,
+          "max": 5.3,
+          "origem": "fonte",
+          "fonte": [
+            "i4_metabolico"
+          ]
+        },
+        "amarelo": {
+          "regra": "3,0 a 3,4, ou 5,4 a 5,9",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 3,0, ou 6,0 ou mais",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Hidratação, dieta e o retorno à gravidade mexem com os eletrólitos.",
+      "acoes": {
+        "verde": "Manter a dieta e a hidratação.",
+        "amarelo": "Repetir o exame e revisar dieta e hidratação com o médico de voo.",
+        "vermelho": "Avisar o médico de voo: potássio muito alto ou muito baixo pode alterar o ritmo do coração."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-inadequate-food-and-nutrition/",
+      "exemplo_real_fora_do_normal": "Inspiration4: C003 em R+1 = 3,0 (baixo); C004 em R+45 = 5,9 (alto) (OSD-575).",
+      "norma_nasa": {
+        "itens": [
+          "V1 4019"
+        ],
+        "texto": "A norma pede avaliar o estado nutricional; não fixa número de potássio."
+      }
+    },
+    {
+      "id": "ureia",
+      "tema": "Nutrição e metabolismo",
+      "parte_do_corpo": "rins",
+      "nome": "Ureia (BUN)",
+      "unidade": "mg/dL",
+      "como_medir": "Exame de sangue.",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "7 a 25",
+          "min": 7,
+          "max": 25,
+          "origem": "fonte",
+          "fonte": [
+            "i4_metabolico"
+          ]
+        },
+        "amarelo": {
+          "regra": "26 a 35, ou abaixo de 7",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "acima de 35",
+          "min": 36,
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Sobe com desidratação e dieta rica em proteína; ajuda a acompanhar hidratação e rins.",
+      "acoes": {
+        "verde": "Manter a hidratação.",
+        "amarelo": "Aumentar a ingestão de água e repetir o exame.",
+        "vermelho": "Avisar o médico de voo para avaliar os rins."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-inadequate-food-and-nutrition/",
+      "exemplo_real_fora_do_normal": "Inspiration4: C001, C003 e C004 seis meses após voltar (R+194) = 27 a 28 (OSD-575).",
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "hemoglobina",
+      "tema": "Sangue",
+      "parte_do_corpo": "sangue",
+      "nome": "Hemoglobina",
+      "unidade": "g/dL",
+      "como_medir": "Hemograma (exame de sangue).",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "mulher 11,7 a 15,5 / homem 13,2 a 17,1",
+          "origem": "fonte",
+          "fonte": [
+            "i4_hemograma",
+            "nasa_std3001_v1"
+          ]
+        },
+        "amarelo": {
+          "regra": "até 1 g/dL abaixo do mínimo, ou acima do máximo",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "mais de 1 g/dL abaixo do mínimo",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Hemoglobina baixa (anemia) reduz o oxigênio nos tecidos e o fôlego para o trabalho.",
+      "acoes": {
+        "verde": "Manter a dieta planejada.",
+        "amarelo": "Repetir o exame e observar cansaço e falta de ar.",
+        "vermelho": "Avisar o médico de voo e reduzir o esforço físico até a avaliação."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-inadequate-food-and-nutrition/",
+      "exemplo_real_fora_do_normal": "Inspiration4, C002: 11,5 três dias antes do voo (L-3) e 82 dias após voltar (R+82) (OSD-569).",
+      "norma_nasa": {
+        "itens": [
+          "V1 4015",
+          "V1 4016",
+          "V1 4017",
+          "V1 4018"
+        ],
+        "texto": "Sangue e imunidade devem ficar dentro da faixa normal da população saudável, longe dos valores críticos; após o voo, voltar à linha de base pré-missão."
+      }
+    },
+    {
+      "id": "leucocitos",
+      "tema": "Imunidade e infecção",
+      "parte_do_corpo": "sangue",
+      "nome": "Leucócitos (glóbulos brancos)",
+      "unidade": "mil/µL",
+      "como_medir": "Hemograma (exame de sangue).",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "3,8 a 10,8",
+          "min": 3.8,
+          "max": 10.8,
+          "origem": "fonte",
+          "fonte": [
+            "i4_hemograma",
+            "nasa_std3001_v1"
+          ]
+        },
+        "amarelo": {
+          "regra": "fora da faixa, sem febre",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "fora da faixa e com febre",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "O sistema imune muda no espaço e vírus latentes podem reativar.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Repetir o exame e medir a temperatura todo dia.",
+        "vermelho": "Avisar o médico de voo; suspeita de infecção."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-altered-immune-system-responses/",
+      "exemplo_real_fora_do_normal": "Inspiration4, C004: monócitos (um tipo de leucócito) acima de 950/µL em R+1 e R+194 (OSD-569).",
+      "norma_nasa": {
+        "itens": [
+          "V1 4015",
+          "V1 4016",
+          "V1 4017",
+          "V1 4018"
+        ],
+        "texto": "Sangue e imunidade devem ficar dentro da faixa normal da população saudável, longe dos valores críticos; após o voo, voltar à linha de base pré-missão."
+      }
+    },
+    {
+      "id": "calcio",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "ossos",
+      "nome": "Cálcio no sangue",
+      "unidade": "mg/dL",
+      "como_medir": "Exame de sangue.",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "8,6 a 10,3",
+          "min": 8.6,
+          "max": 10.3,
+          "origem": "fonte",
+          "fonte": [
+            "i4_metabolico"
+          ]
+        },
+        "amarelo": {
+          "regra": "10,4 a 11,0, ou 8,0 a 8,5",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "acima de 11,0, ou abaixo de 8,0",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Sem gravidade, os ossos perdem massa e ficam mais frágeis; o cálcio sai do osso para o sangue. Exercício resistido e remédios ajudam a proteger.",
+      "acoes": {
+        "verde": "Manter o exercício resistido diário.",
+        "amarelo": "Conferir se o exercício resistido foi feito e revisar cálcio e vitamina D na dieta com o médico.",
+        "vermelho": "Avisar o médico de voo."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/",
+      "exemplo_real_fora_do_normal": null,
+      "norma_nasa": {
+        "itens": [
+          "V1 4019"
+        ],
+        "texto": "A norma pede avaliar o estado nutricional; o osso tem padrão próprio (V1 4027)."
+      }
+    },
+    {
+      "id": "exercicio",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "musculos",
+      "nome": "Exercício diário (aeróbico + resistido)",
+      "unidade": "min/dia",
+      "como_medir": "Registro automático dos equipamentos ou anotação no app.",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "90 ou mais (1,5 h/dia, 6 a 7 dias por semana, como na ISS)",
+          "min": 90,
+          "origem": "fonte",
+          "fonte": [
+            "nasa_risco_aptidao"
+          ]
+        },
+        "amarelo": {
+          "regra": "20 a 89",
+          "min": 20,
+          "max": 89,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "menos de 20, ou 2 dias seguidos sem exercício",
+          "max": 19,
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Na ISS, a perda média de força e de condicionamento aeróbico é de 10 a 12%. Sessões de mais de 20 min com frequência cardíaca acima de 70% da máxima reduziram a perda.",
+      "acoes": {
+        "verde": "Manter. Mostrar a sequência de dias cumpridos (gamificação).",
+        "amarelo": "Completar o tempo no mesmo dia; priorizar o exercício resistido.",
+        "vermelho": "Replanejar a agenda com a equipe de solo para recuperar as sessões."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-reduced-cardiorespiratory-and-musculoskeletal-fitness/",
+      "exemplo_real_fora_do_normal": null,
+      "norma_nasa": {
+        "itens": [
+          "V1 4003"
+        ],
+        "texto": "A capacidade aeróbica deve ser mantida por contramedidas (exercício); a norma não fixa minutos por dia."
+      }
+    },
+    {
+      "id": "sono",
+      "tema": "Sono",
+      "parte_do_corpo": "cerebro",
+      "nome": "Horas de sono",
+      "unidade": "h/noite",
+      "como_medir": "Relógio com actigrafia ou registro ao acordar.",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "7 ou mais, com 8,5 h de período de sono reservado na agenda",
+          "min": 7,
+          "origem": "fonte",
+          "fonte": [
+            "cdc_sono",
+            "nasa_std3001_v1"
+          ]
+        },
+        "amarelo": {
+          "regra": "6 a 6,9",
+          "min": 6,
+          "max": 6.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "menos de 6, ou 3 noites seguidas abaixo de 7",
+          "max": 5.9,
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Na ISS são 16 nasceres do sol por dia, o que bagunça o relógio biológico; também há excesso de trabalho e horários irregulares.",
+      "acoes": {
+        "verde": "Manter o horário fixo de dormir.",
+        "amarelo": "Usar a iluminação que imita dia e noite, evitar cafeína à tarde e proteger o horário de dormir.",
+        "vermelho": "Avisar o médico de voo e não agendar tarefas críticas (EVA, manobras) até recuperar o sono, principalmente entre 1h e 7h do relógio biológico."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-from-inadequate-sleep-and-irregular-schedules/",
+      "exemplo_real_fora_do_normal": "Registros reais de sono com dificuldade para dormir (pessoas na Terra): https://physionet.org/content/sleep-edfx/1.0.0/",
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "h",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1903,
+            "p5": 5.0,
+            "p25": 7.0,
+            "p50": 8.0,
+            "p75": 8.5,
+            "p95": 10.0
+          },
+          "Masculino": {
+            "n_pessoas": 1428,
+            "p5": 5.0,
+            "p25": 6.5,
+            "p50": 7.5,
+            "p75": 8.0,
+            "p95": 9.5
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 6001"
+        ],
+        "texto": "A agenda deve reservar um período de sono de 8,5 h (mais 2 h antes e 1,5 h depois) e evitar tarefas críticas entre 1h e 7h do relógio biológico."
+      }
+    },
+    {
+      "id": "humor",
+      "tema": "Saúde mental",
+      "parte_do_corpo": "cerebro",
+      "nome": "Humor (autoavaliação)",
+      "unidade": "escala 1 a 5",
+      "como_medir": "Pergunta diária no app: 'Como você está hoje?' (1 = muito mal, 5 = muito bem).",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "4 ou 5",
+          "min": 4,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "3, ou 2 em um único dia",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "1, ou 2 por 3 dias seguidos",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Isolamento, confinamento, radiação e distância da Terra podem afetar a saúde mental.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Sugerir autocuidado: diário, olhar pela janela, cuidar das plantas, momento de privacidade, contato com a família.",
+        "vermelho": "Encaminhar para conversa privada com o psicólogo ou o médico de voo."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-behavioral-changes-and-psychiatric-disorders/",
+      "exemplo_real_fora_do_normal": "Sinais reais de estresse com autoavaliação (pessoas na Terra): https://physionet.org/content/qol-stress/1.0.0/",
+      "norma_nasa": {
+        "itens": [
+          "V1 4011",
+          "V1 6004"
+        ],
+        "texto": "A norma exige acompanhar a saúde comportamental antes, durante e depois da missão; não fixa escala."
+      }
+    },
+    {
+      "id": "radiacao_carreira",
+      "tema": "Radiação",
+      "parte_do_corpo": "corpo_todo",
+      "nome": "Dose de radiação acumulada na carreira",
+      "unidade": "mSv",
+      "como_medir": "Dosímetro pessoal, somando todas as missões.",
+      "frequencia_sugerida": "Diária (atualização automática)",
+      "faixas": {
+        "verde": {
+          "regra": "abaixo de 300 (menos de 50% do limite)",
+          "max": 299,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "300 a 539 (50 a 89% do limite)",
+          "min": 300,
+          "max": 539,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "540 ou mais (90% do limite de 600)",
+          "min": 540,
+          "origem": "app"
+        }
+      },
+      "limite_oficial": "Menos de 600 mSv na carreira (NASA-STD-3001, V1 4030).",
+      "efeito_no_espaco": "A radiação espacial aumenta o risco de câncer ao longo da vida; o limite de carreira mantém o excesso de risco de morte por câncer abaixo de 3%.",
+      "acoes": {
+        "verde": "Seguir a rotina.",
+        "amarelo": "Reduzir tempo em áreas menos blindadas e planejar EVAs com a equipe de radiação.",
+        "vermelho": "Avisar o médico de voo e a equipe de radiação; revisar as atividades que restam na missão."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-radiation-induced-cancers/",
+      "exemplo_real_fora_do_normal": "Doses reais medidas na ISS, no Orion (Artemis I) e em Marte: https://visualization.osdr.nasa.gov/radlab/gui/",
+      "norma_nasa": {
+        "itens": [
+          "V1 4029",
+          "V1 4030"
+        ],
+        "texto": "Dose efetiva na carreira menor que 600 mSv, igual para todas as idades e sexos; manter o mais baixo possível (ALARA)."
+      }
+    },
+    {
+      "id": "radiacao_evento_solar",
+      "tema": "Radiação",
+      "parte_do_corpo": "corpo_todo",
+      "nome": "Dose em evento solar (tempestade de partículas)",
+      "unidade": "mSv por evento",
+      "como_medir": "Dosímetro + alerta de evento solar da equipe de solo.",
+      "frequencia_sugerida": "Em tempo real durante o evento",
+      "faixas": {
+        "verde": {
+          "regra": "sem evento solar ativo",
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "evento solar previsto ou em andamento",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "dose do evento chegando a 250 mSv (limite por evento)",
+          "min": 250,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1",
+            "nasa_radiacao"
+          ]
+        }
+      },
+      "limite_oficial": "250 mSv por evento solar (NASA-STD-3001).",
+      "efeito_no_espaco": "Eventos solares podem dar uma dose alta em poucas horas.",
+      "acoes": {
+        "verde": "Seguir a rotina.",
+        "amarelo": "Ir para o abrigo de radiação da nave e suspender EVAs.",
+        "vermelho": "Permanecer no abrigo e seguir o médico de voo."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-radiation-induced-cancers/",
+      "exemplo_real_fora_do_normal": null,
+      "norma_nasa": {
+        "itens": [
+          "V1 4031"
+        ],
+        "texto": "Proteger contra o evento solar de referência com dose efetiva menor que 250 mSv."
+      }
+    },
+    {
+      "id": "vitamina_d",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "ossos",
+      "nome": "Vitamina D (25-OH total)",
+      "unidade": "nmol/L",
+      "como_medir": "Exame de sangue. Para converter para ng/mL, divida por 2,5.",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "50 a 125",
+          "min": 50,
+          "max": 125,
+          "origem": "app",
+          "nota": "cortes do NIH (Office of Dietary Supplements); não conferidos nesta versão, o site bloqueou o acesso automático"
+        },
+        "amarelo": {
+          "regra": "30 a 49 (insuficiente), ou acima de 125",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 30 (deficiente)",
+          "max": 29.9,
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "A vitamina D ajuda o corpo a absorver cálcio para os ossos. Ela vem da dieta e do sol na pele, e dentro da nave quase não há sol.",
+      "acoes": {
+        "verde": "Manter a dieta e a suplementação planejadas.",
+        "amarelo": "Revisar dieta e suplemento com o médico de voo.",
+        "vermelho": "Avisar o médico de voo para suplementação; reforçar o exercício resistido para proteger os ossos."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/",
+      "exemplo_real_fora_do_normal": null,
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "nmol/L",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1350,
+            "p5": 26.2,
+            "p25": 51.2,
+            "p50": 69.9,
+            "p75": 91.2,
+            "p95": 139.0
+          },
+          "Masculino": {
+            "n_pessoas": 1022,
+            "p5": 26.9,
+            "p25": 48.9,
+            "p50": 64.9,
+            "p75": 82.4,
+            "p95": 114.0
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4019"
+        ],
+        "texto": "A norma pede avaliar o estado nutricional e corrigir deficiências; não fixa número de vitamina D."
+      }
+    },
+    {
+      "id": "testosterona",
+      "tema": "Hormônios",
+      "parte_do_corpo": "corpo_todo",
+      "nome": "Testosterona total",
+      "unidade": "ng/dL",
+      "como_medir": "Exame de sangue, de preferência pela manhã.",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "homem 249 a 836 / mulher 8,4 a 48,1 (17 a 50 anos)",
+          "origem": "fonte",
+          "fonte": [
+            "medline_testosterona"
+          ],
+          "por_sexo": {
+            "Masculino": {
+              "min": 249,
+              "max": 836
+            },
+            "Feminino": {
+              "min": 8.4,
+              "max": 48.1
+            }
+          }
+        },
+        "amarelo": {
+          "regra": "fora da faixa em 1 exame",
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "fora da faixa em 2 exames seguidos",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Hormônio sexual que também participa da manutenção de músculo e osso, dois sistemas que o voo espacial afeta.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Repetir o exame pela manhã; valores variam ao longo do dia.",
+        "vermelho": "Avisar o médico de voo para avaliação."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-reduced-cardiorespiratory-and-musculoskeletal-fitness/",
+      "exemplo_real_fora_do_normal": null,
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "ng/dL",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1341,
+            "p5": 9.2,
+            "p25": 16.6,
+            "p50": 23.9,
+            "p75": 32.9,
+            "p95": 58.8
+          },
+          "Masculino": {
+            "n_pessoas": 1017,
+            "p5": 199.0,
+            "p25": 310.0,
+            "p50": 425.0,
+            "p75": 568.0,
+            "p95": 823.0
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "estradiol",
+      "tema": "Hormônios",
+      "parte_do_corpo": "corpo_todo",
+      "nome": "Estradiol",
+      "unidade": "pg/mL",
+      "como_medir": "Exame de sangue. Em mulheres, anotar a fase do ciclo menstrual.",
+      "frequencia_sugerida": "Conforme o plano médico da missão",
+      "faixas": {
+        "verde": {
+          "regra": "entre o p5 e o p95 da população da mesma idade e sexo (NHANES)",
+          "origem": "nhanes",
+          "fonte": [
+            "nhanes"
+          ],
+          "por_sexo": {
+            "Feminino": {
+              "min": 1.9,
+              "max": 325.0
+            },
+            "Masculino": {
+              "min": 10.9,
+              "max": 42.2
+            }
+          }
+        },
+        "amarelo": {
+          "regra": "fora do p5–p95 da população",
+          "origem": "nhanes",
+          "fonte": [
+            "nhanes"
+          ]
+        },
+        "vermelho": {
+          "regra": "sem limite clínico definido: acompanhar só a tendência",
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Hormônio sexual que também protege os ossos. Nas mulheres varia muito com o ciclo menstrual, então um valor isolado diz pouco.",
+      "acoes": {
+        "verde": "Manter a rotina.",
+        "amarelo": "Comparar com exames anteriores da mesma pessoa e com a fase do ciclo.",
+        "vermelho": "Levar a tendência ao médico de voo na próxima conferência."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/",
+      "exemplo_real_fora_do_normal": null,
+      "referencia_populacao": {
+        "fonte": "nhanes",
+        "descricao": "Percentis ponderados de adultos de 25 a 55 anos dos EUA, NHANES 2021-2023. Mostra como a população é, não o que é saudável.",
+        "unidade": "pg/mL",
+        "por_sexo": {
+          "Feminino": {
+            "n_pessoas": 1338,
+            "p5": 1.9,
+            "p25": 20.5,
+            "p50": 62.4,
+            "p75": 128.0,
+            "p95": 325.0
+          },
+          "Masculino": {
+            "n_pessoas": 1012,
+            "p5": 10.9,
+            "p25": 17.5,
+            "p50": 23.2,
+            "p75": 29.4,
+            "p95": 42.2
+          }
+        }
+      },
+      "norma_nasa": {
+        "itens": [],
+        "texto": "A norma não fixa número para este indicador; o app usa diretriz clínica."
+      }
+    },
+    {
+      "id": "vo2max",
+      "tema": "Coração e circulação",
+      "parte_do_corpo": "pulmoes",
+      "nome": "Condicionamento aeróbico (VO2max)",
+      "unidade": "mL/kg/min",
+      "como_medir": "Teste de esforço no cicloergômetro, medido direto ou estimado pela frequência cardíaca.",
+      "frequencia_sugerida": "Mensal, e antes de cada caminhada espacial (EVA)",
+      "faixas": {
+        "verde": {
+          "regra": "36,5 ou mais (apto para EVA em microgravidade e na superfície da Lua/Marte)",
+          "min": 36.5,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        },
+        "amarelo": {
+          "regra": "32,9 a 36,4 (apto só para EVA em microgravidade)",
+          "min": 32.9,
+          "max": 36.4,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        },
+        "vermelho": {
+          "regra": "abaixo de 32,9 (abaixo do mínimo para qualquer EVA)",
+          "max": 32.8,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Sem gravidade, o coração e os músculos trabalham menos; a capacidade aeróbica pode cair de 10% a 30% depois do voo.",
+      "acoes": {
+        "verde": "Manter o treino aeróbico.",
+        "amarelo": "Manter EVAs em microgravidade; reforçar o treino aeróbico antes de qualquer EVA de superfície.",
+        "vermelho": "Adiar EVAs planejadas, aumentar o treino aeróbico e avisar o médico de voo."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4001",
+          "V1 4002",
+          "V1 4003",
+          "V1 4004"
+        ],
+        "texto": "VO2max em missão de pelo menos 32,9 mL/kg/min para EVA em microgravidade e 36,5 para EVA de superfície; após o voo, voltar ao valor pré-missão."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-reduced-cardiorespiratory-and-musculoskeletal-fitness/",
+      "exemplo_real_fora_do_normal": null
+    },
+    {
+      "id": "forca_muscular",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "musculos",
+      "nome": "Força muscular (% do valor antes da missão)",
+      "unidade": "% da linha de base",
+      "como_medir": "Teste de força no equipamento de exercício resistido, comparado com o teste antes do voo.",
+      "frequencia_sugerida": "Mensal",
+      "faixas": {
+        "verde": {
+          "regra": "90% ou mais",
+          "min": 90,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "80% a 89% (dentro do permitido, mas perto do limite)",
+          "min": 80,
+          "max": 89.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 80% (abaixo do limite da NASA)",
+          "max": 79.9,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Na microgravidade os músculos perdem massa e força; perdas de até 20% não impedem a missão e podem ser recuperadas depois do voo.",
+      "acoes": {
+        "verde": "Manter o exercício resistido diário.",
+        "amarelo": "Aumentar carga ou frequência do exercício resistido.",
+        "vermelho": "Avisar o médico de voo e replanejar a rotina de exercício."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4024",
+          "V1 4025"
+        ],
+        "texto": "As contramedidas devem manter a força muscular em pelo menos 80% da linha de base; após o voo, voltar à linha de base."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-reduced-cardiorespiratory-and-musculoskeletal-fitness/",
+      "exemplo_real_fora_do_normal": null
+    },
+    {
+      "id": "densidade_ossea_quadril_coluna",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "ossos",
+      "nome": "Densidade óssea do quadril e da coluna (% do valor antes da missão)",
+      "unidade": "% da linha de base",
+      "como_medir": "Densitometria (DXA), feita antes e depois do voo.",
+      "frequencia_sugerida": "Antes e depois de cada missão",
+      "faixas": {
+        "verde": {
+          "regra": "97% ou mais",
+          "min": 97,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "95% a 96,9% (dentro do permitido, mas perto do limite)",
+          "min": 95,
+          "max": 96.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 95% (abaixo do limite da NASA)",
+          "max": 94.9,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        }
+      },
+      "efeito_no_espaco": "Sem gravidade, os ossos perdem massa. Com exercício resistido, a maioria volta de 6 meses na ISS com perda menor que 5% no quadril e na coluna.",
+      "acoes": {
+        "verde": "Manter o exercício resistido diário.",
+        "amarelo": "Reforçar exercício resistido e revisar cálcio e vitamina D com o médico.",
+        "vermelho": "Avisar o médico de voo; avaliar medicação para proteger o osso."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4026",
+          "V1 4027",
+          "V1 4028"
+        ],
+        "texto": "Manter a densidade óssea do quadril e da coluna em pelo menos 95% do valor pré-missão; após o voo, voltar à linha de base."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/",
+      "exemplo_real_fora_do_normal": null
+    },
+    {
+      "id": "densidade_ossea_colo_femur",
+      "tema": "Ossos e músculos",
+      "parte_do_corpo": "ossos",
+      "nome": "Densidade óssea do colo do fêmur (% do valor antes da missão)",
+      "unidade": "% da linha de base",
+      "como_medir": "Densitometria (DXA), feita antes e depois do voo.",
+      "frequencia_sugerida": "Antes e depois de cada missão",
+      "faixas": {
+        "verde": {
+          "regra": "95% ou mais",
+          "min": 95,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "90% a 94,9% (dentro do permitido, mas perto do limite)",
+          "min": 90,
+          "max": 94.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 90% (abaixo do limite da NASA)",
+          "max": 89.9,
+          "origem": "nasa",
+          "fonte": [
+            "nasa_std3001_v1"
+          ]
+        }
+      },
+      "efeito_no_espaco": "O colo do fêmur é onde mais se perde osso; a maioria volta de 6 meses na ISS com perda menor que 10%.",
+      "acoes": {
+        "verde": "Manter o exercício resistido diário.",
+        "amarelo": "Reforçar exercício resistido e revisar cálcio e vitamina D com o médico.",
+        "vermelho": "Avisar o médico de voo; avaliar medicação para proteger o osso."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4027",
+          "V1 4028"
+        ],
+        "texto": "Manter a densidade óssea do colo do fêmur em pelo menos 90% do valor pré-missão."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/",
+      "exemplo_real_fora_do_normal": null
+    },
+    {
+      "id": "ingestao_calorica",
+      "tema": "Nutrição e metabolismo",
+      "parte_do_corpo": "estomago",
+      "nome": "Calorias ingeridas (% da necessidade calculada)",
+      "unidade": "% da meta diária",
+      "como_medir": "Registro das refeições no app; a meta é calculada por idade, sexo, peso, altura e nível de atividade.",
+      "frequencia_sugerida": "Diária",
+      "faixas": {
+        "verde": {
+          "regra": "90% ou mais da meta",
+          "min": 90,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "75% a 89%",
+          "min": 75,
+          "max": 89.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "abaixo de 75%, ou 3 dias seguidos abaixo de 90%",
+          "max": 74.9,
+          "origem": "app"
+        }
+      },
+      "efeito_no_espaco": "Alimentação insuficiente pode causar queda de desempenho e doenças na tripulação.",
+      "acoes": {
+        "verde": "Manter o cardápio planejado.",
+        "amarelo": "Completar a meta com lanches ou bebidas calóricas no mesmo dia.",
+        "vermelho": "Avisar o médico de voo e o nutricionista da missão para ajustar o cardápio."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4019",
+          "V1 4020",
+          "V1 4022"
+        ],
+        "texto": "A missão deve fornecer 100% da necessidade calculada de energia e nutrientes de cada tripulante. A norma define a meta; os cortes de alerta são do app."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-inadequate-food-and-nutrition/",
+      "exemplo_real_fora_do_normal": null
+    },
+    {
+      "id": "radiacao_30_dias",
+      "tema": "Radiação",
+      "parte_do_corpo": "sangue",
+      "nome": "Dose de radiação em 30 dias (medula e sistema circulatório)",
+      "unidade": "mGy-Eq",
+      "como_medir": "Dosímetro pessoal, somando os últimos 30 dias.",
+      "frequencia_sugerida": "Diária (atualização automática)",
+      "faixas": {
+        "verde": {
+          "regra": "abaixo de 125 (menos de 50% do limite)",
+          "max": 124.9,
+          "origem": "app"
+        },
+        "amarelo": {
+          "regra": "125 a 224 (50% a 89% do limite)",
+          "min": 125,
+          "max": 224.9,
+          "origem": "app"
+        },
+        "vermelho": {
+          "regra": "225 ou mais (90% do limite de 250)",
+          "min": 225,
+          "origem": "app"
+        }
+      },
+      "limite_oficial": "250 mGy-Eq em 30 dias para a medula (órgãos que formam o sangue) e para o sistema circulatório (NASA-STD-3001, Tabela 4.8-1).",
+      "efeito_no_espaco": "Doses altas em pouco tempo podem afetar a produção de sangue e o sistema circulatório.",
+      "acoes": {
+        "verde": "Seguir a rotina.",
+        "amarelo": "Reduzir tempo em áreas menos blindadas e rever EVAs com a equipe de radiação.",
+        "vermelho": "Ir para a área mais blindada, suspender EVAs e avisar o médico de voo."
+      },
+      "norma_nasa": {
+        "itens": [
+          "V1 4029",
+          "Tabela 4.8-1"
+        ],
+        "texto": "Limites de dose em 30 dias / 1 ano / carreira, em mGy-Eq: medula 250 / 500 / não se aplica; circulatório 250 / 500 / 1.000; cristalino 1.000 / 2.000 / 4.000; sistema nervoso central (mGy) 500 / 1.000 / 1.500."
+      },
+      "risco_nasa": "https://www.nasa.gov/reference/risk-of-radiation-induced-cancers/",
+      "exemplo_real_fora_do_normal": "Doses reais medidas na ISS, no Orion (Artemis I) e em Marte: https://visualization.osdr.nasa.gov/radlab/gui/"
+    }
+  ],
+  "fonte_principal": "NASA-STD-3001, Volume 1, Revisão C (norma médica de voo espacial da NASA)",
+  "regra_de_fontes": "1) Onde a NASA-STD-3001 Vol. 1 fixa um número, ela manda (origem 'nasa'). 2) Onde a norma só pede 'dentro do normal clínico', usamos diretrizes clínicas: AHA, MedlinePlus, ADA, CDC (origem 'fonte'). 3) Comparação com a população dos EUA, NHANES 2021-2023 (origem 'nhanes'). 4) Escolhas de projeto, como alertar a 90% de um limite (origem 'app')."
+}
