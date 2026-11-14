@@ -3,9 +3,11 @@
 A single alert looks at one signal (or a fixed combination). A risk adds up everything Canary knows about one
 NASA risk area for one person, against that person's own normal, and says how sure it is: level 0 / 1 / 2.
 
-Today only `fatigue` (Behavioural health and performance) exists. The other NASA risks (radiation, nutrition,
-kidneys, immunity, cardiovascular, bone, vision) are a later step: add an entry to `RISKS` with a function that
-returns the risk dict for a crew member and a day.
+Eight risks: `fatigue` (behavioural health and performance), `radiation`, `sans` (vision), `nutrition`, `renal`,
+`immune`, `cardio` and `bone_muscle`. Four are NASA's red risks for Mars (Patel et al., npj Microgravity 2020):
+radiation, SANS, behavioural health and nutrition (`nasa_red`). Each risk reads only data Canary already has, says
+how old and how real that data is (`data`), and names the hazards that are possible factors (`hazards`).
+To add one: an entry in `SPECS` and an evidence function in `GATHER`.
 
 Rules, not a model: every number below is a data table that a person can read, review and change. Nothing here
 is learned, and nothing is stored: a risk is a function of the day, so the demo clock can jump anywhere.
@@ -56,6 +58,8 @@ def _token(crew_id: str) -> tuple:
 
 def clear_cache() -> None:
     _cache.clear()
+    _gcache.clear()
+    _inds_cache.clear()
 
 
 def _day_ms(day: int) -> dict:
@@ -187,18 +191,442 @@ def _fatigue_risk(crew_id: str, day: int, tok: tuple) -> dict:
             "since_day": _since(crew_id, day, tok), "source": FATIGUE["source"], "verified": FATIGUE["verified"]}
 
 
-RISKS = {"fatigue": _fatigue_risk}  # the other NASA risks join here, one entry each
+# ---------------------------------------------------------------- the other risks
+# Every number in this section is a prototype assumption (`verified: False`) unless a `source` says otherwise: no
+# published model adds these signals up. They were chosen so that the six scenes of the demo keep their colours.
+SPECS: Dict[str, dict] = {
+    "radiation": {"name": "Radiation", "nasa_red": True, "systems": ["skin"], "clock_days": 1, "cuts": {1: 1.0, 2: 99.0}, "min2": 99,
+                  "reads": ["dose", "lym"]},
+    "sans": {"name": "Vision and eye pressure (SANS)", "nasa_red": True, "systems": ["eyes"], "clock_days": 7, "cuts": {1: 1.0, 2: 2.0}, "min2": 1,
+             "reads": ["amsler", "symptoms"]},
+    "nutrition": {"name": "Food and nutrition", "nasa_red": True, "systems": ["gut"], "clock_days": 7, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
+                  "reads": ["weight", "gluc"]},
+    "renal": {"name": "Kidneys and hydration", "nasa_red": False, "systems": ["kidneys"], "clock_days": 15, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
+              "reads": ["water", "bone", "creatinine", "urine_volume"]},
+    "immune": {"name": "Blood and immunity", "nasa_red": False, "systems": ["immune"], "clock_days": 30, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
+               "reads": ["temp", "wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"]},
+    "cardio": {"name": "Heart and circulation", "nasa_red": False, "systems": ["heart", "lungs"], "clock_days": 1, "cuts": {1: 1.0, 2: 4.0}, "min2": 3,
+               "reads": ["hr", "bp", "spo2"]},
+    "bone_muscle": {"name": "Bones and muscles", "nasa_red": False, "systems": ["skeleton", "muscles"], "clock_days": 30, "cuts": {1: 1.0, 2: 4.0}, "min2": 3,
+                    "reads": ["bone", "grip", "exer"]},
+}
+SOURCE = {"source": "prototype assumption", "verified": False}
+PANELS = {  # how often each kind of exam is due, in days. DATASET.md: blood analyser about every 30 days, urine every 15
+    "blood": {"every_days": 30, "indicators": ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc", "creatinine"]},
+    "urine": {"every_days": 15, "indicators": ["urine_volume"]},
+}
+PANEL_OF = {i: k for k, P in PANELS.items() for i in P["indicators"]}
+BLOOD_COUNT = ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"]
+# Reference ranges for exams the catalog has no indicator for. Not verified: well-known laboratory references quoted
+# from memory (creatinine), and a prototype choice (urine volume).
+EXTRA_RANGES = {
+    "creatinine": {"low": {"F": 0.5, "M": 0.7}, "high": {"F": 1.1, "M": 1.3}, "unit": "mg/dL",
+                   "source": "usual adult laboratory reference range for serum creatinine; to verify", "verified": False},
+    "urine_volume": {"low": 1500, "high": None, "unit": "mL/24h",
+                     "source": "prototype assumption: a low 24 h urine volume is a kidney-stone factor", "verified": False},
+}
+RULES = {  # thresholds of the evidence functions (all prototype assumptions)
+    "radiation": {"watch_pct_of_limit": 50, "lym_points": 1.0},
+    "nutrition": {"loss_pct": {1: 5.0, 2: 10.0}},         # weight below the person's pre-flight mean
+    "renal": {"bone_loss_pct_30d": 1.0, "points": 1.0},   # the catalog says bone loses about 1% a month without countermeasures
+    "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_window": (152, 165), "storm_points": 1.0},
+    "cardio": {"regravity_points": 0.5},
+    "sans": {"amsler_points": 2.0, "vision_symptom_points": 1.0, "window_days": 7,
+             "weak": "The Amsler grid is a weak indicator of SANS: a clear grid does not rule it out."},
+}
+VISION_ITEMS = ("Eye discomfort", "Blurred vision")
+STORM_DAYS = {}  # the days of the story with a storm, for the history of radiation (past days know no ms["storm"])
+INDICATOR_RISK = {**{i: "fatigue" for i in FATIGUE["weights"]}, "hr": "cardio", "bp": "cardio", "spo2": "cardio",
+                  "bone": "bone_muscle", "grip": "bone_muscle", "exer": "bone_muscle", "gluc": "nutrition",
+                  "water": "renal", "temp": "immune"}
+
+_inds_cache: Dict[tuple, dict] = {}
+_dose_cache: Dict[str, object] = {"v": None, "curve": []}
+
+
+def _storm_days() -> dict:
+    if not STORM_DAYS:
+        from .catalog import STORY
+        STORM_DAYS.update({s["day"]: s["storm"] for s in STORY if s["storm"]})
+    return STORM_DAYS
+
+
+def _inds(crew_id: str, day: int, tok: tuple) -> dict:
+    """Every catalog indicator on one day, computed once per person, day and entered data."""
+    from . import health
+    key = (crew_id, day, tok)
+    hit = _inds_cache.get(key)
+    if hit is None:
+        if len(_inds_cache) > 2000:
+            _inds_cache.clear()
+        hit = _inds_cache[key] = health.indicators(crew_id, _day_ms(day))
+    return hit
+
+
+def _ind_ev(inds: dict, ind: str, weight: float = 1.0) -> Optional[dict]:
+    """Evidence from one catalog indicator against the person's own normal; None when it is on track."""
+    d = inds[ind]
+    if not d["level"]:
+        return None
+    word = "above" if d["delta"] > 0 else "below"
+    return {"key": ind, "indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"],
+            "points": round(weight * d["level"], 2),
+            "text": f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal"}
+
+
+def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
+    """An exam: out of its reference range (points) or too old (stale, no points). None when fresh and in range or missing."""
+    from . import telemetry
+    from .catalog import INDICATORS
+    from . import nasa
+    o = telemetry.last_observation(crew_id, ind, day)
+    if o is None:
+        return None
+    kind = PANEL_OF[ind]
+    every = PANELS[kind]["every_days"]
+    base = {"key": ind, "indicator": ind, "value": o["value"], "origin": o["origin"], "source": o["source"], "age_days": o["age"]}
+    if o["age"] > every:
+        return {**base, "points": 0.0, "stale": True, "due_every_days": every,
+                "text": f"The {kind} exam is {o['age']} days old (due every {every} days)"}
+    if ind in EXTRA_RANGES:
+        R = EXTRA_RANGES[ind]
+        lo = R["low"].get(sex) if isinstance(R["low"], dict) else R["low"]
+        hi = R["high"].get(sex) if isinstance(R["high"], dict) else R["high"]
+        unit = R["unit"]
+    else:
+        R = nasa.snapshot()["cbc"]["an"][ind]
+        lo, hi, unit = R["min"], R["max"], R["unit"]
+    out = lambda v: (lo is not None and v < lo) or (hi is not None and v > hi)  # noqa: E731
+    if not out(o["value"]):
+        return None
+    unit = unit.replace("_per_", "/").replace("_", " ")
+    name = INDICATORS[ind]["name"] if ind in INDICATORS else ind.replace("_", " ").capitalize()
+    rng = f"{'-' if lo is None else f'{lo:g}'} to {'-' if hi is None else f'{hi:g}'}"
+    pre = list(telemetry.preflight_values(crew_id, ind).values())
+    if pre and out(sum(pre) / len(pre)):  # the person's own pre-flight normal is already outside the range: not a new signal
+        return {**base, "points": 0.0, "baseline_outside": True, "range": {"low": lo, "high": hi}, "unit": unit,
+                "text": f"{name} {o['value']:g} {unit} is outside the usual range ({rng}), as it was before launch (your normal)"}
+    return {**base, "points": 1.0, "range": {"low": lo, "high": hi}, "unit": unit,
+            "text": f"{name} {o['value']:g} {unit} is outside the usual range ({rng})"}
+
+
+def dose_curve() -> List[float]:
+    """Mission dose (mSv) for day 0..end of the plan, the same numbers as telemetry.cumulative_dose. Cached per plan."""
+    from .catalog import LOCATIONS
+    if _dose_cache["v"] != plan.version():
+        end = max(l["end"] for l in plan.get()["legs"])
+        curve, run = [], 0.0
+        for d in range(0, end + 1):
+            rate = LOCATIONS[plan.location_at(d)]["dose_rate"]
+            total = run + rate
+            if d >= 152 and plan.location_at(152) in ("transit", "moon"):
+                total += 22.0
+            curve.append(round(total, 1))
+            run += rate
+        _dose_cache.update(v=plan.version(), curve=curve)
+    return _dose_cache["curve"]  # type: ignore[return-value]
+
+
+def dose_projection(day: int) -> dict:
+    """Dose today and the first day of the plan on which it passes the career limit (None when it never does)."""
+    from .catalog import CAREER_LIMIT_MSV
+    c = dose_curve()
+    now = c[day] if 0 <= day < len(c) else (c[-1] if day >= len(c) else 0.0)
+    cross = next((d for d in range(max(day, 0), len(c)) if c[d] > CAREER_LIMIT_MSV), None)
+    return {"now_msv": now, "limit_msv": CAREER_LIMIT_MSV, "pct": round(100 * now / CAREER_LIMIT_MSV, 1), "cross_day": cross}
+
+
+def _g_radiation(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    from . import health
+    from .catalog import CREW_BY_ID
+    day = ms["day"]
+    R = RULES["radiation"]
+    ev: List[dict] = []
+    if ms.get("storm"):
+        ev.append({"key": "dose", "origin": "real", "points": 2.0, "floor": 2, "source": "nasa:donki" if ms["storm"] == "sep" else "nasa:rad",
+                   "text": "A radiation storm is in progress (NASA's records of May 2024, replayed)"})
+    p = dose_projection(day)
+    ds = {"key": "dose", "origin": "simulated", "value": p["now_msv"], "baseline": None, "z": None, "source": f"dose:day{day}"}
+    if p["now_msv"] >= p["limit_msv"]:
+        ev.append({**ds, "points": 2.0, "floor": 2, "text": f"The mission dose, {p['now_msv']:g} mSv, is past the {p['limit_msv']} mSv career limit"})
+    elif p["pct"] >= R["watch_pct_of_limit"] and p["cross_day"] is not None:
+        ev.append({**ds, "points": 1.0, "floor": 1,
+                   "text": f"Mission dose {p['now_msv']:g} mSv ({p['pct']:g}% of the career limit), projected to pass the career limit on day {p['cross_day']}"})
+    elif p["pct"] >= R["watch_pct_of_limit"]:
+        ev.append({**ds, "points": 0.0, "text": f"Mission dose {p['now_msv']:g} mSv ({p['pct']:g}% of the career limit); the plan ends below it"})
+    lym = _panel_ev(crew_id, "lym", day, CREW_BY_ID[crew_id]["sex"])
+    if lym:
+        low = lym["range"]["low"] if "range" in lym else None
+        if lym["points"] and low is not None and lym["value"] < low:  # radiation lowers the count; a high one is not its evidence
+            lym.update(points=R["lym_points"], floor=1)
+        elif not lym.get("stale"):
+            lym = None
+        if lym:
+            ev.append(lym)
+    return ev
+
+
+def _g_sans(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    from . import health
+    day, R = ms["day"], RULES["sans"]
+    ev: List[dict] = []
+    am = health.latest_checkin(crew_id, "amsler", day, window=R["window_days"])
+    if am and am.get("distortion"):
+        ev.append({"key": "amsler", "origin": "user", "value": 1, "baseline": None, "z": None, "points": R["amsler_points"],
+                   "source": f"checkin:{crew_id}:amsler:day{am['day']}", "text": "Wavy or missing lines on the Amsler grid (a weak indicator on its own)"})
+    sy = health.latest_checkin(crew_id, "symptoms", day, window=R["window_days"])
+    items = [i for i in (sy or {}).get("items", []) if i in VISION_ITEMS]
+    if items:
+        ev.append({"key": "symptoms", "origin": "user", "value": len(items), "baseline": None, "z": None, "points": R["vision_symptom_points"],
+                   "source": f"checkin:{crew_id}:symptoms:day{sy['day']}", "text": f"Reported {', '.join(i.lower() for i in items)}"})
+    return ev
+
+
+def _g_nutrition(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    import statistics
+    from . import telemetry
+    day, R = ms["day"], RULES["nutrition"]
+    inds = _inds(crew_id, day, tok)
+    ev = [e for e in [_ind_ev(inds, "gluc")] if e]
+    pre = list(telemetry.preflight_values(crew_id, "weight").values())
+    o = telemetry.last_observation(crew_id, "weight", day)
+    if pre and o:
+        base = statistics.mean(pre)
+        loss = 100 * (base - o["value"]) / base
+        pts = 2.0 if loss >= R["loss_pct"][2] else 1.0 if loss >= R["loss_pct"][1] else 0.0
+        if pts:
+            ev.append({"key": "weight", "indicator": "weight", "value": o["value"], "baseline": round(base, 1), "z": None, "origin": o["origin"],
+                       "source": o["source"], "age_days": o["age"], "points": pts,
+                       "text": f"Weight {o['value']:g} kg, {loss:.1f}% below your pre-flight {base:.1f} kg"})
+    return ev
+
+
+def _bone_rate(crew_id: str, day: int) -> Optional[float]:
+    """% of bone density lost in the last 30 days (positive = loss); None before day 30."""
+    from . import telemetry
+    if day < 30:
+        return None
+    return telemetry.current(crew_id, "bone", day - 30) - telemetry.current(crew_id, "bone", day)
+
+
+def _g_renal(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    from .catalog import CREW_BY_ID
+    day, R = ms["day"], RULES["renal"]
+    inds = _inds(crew_id, day, tok)
+    ev = [e for e in [_ind_ev(inds, "water")] if e]
+    rate = _bone_rate(crew_id, day)
+    if rate is not None and rate >= R["bone_loss_pct_30d"]:
+        d = inds["bone"]
+        ev.append({"key": "bone", "indicator": "bone", "value": round(rate, 2), "baseline": None, "z": None, "origin": d["origin"], "source": d["source"],
+                   "points": R["points"], "text": f"Bone density fell {rate:.1f}% in the last 30 days (the model's rate, about 1% a month without countermeasures)"})
+    sex = CREW_BY_ID[crew_id]["sex"]
+    ev += [e for e in (_panel_ev(crew_id, i, day, sex) for i in ("creatinine", "urine_volume")) if e]
+    return ev
+
+
+def _g_immune(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    from .catalog import CREW_BY_ID
+    day, R = ms["day"], RULES["immune"]
+    inds = _inds(crew_id, day, tok)
+    ev = [e for e in [_ind_ev(inds, "temp")] if e]
+    sex = CREW_BY_ID[crew_id]["sex"]
+    blood = [e for e in (_panel_ev(crew_id, i, day, sex) for i in BLOOD_COUNT) if e]
+    fresh = [e for e in blood if not e.get("stale")]
+    for e in fresh:
+        e["points"] = R["blood_point"] if e["points"] else 0.0
+    cap = R["blood_cap"]
+    tot = 0.0
+    for e in fresh:  # at most `blood_cap` points from the blood count in all
+        e["points"] = min(e["points"], max(0.0, cap - tot))
+        tot += e["points"]
+    ev += fresh + [e for e in blood if e.get("stale")][:1]
+    lo, hi = R["storm_window"]
+    if lo <= day <= hi:
+        ev.append({"key": "dose", "origin": "real", "value": None, "baseline": None, "z": None, "points": R["storm_points"],
+                   "source": "nasa:donki", "text": "Blood count due after the radiation storm"})
+    return ev
+
+
+def _g_cardio(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    from .catalog import LOCATIONS
+    inds = _inds(crew_id, ms["day"], tok)
+    ev = [e for e in (_ind_ev(inds, i) for i in ("hr", "bp", "spo2")) if e]
+    if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and inds["bp"]["level"] and inds["hr"]["level"]:
+        ev.append({"key": "regravity", "origin": inds["bp"]["origin"], "value": None, "baseline": None, "z": None,
+                   "points": RULES["cardio"]["regravity_points"], "source": inds["bp"]["source"],
+                   "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)"})
+    return ev
+
+
+def _g_bone_muscle(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
+    inds = _inds(crew_id, ms["day"], tok)
+    return [e for e in (_ind_ev(inds, i) for i in ("bone", "grip", "exer")) if e]
+
+
+GATHER = {"radiation": _g_radiation, "sans": _g_sans, "nutrition": _g_nutrition, "renal": _g_renal,
+          "immune": _g_immune, "cardio": _g_cardio, "bone_muscle": _g_bone_muscle}
+_gcache: Dict[tuple, dict] = {}
+
+
+def _g_eval(rid: str, crew_id: str, day: int, storm: Optional[str], tok: tuple) -> dict:
+    """One day of one risk: its evidence, score and level. Cached per person, day, storm and entered data."""
+    key = (rid, crew_id, day, storm, tok)
+    hit = _gcache.get(key)
+    if hit is None:
+        if len(_gcache) > 6000:
+            _gcache.clear()
+        ms = {**_day_ms(day), "storm": storm}
+        S = SPECS[rid]
+        ev = [] if ms["learning"] else GATHER[rid](crew_id, ms, tok)
+        ev.sort(key=lambda e: -e["points"])
+        score = round(sum(e["points"] for e in ev), 2)
+        signals = sum(1 for e in ev if e["points"] > 0)
+        level = 2 if score >= S["cuts"][2] and signals >= S["min2"] else 1 if score >= S["cuts"][1] else 0
+        level = max([level] + [e.get("floor", 0) for e in ev])
+        hit = _gcache[key] = {"evidence": ev, "score": score, "level": level}
+    return hit
+
+
+def _storm_of(day: int, ms: dict) -> Optional[str]:
+    return ms.get("storm") if day == ms["day"] else _storm_days().get(day)
+
+
+def _g_since(rid: str, crew_id: str, ms: dict, tok: tuple) -> Optional[int]:
+    day = ms["day"]
+    if _g_eval(rid, crew_id, day, ms.get("storm"), tok)["level"] < 1:
+        return None
+    d, stop = day, max(0, day - FATIGUE["lookback_days"])
+    while d > stop and _g_eval(rid, crew_id, d - 1, _storm_days().get(d - 1), tok)["level"] >= 1:
+        d -= 1
+    return d
+
+
+def _g_trend(rid: str, crew_id: str, ms: dict, tok: tuple) -> str:
+    t, day = FATIGUE["trend"], ms["day"]
+    now = _g_eval(rid, crew_id, day, ms.get("storm"), tok)["score"]
+    before = _g_eval(rid, crew_id, day - t["days"], _storm_days().get(day - t["days"]), tok)["score"]
+    return "rising" if now - before >= t["delta"] else "falling" if now - before <= -t["delta"] else "stable"
+
+
+# ---------------------------------------------------------------- hazards and data origin
+HAZARD_FIX = {"wellbeing": "mood", "missing_mood": "mood"}
+
+
+def hazards_for(keys: List[str], ms: dict) -> Tuple[List[str], List[dict]]:
+    """The hazards of the team's matrix linked to these evidence keys that are moderate or high at the current place
+    and day. Possible factors, never a cause. Returns (hazard ids in R, I, D, G, E order, the links with their why and source)."""
+    from . import privacy
+    from .catalog import HAZARDS_BY_INDICATOR
+    levels = {h["id"]: h["level"] for h in privacy.ridge(ms["location"], ms.get("storm"), ms["day"])}
+    links = []
+    for k in dict.fromkeys(HAZARD_FIX.get(k, k) for k in keys if k):
+        for l in HAZARDS_BY_INDICATOR.get(k, []):
+            if levels.get(l["hazard"], 0) >= 1:
+                links.append({**l, "key": k})
+    ids = [h["id"] for h in privacy.RIDGE if any(l["hazard"] == h["id"] for l in links)]
+    return ids, links
+
+
+def hazard_note(ids: List[str]) -> str:
+    from . import privacy
+    names = {h["id"]: h["name"] for h in privacy.RIDGE}
+    return f"Possible factors here: {', '.join(names[i] for i in ids)}. Not a cause." if ids else ""
+
+
+def _origins(ev: List[dict]) -> set:
+    return {e["origin"] for e in ev if e.get("origin") and not e.get("stale") and e.get("checkin") != "missing_mood"}  # a missing check-in is not data
+
+
+def data_origin(origins: set) -> str:
+    """real (all measured: NASA data or typed in the app), simulated (none) or partial (a mix)."""
+    measured = {o for o in origins if o in ("real", "user")}
+    if not origins or not measured:
+        return "simulated"
+    return "real" if measured == origins else "partial"
+
+
+def _read_origins(rid: str, crew_id: str, ms: dict, tok: tuple) -> set:
+    """Where the data a risk reads comes from, when no evidence is active: the latest row of each input."""
+    from . import telemetry
+    out = set()
+    inds = _inds(crew_id, ms["day"], tok)
+    for k in SPECS[rid]["reads"] if rid in SPECS else []:
+        if k == "dose":
+            out.add("simulated")
+        elif k in inds:
+            out.add(inds[k]["origin"])
+        elif k in ("amsler", "symptoms"):
+            out.add("user")
+        else:
+            o = telemetry.last_observation(crew_id, k, ms["day"])
+            if o:
+                out.add(o["origin"])
+    return out
+
+
+# Which body system an evidence is about, when the catalog's indicator lists do not say.
+EVIDENCE_SYSTEM = {"dose": "skin", "lym": "immune", "wbc": "immune", "neu": "immune", "hgb": "immune", "hct": "immune", "plt": "immune",
+                   "rbc": "immune", "amsler": "eyes", "symptoms": "eyes", "weight": "gut", "regravity": "heart", "creatinine": "kidneys",
+                   "urine_volume": "kidneys"}
+
+
+def _system_levels(r: dict) -> Dict[str, int]:
+    """The level of the risk on each body system its evidence is about (the others stay at 0 for this risk)."""
+    from .catalog import SYSTEMS
+    hit = set()
+    for e in r["evidence"]:
+        k = e.get("key") or e.get("indicator") or e.get("checkin")
+        if e.get("stale") or not (e["points"] or e.get("floor")):
+            continue
+        sid = EVIDENCE_SYSTEM.get(k) or next((s for s, S in SYSTEMS.items() if k in S["indicators"]), None)
+        hit.add(sid if sid in r["systems"] else None)
+    if not r["level"]:
+        return {}
+    return {sid: r["level"] for sid in r["systems"] if sid in hit or None in hit}
+
+
+def _finish(r: dict, ms: dict, origins: set) -> dict:
+    keys = [e.get("key") or e.get("indicator") or e.get("checkin") for e in r["evidence"] if not e.get("stale")]
+    ids, links = hazards_for(keys, ms) if r["level"] else ([], [])
+    return {**r, "system_levels": _system_levels(r), "hazards": ids, "hazard_links": links, "hazard_note": hazard_note(ids), "data": data_origin(origins),
+            "panel_due": any(e.get("stale") for e in r["evidence"])}
+
+
+def _generic_risk(rid: str):
+    def fn(crew_id: str, ms: dict, tok: tuple) -> dict:
+        S, day, storm = SPECS[rid], ms["day"], ms.get("storm")
+        e = _g_eval(rid, crew_id, day, storm, tok)
+        r = {"id": rid, "name": S["name"], "nasa_red": S["nasa_red"], "systems": S["systems"], "clock_days": S["clock_days"],
+             "level": e["level"], "score": e["score"], "trend": _g_trend(rid, crew_id, ms, tok), "evidence": e["evidence"],
+             "since_day": _g_since(rid, crew_id, ms, tok), **SOURCE}
+        if rid == "sans":
+            r["note"] = RULES["sans"]["weak"]
+        if rid == "radiation":
+            r["dose"] = {**dose_projection(day), "same_for_everyone": True,
+                         "note": "The mission dose is the same for everyone on board: Canary does not invent a dose per person."}
+        return _finish(r, ms, _origins(e["evidence"]) or _read_origins(rid, crew_id, ms, tok))
+    return fn
+
+
+def _fatigue_wrapped(crew_id: str, ms: dict, tok: tuple) -> dict:
+    r = _fatigue_risk(crew_id, ms["day"], tok)
+    return _finish(r, ms, _origins(r["evidence"]) or {"simulated"})
+
+
+RISKS = {"fatigue": _fatigue_wrapped, **{rid: _generic_risk(rid) for rid in SPECS}}
 
 
 def evaluate(crew_id: str, ms: dict, tok: Optional[tuple] = None) -> List[dict]:
     """Every risk for one person on the mission day of `ms`."""
     tok = tok or _token(crew_id)
-    return [fn(crew_id, ms["day"], tok) for fn in RISKS.values()]
+    ms = {**_day_ms(ms["day"]), **ms}  # place and learning from the plan when the caller gave only the day
+    return [fn(crew_id, ms, tok) for fn in RISKS.values()]
 
 
 def level_for(risks: List[dict], system_id: str) -> int:
     """The highest level among the risks that act on a body system."""
-    return max([r["level"] for r in risks if system_id in r["systems"]] or [0])
+    return max([r["system_levels"].get(system_id, 0) if "system_levels" in r else r["level"]
+                for r in risks if system_id in r["systems"]] or [0])
 
 
 def get(risks: List[dict], rid: str) -> Optional[dict]:

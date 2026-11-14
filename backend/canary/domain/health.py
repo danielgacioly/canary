@@ -187,6 +187,12 @@ ALERT_GOAL_VERIFY = {
     "al_light": ("sleep", 3), "al_screens": ("sleep", 3), "al_psy": ("mood", 7), "al_sip": ("water", 1),
     "al_head": ("hr", 2), "al_salt": ("bp", 3), "al_stand": ("bp", 3), "al_talk": ("mood", 7),
 }
+# Which risk each alert belongs to, and which evidence keys of the hazard matrix it rests on. The ids and texts of the
+# alerts do not change; they only gain `risk`, `hazards` (possible factors, never a cause) and `hazard_note`.
+ALERT_RISK = {"storm": "radiation", "sickness": "renal", "regravity": "cardio", "amsler": "sans", "behaviour": "fatigue",
+              "wellbeing": "fatigue", "sleepy": "fatigue", "missing_mood": "fatigue", "symptoms": None}
+ALERT_KEYS = {"storm": ["dose"], "sickness": ["hr", "water", "exer", "mood"], "regravity": ["bp", "hr"], "amsler": ["amsler"],
+              "wellbeing": ["mood"], "sleepy": ["kss"], "missing_mood": ["mood"], "symptoms": []}
 ALERT_LOOKBACK = 60  # days days_active looks back; a longer episode reads "at least this long"
 _alert_cache: Dict[tuple, frozenset] = {}
 
@@ -216,6 +222,12 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[d
     person has marked this episode as seen. An alert that goes away and comes back is a new episode, not seen."""
     risks = risk.evaluate(crew_id, ms) if risks is None else risks
     A = _alerts(crew_id, ms, inds, risks)
+    for a in A:
+        rid = a["id"][4:] if a["id"].startswith("ind_") else None
+        a["risk"] = ALERT_RISK[a["id"]] if a["id"] in ALERT_RISK else risk.INDICATOR_RISK.get(rid)
+        parent = risk.get(risks, a["risk"]) if a["id"] == "behaviour" else None
+        ids, _links = (parent["hazards"], parent["hazard_links"]) if parent else risk.hazards_for(ALERT_KEYS.get(a["id"], [rid] if rid else []), {**ms, "location": ms["location"]})
+        a["hazards"], a["hazard_note"] = ids, risk.hazard_note(ids)
     tok = risk._token(crew_id)
     seen = db.get_setting("alerts_seen", {})
     for a in A:
