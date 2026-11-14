@@ -7,6 +7,9 @@ habits that help read the numbers. Results are private: the astronaut and the me
 """
 from typing import Optional
 
+from . import validation as V
+from .validation import FieldError
+
 TESTS = [
     # cognition
     {"id": "pvt", "group": "Cognition", "name": "Reaction time", "measures": "Alertness you cannot feel", "minutes": 1,
@@ -46,23 +49,86 @@ KSS = ["Extremely alert", "Very alert", "Alert", "Rather alert", "Neither alert 
 
 # Typing limits for the vital signs: wide on purpose, only to catch typos and impossible numbers.
 # They are NOT clinical ranges and say nothing about what is healthy.
-VITALS_LIMITS = {"hr": (20, 250), "bp": (50, 260), "temp": (30, 45), "spo2": (50, 100)}
+VITALS_LIMITS = {"hr": (25, 250), "bp": (60, 260), "temp": (30, 45), "spo2": (50, 100)}
 VITALS_LIMITS_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
+_VITALS_LABEL = {"hr": ("Pulse", "bpm", False, None), "bp": ("Systolic pressure", "mmHg", False, None),
+                 "temp": ("Temperature", "°C", False, 1), "spo2": ("Oxygen", "%", True, None)}
+SYMPTOM_NAMES = ["Headache", "Congestion", "Back pain", "Nausea", "Eye discomfort", "Blurred vision", "Skin irritation",
+                 "Trouble sleeping", "Muscle or joint pain", "Dizziness"]
+TLX_KEYS = ["mental", "physical", "temporal", "performance", "effort", "frustration"]
 
 
-def validate(kind: str, payload: dict) -> Optional[str]:
-    """An error message when the payload cannot be a real measurement, else None. Only vitals are checked."""
-    if kind != "vitals":
-        return None
-    for k, (lo, hi) in VITALS_LIMITS.items():
-        v = payload.get(k)
-        if v is None:
-            continue
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
-            return f"{k} must be a number"
-        if not lo <= v <= hi:
-            return f"{k} {v} is outside what can be typed ({lo} to {hi}). Check the number and try again."
-    return None
+def validate(kind: str, payload: dict) -> None:
+    """Refuse a payload that cannot be a real answer: raises FieldError({field, message}). The web form checks the same
+    rules first; this is the barrier that counts. Absent optional fields are fine, wrong types and out-of-range numbers are not."""
+    if not isinstance(payload, dict):
+        raise FieldError("payload", "The answers must be an object")
+    n = lambda key, label, lo, hi, unit="", **kw: V.number(payload, key, label, lo, hi, unit, **kw)  # noqa: E731
+    if kind == "vitals":
+        got = [n(k, lab, *VITALS_LIMITS[k], unit, integer=integer, decimals=dec)
+               for k, (lab, unit, integer, dec) in _VITALS_LABEL.items()]
+        if all(v is None for v in got):
+            raise FieldError("form", "Type at least one value")
+    elif kind == "pvt":
+        n("ms", "Reaction time", 50, 10000, "ms", required=True)
+    elif kind == "mood":
+        n("mood", "Mood", 1, 5, integer=True, required=True)
+        n("stress", "Stress", 1, 5, integer=True, required=True)
+    elif kind == "kss":
+        n("level", "Sleepiness", 1, 9, integer=True, required=True)
+    elif kind == "tlx":
+        scores = payload.get("scores")
+        if scores is None:
+            n("raw", "Workload", 0, 100, required=True)
+        else:
+            if not isinstance(scores, dict) or not 1 <= len(scores) <= len(TLX_KEYS):
+                raise FieldError("scores", "Answer the workload questions")
+            for k in scores:
+                V.number(scores, k, str(k).capitalize(), 0, 100, field=f"scores.{k}", required=True)
+    elif kind == "wellbeing":
+        a = payload.get("answers")
+        if a is None:
+            n("phq2", "PHQ-2", 0, 6, integer=True, required=True)
+            n("gad2", "GAD-2", 0, 6, integer=True, required=True)
+        else:
+            if not isinstance(a, list) or len(a) != 4:
+                raise FieldError("answers", "Answer all four questions")
+            for i, x in enumerate(a):
+                if isinstance(x, bool) or not isinstance(x, int) or not 0 <= x <= 3:
+                    raise FieldError(f"answers.{i}", f"Question {i + 1} needs an answer")
+    elif kind == "amsler":
+        if not isinstance(payload.get("distortion"), bool):
+            raise FieldError("distortion", "Say whether the lines look distorted")
+    elif kind == "dsst":
+        n("correct", "Correct answers", 0, 500, integer=True, required=True)
+        n("errors", "Errors", 0, 500, integer=True)
+    elif kind == "span":
+        n("span", "Digits held", 0, 30, integer=True, required=True)
+    elif kind == "symptoms":
+        items = payload.get("items")
+        if not isinstance(items, list) or any(i not in SYMPTOM_NAMES for i in items) or len(set(items)) != len(items):
+            raise FieldError("items", "Pick symptoms from the list")
+        n("severity", "Strength", 0, 3, integer=True)
+        if items and payload.get("severity") in (None, 0):
+            raise FieldError("severity", "Say how strong it is")
+        V.text(payload, "note", "Note", max_len=200)
+    elif kind == "sleep":
+        if payload.get("bed") is not None or payload.get("wake") is not None or payload.get("hours") is None:
+            V.clock(payload, "bed", "Lights out")
+            V.clock(payload, "wake", "Woke up")
+            h = _hours(payload["bed"], payload["wake"])
+            if not 1 <= h <= 16:
+                raise FieldError("wake", f"Sleep must last between 1 and 16 h (these times give {h} h)")
+        else:
+            n("hours", "Sleep", 1, 16, "h", required=True)
+        n("quality", "Sleep quality", 1, 5, integer=True)
+    elif kind == "reading":
+        V.text(payload, "title", "Title", required=True, max_len=120)
+        n("minutes", "Minutes", 1, 600, "min", integer=True, required=True)
+        n("pages", "Pages", 0, 2000, integer=True)
+        n("absorbing", "How absorbing", 1, 5, integer=True)
+    elif kind == "journal":
+        n("lines", "Lines written", 1, 3, integer=True, required=True)
 
 
 def _hours(bed: str, wake: str) -> float:

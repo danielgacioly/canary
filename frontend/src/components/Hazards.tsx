@@ -15,7 +15,7 @@ export default function Hazards({ items, compact = false }: { items: Ridge[]; co
       <div className="ridge-grid">
         {items.map(h => (
           <button key={h.id} type="button" className={`ridge-item s${h.level} ${open === h.id ? 'on' : ''}`} onClick={() => setOpen(o => (o === h.id ? null : h.id))} aria-expanded={open === h.id}>
-            <span className="row" style={{ gap: 8 }}><Meter level={h.level} /><span className="ridge-lv">{h.label}</span></span>
+            <span className="ridge-lvrow"><Meter level={h.level} /><span className="ridge-lv">{h.label}</span></span>
             <b>{h.name}</b>
             {!compact && <span className="small muted">{h.here}</span>}
           </button>

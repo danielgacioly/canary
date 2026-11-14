@@ -70,7 +70,7 @@ export default function Crew() {
         <p className="facts-line small">
           <span><span className={`dot s${eva.l}`} />{eva.t}</span>
           <span>Mission dose {data.dose.mission_msv} mSv, {data.dose.pct_of_limit}% of the career limit</span>
-          <span className="dim">Simulated, the same for everyone</span>
+          <span className="dim">Simulated, the same for everyone. Each person's career dose is in My space.</span>
         </p>
       </section>
 

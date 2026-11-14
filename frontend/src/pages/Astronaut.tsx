@@ -3,10 +3,15 @@
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
-import BodyView from '../components/BodyView'
+import BodyView, { RiskBlock } from '../components/BodyView'
+import EvaReadiness from '../components/EvaReadiness'
+import RadiationBar from '../components/RadiationBar'
 import { Dot } from '../components/People'
 import { Icon, Loading, Patch, Spark } from '../components/ui'
+import { ActionError } from '../components/Field'
+import { useAction } from '../lib/useAction'
 import { useApi, useSession } from '../state/session'
+import { useState } from 'react'
 
 export default function Astronaut() {
   const { id = '' } = useParams()
@@ -34,15 +39,14 @@ function Other({ id }: { id: string }) {
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
         <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · {p.goals_week} goals this week · {p.badges_earned} patches</p></div>
-        {d.ops && <div className="right"><span className="small dim" style={{ display: 'block', textAlign: 'right' }}>Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
+        {d.ops && <div className="right ops-right"><span className="small dim">Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
       </div>
-      <div className="privacy-bar rise">
-        <Icon name="med" />
-        <span className="grow muted"><b style={{ color: 'var(--ink)' }}>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</span>
-      </div>
+      <p className="muted rise med-note"><b>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</p>
       <BodyView key={d.crew.id} d={d} self={false} />
-      <section className="detail-card rise" style={{ padding: 8 }}>
-        <div className="section-head" style={{ padding: '12px 12px 0' }}><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
+      <section className="rise"><EvaReadiness d={d} self={false} /></section>
+      <RisksAndCare d={d} />
+      <section className="rise">
+        <div className="section-head"><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
         <div className="scroll"><table className="t">
           <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
           <tbody>{Object.values(d.indicators).map(i => (
@@ -54,12 +58,71 @@ function Other({ id }: { id: string }) {
             </tr>))}</tbody>
         </table></div>
       </section>
+      <VitalsPhotos d={d} />
       <section>
         <div className="section-head"><h2>Patches</h2></div>
         <div className="patches">{p.badges.map(b => (
           <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}><Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span></div>))}</div>
       </section>
     </div>
+  )
+}
+
+/** Photos of the display kept with recent vitals check-ins: the person and the medical team only. */
+/** The medical view of one person: every risk with its evidence and where the data comes from, the care windows, the career dose. */
+function RisksAndCare({ d }: { d: CrewDetail }) {
+  const raised = d.risks.filter(r => r.level > 0).sort((a, b) => b.level - a.level)
+  const quiet = d.risks.filter(r => r.level === 0)
+  return (
+    <>
+      <section className="rise">
+        <div className="section-head"><h2>Risks</h2><span className="sub">with the evidence behind each one</span></div>
+        {raised.length === 0 && <p className="muted">Nothing is raised.</p>}
+        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} />)}</div>
+        {quiet.length > 0 && <p className="small dim">{raised.length ? 'Not raised' : 'Checked'}: {quiet.map(r => r.name).join(', ')}.</p>}
+      </section>
+      {d.care_events.length > 0 && (
+        <section className="rise">
+          <div className="section-head"><h2>Care after emergencies</h2></div>
+          <ul className="plain care-events">
+            {d.care_events.map(e => (
+              <li key={e.emergency_id}>
+                <b>{e.name}</b>
+                <span className="muted">{e.outcome}, day {e.day}</span>
+                <span className="small num">{e.ops === 'rest' ? 'Rest' : e.ops === 'limited' ? 'Limited duty' : 'Full duty'} until day {e.until_day}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section className="rise">
+        <div className="section-head"><h2>Career radiation dose</h2></div>
+        <RadiationBar d={d} />
+      </section>
+    </>
+  )
+}
+
+function VitalsPhotos({ d }: { d: CrewDetail }) {
+  const rows = d.events.filter(e => e.kind === 'vitals' && e.has_photo)
+  const [shown, setShown] = useState<{ id: number; url: string } | null>(null)
+  const load = useAction()
+  if (!rows.length) return null
+  return (
+    <section>
+      <div className="section-head"><h2>Vital signs photos</h2><span className="sub">kept as evidence; the numbers typed are what counts</span></div>
+      <ul className="plain recent">
+        {rows.map(e => (
+          <li key={e.id}>
+            <b>Vital signs</b>
+            <span className="muted">Photo of the display</span>
+            <span className="dim small num">day {e.day} · <button type="button" className="link-btn" disabled={load.busy} onClick={() => shown?.id === e.id ? setShown(null) : load.run(async () => setShown({ id: e.id, url: (await api.checkinPhoto(d.crew.id, e.id)).data_url }))}>{shown?.id === e.id ? 'Hide photo' : 'Photo'}</button></span>
+            {shown?.id === e.id && <img className="recent-photo" src={shown.url} alt={`Photo of the display, day ${e.day}`} />}
+          </li>
+        ))}
+      </ul>
+      <ActionError error={load.error} />
+    </section>
   )
 }
 

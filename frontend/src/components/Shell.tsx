@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import { useAction } from '../lib/useAction'
+import { ActionError } from './Field'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
 import { useApi, useSession } from '../state/session'
@@ -87,14 +89,15 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
 function StoryBar() {
   const { mission, setStep, catalog, me } = useSession()
   const nav = useNavigate()
-  const [busy, setBusy] = useState(false)
+  const move = useAction('toast')
+  const busy = move.busy
   if (!mission || !catalog) return null
-  const go = async (i: number) => { setBusy(true); try { await setStep(i) } finally { setBusy(false) } }
+  const go = (i: number) => { move.run(() => setStep(i)) }
   return (
     <div className="story">
-      <span className="small" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Demo {mission.step + 1}/{mission.steps}</span>
+      <span className="small story-step">Demo {mission.step + 1}/{mission.steps}</span>
       <div className="dots">{catalog.story.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
-      <p className="grow">{mission.custom_day ? <><b style={{ color: 'var(--ink)' }}>Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b style={{ color: 'var(--ink)' }}>{mission.story.when}.</b> {mission.story.text}</>}</p>
+      <p className="grow">{mission.custom_day ? <><b className="ink">Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b className="ink">{mission.story.when}.</b> {mission.story.text}</>}</p>
       {!mission.custom_day && me !== mission.suggested_user && (
         <button className="btn sm ghost" onClick={() => nav(`/me?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
           Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
@@ -109,16 +112,18 @@ function StoryBar() {
 function WherePicker({ onClose }: { onClose: () => void }) {
   const { mission, setLocation, toast } = useSession()
   const nav = useNavigate()
+  const pick = useAction()
   if (!mission) return null
   return (
     <div className="scrim" onClick={onClose}>
       <div className="modal wide" onClick={e => e.stopPropagation()}>
         <div className="row"><h2>Where are you?</h2><button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
-        <p className="muted" style={{ margin: '6px 0 18px' }}>
-          The mission plan puts you at <b style={{ color: 'var(--ink)' }}>{mission.leg.label || mission.leg.location}</b> today. Pick another place to simulate it, or <button className="link" onClick={() => { onClose(); nav('/plan') }}>edit the mission plan</button>.
+        <p className="muted place-lead">
+          The mission plan puts you at <b className="ink">{mission.leg.label || mission.leg.location}</b> today. Pick another place to simulate it, or <button className="link" onClick={() => { onClose(); nav('/plan') }}>edit the mission plan</button>.
         </p>
-        <PlaceGrid current={mission.location} onPick={async (k, name) => { await setLocation(k); toast(`Simulating: ${name}`); onClose() }} />
-        {mission.location_override && <button className="btn" style={{ marginTop: 16 }} onClick={async () => { await setLocation(null); onClose() }}>Back to the mission plan</button>}
+        <PlaceGrid current={mission.location} onPick={(k, name) => { pick.run(async () => { await setLocation(k); toast(`Simulating: ${name}`); onClose() }) }} />
+        <ActionError error={pick.error} />
+        {mission.location_override && <button className="btn" style={{ marginTop: 16 }} disabled={pick.busy} onClick={() => pick.run(async () => { await setLocation(null); onClose() })}>Back to the mission plan</button>}
       </div>
     </div>
   )
@@ -149,7 +154,7 @@ function ProfileChip({ mine }: { mine?: { id: string; initials: string; name: st
     return (
       <button className="me-chip" onClick={() => nav('/me')} title="My space">
         <span className="pdot sm"><Icon name="lock" /></span>
-        <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>My space</b><span className="small muted">Choose your profile</span></span>
+        <span className="grow"><b className="who-name">My space</b><span className="small muted">Choose your profile</span></span>
       </button>
     )
   }
@@ -164,7 +169,7 @@ function ProfileChip({ mine }: { mine?: { id: string; initials: string; name: st
       )}
       <button className="me-chip" onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}>
         <Dot p={mine} size="sm" me />
-        <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine.name}</b><span className="small muted">Signed in</span></span>
+        <span className="grow"><b className="who-name">{mine.name}</b><span className="small muted">Signed in</span></span>
         <Icon name="lock" />
       </button>
     </div>

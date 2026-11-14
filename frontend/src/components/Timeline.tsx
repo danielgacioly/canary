@@ -39,7 +39,7 @@ export default function Timeline({ legs, places, now = null, nowLabel, selected 
             <span className="tl-text">
               <b>{l.label || places[l.location]?.name}</b>
               {!compact && <span className="small muted">{places[l.location]?.name}</span>}
-              <span className="small dim num">{compact ? `${l.end - l.start + 1} d` : `Day ${l.start} to ${l.end} · ${l.end - l.start + 1} d`}</span>
+              <span className="small dim num">{compact ? <span>{l.end - l.start + 1} d</span> : <><span>Day {l.start} to {l.end}</span> <span>· {l.end - l.start + 1} d</span></>}</span>
             </span>
             {i === current && !compact && <span className="tag now-tag">Now</span>}
           </Tag>

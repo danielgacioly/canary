@@ -74,10 +74,36 @@ def save(plan: dict, preset: Optional[str] = None) -> dict:
     return plan
 
 
-def use_preset(key: str) -> dict:
+def is_rover(location: str) -> bool:
+    return location.endswith("_rover")
+
+
+def has_rover(key: str) -> bool:
+    """True when the preset ships with a pressurized rover leg (the Moon and Mars profiles)."""
+    return any(is_rover(l["location"]) for l in PRESETS[key]["legs"])
+
+
+def preset_legs(key: str, rover: bool = True) -> List[dict]:
+    """The preset's legs. Without the rover the traverse days stay on the surface of the same body, so the length of
+    the mission and every day number stay the same: the rover leg becomes surface stay and joins its neighbours."""
+    legs = copy.deepcopy(PRESETS[key]["legs"])
+    if rover:
+        return legs
+    out: List[dict] = []
+    for l in legs:
+        if is_rover(l["location"]):
+            l["location"] = LOCATIONS[l["location"]]["body"]
+        if out and out[-1]["location"] == l["location"] and out[-1]["end"] + 1 == l["start"]:
+            out[-1]["end"] = l["end"]
+        else:
+            out.append(l)
+    return out
+
+
+def use_preset(key: str, rover: bool = True) -> dict:
     if key not in PRESETS:
         raise ValueError(f"unknown preset {key}")
-    return save(copy.deepcopy(PRESETS[key]), key)
+    return save({"name": PRESETS[key]["name"], "legs": preset_legs(key, rover)}, key)
 
 
 def reset_cache() -> None:

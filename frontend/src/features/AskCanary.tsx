@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { AssistantAnswer, AssistantStatus } from '../api/types'
+import { ActionError, Field, FormError } from '../components/Field'
 import { Icon } from '../components/ui'
+import { useAction } from '../lib/useAction'
+import { useForm } from '../lib/useForm'
+import * as v from '../lib/validate'
 import { useSession } from '../state/session'
 
 const MODE: Record<string, [string, string]> = {
@@ -16,21 +20,28 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   const { me, catalog, setEmergency } = useSession()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [items, setItems] = useState<AssistantAnswer[]>([])
-  const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const sug = useAction()
   const end = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    api.assistantStatus().then(setStatus)
-    if (me) api.askHistory(me).then(setItems)
+    api.assistantStatus().then(setStatus).catch(() => setLoadErr('Could not reach the assistant. Questions will not work until the connection is back.'))
+    if (me) api.askHistory(me).then(setItems).catch(() => setLoadErr('Could not load your earlier questions.'))
   }, [me])
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }) }, [items])
 
+  /** Sends one question. Throws when it is refused or the server is down: the caller shows the message. */
   const ask = async (text: string) => {
-    if (!me || !text.trim()) return
-    setBusy(true); setQ('')
+    if (!me) throw new Error('Enter your space first: Canary answers only about your own data.')
+    setBusy(true)
     try { const r = await api.ask(me, text); setItems(x => [...x, { ...r, question: text }]) } finally { setBusy(false) }
   }
+  const form = useForm({
+    initial: { q: '' },
+    validate: f => ({ q: v.length('Question', { max: 500 })(f.q) }),
+    submit: async f => { await ask(f.q.trim()); form.reset({ q: '' }) },
+  })
   const label = (id: string) => {
     const [kind, a, b] = id.split(':')
     if (kind === 'telemetry') return catalog?.indicators[b]?.name ?? b
@@ -41,13 +52,13 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   }
   return (
     <>
-      <div className="scrim" style={{ background: 'rgba(2,3,7,.4)' }} onClick={onClose} />
+      <div className="scrim soft" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-label="Ask Canary">
-        <div className="row" style={{ padding: '18px 18px 12px', borderBottom: '1px solid var(--line)' }}>
+        <div className="row drawer-head">
           <div><h2>Ask Canary</h2><div className="small muted">Explains your data. Never diagnoses.</div></div>
           <button className="btn sm ghost right" onClick={onClose}><Icon name="close" size={15} /></button>
         </div>
-        <div style={{ padding: '12px 18px' }}>
+        <div className="drawer-body">
           <div className="slot">
             <div className="row"><span className="lbl">AI slot</span>
               <span className="tag right">{status ? (status.configured ? `provider: ${status.provider}` : 'no model connected') : '…'}</span></div>
@@ -57,7 +68,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="chat">
-          {!me && <p className="muted small"><b style={{ color: 'var(--ink)' }}>Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
+          {!me && <p className="muted small"><b className="ink">Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
           {me && !items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. Emergencies go to the red button.</p>}
           {items.map(a => (
             <div key={a.id} className="col" style={{ gap: 8 }}>
@@ -72,15 +83,19 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
               </div>
             </div>
           ))}
+          {loadErr && <p className="small err" role="alert">{loadErr}</p>}
           {busy && <span className="lbl">Checking your data…</span>}
           <div ref={end} />
         </div>
-        <div style={{ padding: 14, borderTop: '1px solid var(--line)' }}>
-          <div className="row wrap" style={{ gap: 6, marginBottom: 10 }}>{SUGGEST.map(s => <button key={s} className="btn sm" onClick={() => ask(s)}>{s}</button>)}</div>
-          <form className="row" onSubmit={e => { e.preventDefault(); ask(q) }}>
-            <input className="grow" value={q} onChange={e => setQ(e.target.value)} placeholder="Ask about your health data…" maxLength={500}
-              style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--line-2)', background: 'var(--bg)' }} />
-            <button className="btn pri" disabled={busy || !q.trim()} aria-label="Send"><Icon name="send" size={15} /></button>
+        <div className="drawer-foot">
+          <div className="row wrap drawer-suggest">{SUGGEST.map(s => <button key={s} className="btn sm" disabled={busy} onClick={() => sug.run(() => ask(s))}>{s}</button>)}</div>
+          <ActionError error={sug.error} />
+          <form noValidate onSubmit={form.submit}>
+            <div className="row ask-row">
+              <div className="grow"><Field form={form} name="q" label="Your question" hideLabel placeholder="Ask about your health data…" hint="Up to 500 characters" maxLength={500} autoComplete="off" /></div>
+              <button className="btn pri" disabled={busy || form.busy} aria-label="Send"><Icon name="send" size={15} /></button>
+            </div>
+            <FormError form={form} />
           </form>
         </div>
       </aside>

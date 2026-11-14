@@ -271,7 +271,8 @@ def _ind_ev(inds: dict, ind: str, weight: float = 1.0) -> Optional[dict]:
     word = "above" if d["delta"] > 0 else "below"
     ev = {"key": ind, "indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"],
           "points": round(weight * d["level"], 2),
-          "text": f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal"}
+          "text": (f"{d['name']} {_fmt(100 + d['value'], 1)} % of pre-flight, {_fmt(abs(d['delta']), 1)} % {word} your normal" if ind == "bone"
+                   else f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal")}
     std = d.get("standard") or {}
     if std.get("level"):  # past (2) or close to (1) a NASA-STD-3001 limit: the risk is at least that level
         ev.update(floor=std["level"], standard=std, text=f"{std['text']} (NASA-STD-3001 {std['item']})")

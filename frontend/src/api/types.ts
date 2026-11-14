@@ -35,6 +35,12 @@ export interface Catalog {
   locations: Record<string, Omit<Place, 'id'>>; indicators: Record<string, IndicatorDef>
   systems: Record<string, SystemDef>; region_system: Record<string, string>
   crew: CrewInfo[]; story: StoryStep[]; sources: Source[]; standards?: StandardsSummary
+  /** "How to measure and why" per indicator id (and radiation), English, each text with its source or none */
+  guide?: Record<string, GuideEntry>
+}
+export interface GuideEntry {
+  how: string; effect: string; actions: { green: string; amber: string; red: string }; frequency: string
+  sources: { how: string | null; effect: string | null; actions: string[] }
 }
 export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number
@@ -125,7 +131,7 @@ export interface CrewDetail {
   alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   standard_profile?: { eva: 'none' | 'microgravity' | 'surface'; prior_dose: { msv: number; estimate: boolean; source: string }; sex: string }
-  events: { kind: string; day: number; payload: Record<string, unknown> }[]
+  events: { id: number; kind: string; day: number; payload: Record<string, unknown>; has_photo: boolean }[]
   system_info: Record<string, { space: string; hazard: string }>
   ops: Ops; care_by: string; access: 'self' | 'medical'; care_events: CareEvent[]
 }
@@ -182,11 +188,19 @@ export interface Rad { quietMean: number; quiet: [number, number][]; storm: [num
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
   notices: Notice[]; care_sensitivity: { factor: number; source: string; verified: boolean }
-  crew: { id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
+  crew: {
+    id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[]
+    /** the short form of each risk; evidence and hazard links are in the person view */
+    risks: Pick<Risk, 'id' | 'name' | 'nasa_red' | 'level' | 'trend' | 'since_day' | 'data'>[]
+    dose: Dose; standard_profile?: CrewDetail['standard_profile']
+  }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
-export interface TestResult { kind: string; day: number; at: number; summary: string; payload: Record<string, unknown> }
+export interface TestResult { id: number; kind: string; day: number; at: number; summary: string; payload: Record<string, unknown>
+  /** vitals only: a photo of the display is kept with it (the person and the medical team can open it) */
+  has_photo: boolean }
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
+export interface CheckinResult { ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
 export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
 export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }
@@ -196,6 +210,7 @@ export interface PersonalRecord {
   blood_type: string; skin_type: string; handedness: string; vision: string; allergies: string[]; medications: string[]
   conditions: string[]; diet: string; vaccinations: string; emergency_contact: string; date_today: string
   registered_by: string; registered_on: string
+  eva: 'surface' | 'microgravity' | 'none'; prior_dose: { msv: number; estimate: boolean; source: string }
 }
 export interface MissionCrewInfo { id: string; name: string; role: string; initials: string; home: string; nationality?: string; agency?: string; languages?: string[]; flights?: number; days_in_space?: number }
 export interface MissionOverview {
@@ -211,5 +226,13 @@ export interface SeatForm {
   seat: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
+  /** EVA role (surface, microgravity, none) and the dose from earlier flights in mSv; empty means "estimated from days in space". */
+  eva?: string; prior_dose_msv?: number | null
 }
-export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string }
+export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string; rover?: boolean }
+export interface ControlDemo {
+  crew: SeatForm[]; mission: MissionForm; presets: Record<string, string>
+  /** Profiles that can carry a rover leg, the station's daily dose (the prior-dose estimate) and each profile's legs. */
+  rover_presets: string[]; iss_dose_msv_per_day: number
+  itineraries: Record<string, { rover: Leg[]; plain: Leg[] }>
+}

@@ -8,10 +8,6 @@ import { useApi, useSession } from '../state/session'
 
 const MEDAL = ['gold', 'silver', 'bronze']
 
-function Flame() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.8.3 1.6 1.1 2.5 2.3 2.8C11 9 10.6 6 12 3Z" /></svg>
-}
-
 export default function Ranking() {
   const { me } = useSession()
   const { data } = useApi(() => api.leaderboard(), [])
@@ -46,7 +42,7 @@ export default function Ranking() {
                 <span className={`place-badge ${MEDAL[i] ?? ''}`}>{i + 1}</span>
                 <Dot p={{ id: r.crew_id, initials: r.initials ?? '', name: r.name ?? '' }} size="sm" me={r.crew_id === me} />
                 <span className="board-who">
-                  <b>{r.name}{r.crew_id === me && <span className="tag" style={{ marginLeft: 8 }}>you</span>}</b>
+                  <b>{r.name}{r.crew_id === me && <span className="tag you-tag">you</span>}</b>
                   <span className="small muted">{ahead ? (gap ? `${gap} ${gap === 1 ? 'goal' : 'goals'} behind ${ahead.name?.split(' ')[0]}` : `Level with ${ahead.name?.split(' ')[0]}`) : gap ? `Ahead by ${gap} ${gap === 1 ? 'goal' : 'goals'}` : 'Sharing the lead'}</span>
                 </span>
                 <span className="board-xp">
@@ -54,9 +50,9 @@ export default function Ranking() {
                   <b className="num"><CountUp value={r.goals_week} /><small>goals</small></b>
                 </span>
                 <span className="board-chips">
-                  <span className="chip" title="Share of goals done in the last 7 days">{r.completion_7d}% done<span className="mini-bar"><i style={{ width: `${r.completion_7d}%` }} /></span></span>
-                  <span className={`chip ${r.streak >= 3 ? 'hot' : ''}`}><Flame />{r.streak} {r.streak === 1 ? 'day' : 'days'}</span>
-                  <span className="chip">{r.badges_earned} patches</span>
+                  <span title="Share of goals done in the last 7 days">{r.completion_7d}% done</span>
+                  <span>{r.streak} {r.streak === 1 ? 'day' : 'days'} streak</span>
+                  <span>{r.badges_earned} {r.badges_earned === 1 ? 'patch' : 'patches'}</span>
                 </span>
               </button>
             </li>
@@ -65,7 +61,7 @@ export default function Ranking() {
       </ol>
 
       <p className="small muted rise" style={{ ['--d' as string]: 3 }}>
-        The crew together: <b className="num" style={{ color: 'var(--ink)' }}>{data.crew_goals_week.toLocaleString('en-US')} goals</b> in the last 7 days, {data.team_done} of {data.team_total} crew missions done.
+        The crew together: <b className="num ink">{data.crew_goals_week.toLocaleString('en-US')} goals</b> in the last 7 days, {data.team_done} of {data.team_total} crew missions done.
       </p>
     </div>
   )
