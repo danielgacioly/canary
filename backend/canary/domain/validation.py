@@ -107,3 +107,28 @@ def parse_date(value: str, label: str, field: str) -> date:
 
 def age_on(dob: date, day: date) -> int:
     return day.year - dob.year - ((day.month, day.day) < (dob.month, dob.day))
+
+
+PHOTO_MAX_CHARS = 600_000  # the whole data URL; the web app sends ~1024 px JPEGs well under this
+_PHOTO_TYPES = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",), "image/webp": (b"RIFF",)}
+
+
+def image_data_url(value: Any, label: str = "The photo", field: str = "photo", max_chars: int = PHOTO_MAX_CHARS) -> str:
+    """A base64 data URL of a JPEG, PNG or WebP picture (checked by its first bytes, not by what it says it is)."""
+    import base64
+    import binascii
+    if not isinstance(value, str) or not value.startswith("data:") or ";base64," not in value:
+        raise FieldError(field, f"{label} must be an image sent as a base64 data URL")
+    head, _, body = value.partition(";base64,")
+    mime = head[5:]
+    if mime not in _PHOTO_TYPES:
+        raise FieldError(field, f"{label} must be a PNG, JPEG or WebP image")
+    if len(value) > max_chars:
+        raise FieldError(field, f"{label} is too large ({len(value) // 1000} KB; the limit is {max_chars // 1000} KB)")
+    try:
+        raw = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError):
+        raise FieldError(field, f"{label} is not valid image data")
+    if not any(raw.startswith(m) for m in _PHOTO_TYPES[mime]) or (mime == "image/webp" and raw[8:12] != b"WEBP"):
+        raise FieldError(field, f"{label} is not a real {mime.split('/')[1].upper()} image")
+    return value

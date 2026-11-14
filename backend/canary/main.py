@@ -380,8 +380,9 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     snap = health.snapshot(crew_id, ms)
     access = "self" if v["id"] == crew_id else "medical"
     trends = {i: telemetry.series(crew_id, i, ms["day"], 30) for i in INDICATORS}
-    events = [{"kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"])}
-              for r in db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 12", (crew_id,))]
+    with_photo = {r["checkin_id"] for r in db.q("SELECT checkin_id FROM checkin_photos WHERE crew_id=?", (crew_id,))}
+    events = [{"id": r["id"], "kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"]), "has_photo": r["id"] in with_photo}
+              for r in db.q("SELECT id,kind,day,payload FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 12", (crew_id,))]
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
             "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
@@ -499,6 +500,7 @@ class CheckinIn(BaseModel):
     crew_id: str
     kind: str = Field(pattern="^(" + "|".join(sorted(selftests.TEST_IDS)) + ")$")
     payload: dict
+    photo: Optional[str] = None  # vitals only: the display, kept as evidence apart from the numbers
 
 
 @app.post("/api/checkins", tags=["crew"])
@@ -508,9 +510,16 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     require_self(body.crew_id, v)
     selftests.validate(body.kind, body.payload)  # raises FieldError: 422 {field, message}, nothing written
     day = mission.state()["day"]
+    photo = None
+    if body.photo is not None:
+        if body.kind != "vitals":
+            raise validation.FieldError("photo", "Only vital signs take a photo")
+        photo = validation.image_data_url(body.photo, "The photo of the display")
     p = selftests.normalise(body.kind, body.payload)
-    db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
-         (body.crew_id, day, body.kind, json.dumps(p), time.time()))
+    cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
+               (body.crew_id, day, body.kind, json.dumps(p), time.time()))
+    if photo:  # never part of the payload: the payload feeds events, charts and the assistant
+        db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
     g = selftests.goal_for(body.kind, p)
     if g:
         goals.set_done(body.crew_id, g, day, True)
@@ -527,14 +536,28 @@ def checkin_history(crew_id: str, v: dict = Depends(viewer)):
     _crew(crew_id)
     require_self(crew_id, v)
     rows = db.q("SELECT id,kind,day,payload,created_at FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 200", (crew_id,))
+    with_photo = {r["checkin_id"] for r in db.q("SELECT checkin_id FROM checkin_photos WHERE crew_id=?", (crew_id,))}
     latest, recent = {}, []
     for r in rows:
         p = json.loads(r["payload"])
-        item = {"kind": r["kind"], "day": r["day"], "at": r["created_at"], "summary": selftests.summary(r["kind"], p), "payload": p}
+        item = {"id": r["id"], "kind": r["kind"], "day": r["day"], "at": r["created_at"], "summary": selftests.summary(r["kind"], p), "payload": p,
+                "has_photo": r["id"] in with_photo}
         latest.setdefault(r["kind"], item)
         if len(recent) < 20:
             recent.append(item)
     return {"tests": [{**t, "latest": latest.get(t["id"])} for t in selftests.TESTS], "recent": recent}
+
+
+@app.get("/api/checkins/{crew_id}/{checkin_id}/photo", tags=["crew"])
+def checkin_photo(crew_id: str, checkin_id: int, v: dict = Depends(viewer)):
+    """The photo of the display kept with a vitals check-in. The person and the medical team only (same rule as crew detail)."""
+    c = _crew(crew_id)
+    if not privacy.can_see_details(v["id"], crew_id, v["medical"]):
+        raise HTTPException(403, f"{c['name']}'s health is private")
+    r = db.q("SELECT data_url FROM checkin_photos WHERE checkin_id=? AND crew_id=?", (checkin_id, crew_id))
+    if not r:
+        raise HTTPException(404, "no photo with that check-in")
+    return {"data_url": r[0]["data_url"]}
 
 
 # ---------------------------------------------------------------- guided response

@@ -1693,3 +1693,69 @@ def test_the_catalog_carries_the_indicator_guide_with_its_sources():
         assert e["how"] and e["effect"] and set(e["actions"]) == {"green", "amber", "red"}, k
         assert not any(w in str(e).lower() for w in ("manguito", "sem gravidade")), k  # English only
     assert g["bp"]["sources"]["how"] is None and g["vo2"]["sources"]["actions"]  # no source listed -> the app says so
+
+
+# ---------------------------------------------------------------- C2: photo of the display kept with a vitals check-in
+import base64  # noqa: E402
+
+_JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+
+
+def _vitals(cid="h", **extra):
+    return client.post("/api/checkins", headers=as_(cid), json={"crew_id": cid, "kind": "vitals", "payload": {"hr": 62}, **extra})
+
+
+def test_a_vitals_photo_is_kept_apart_and_returned_to_the_person_and_the_medical_team():
+    r = _vitals(photo=_JPEG)
+    assert r.status_code == 200
+    hist = client.get("/api/checkins/h", headers=as_("h")).json()
+    item = hist["recent"][0]
+    assert item["has_photo"] is True and "photo" not in str(item["payload"])
+    url = f"/api/checkins/h/{item['id']}/photo"
+    assert client.get(url, headers=as_("h")).json() == {"data_url": _JPEG}
+    assert client.get(url, headers=_med()).json() == {"data_url": _JPEG}
+    assert client.get(f"/api/checkins/h", headers=_med()).json()["recent"][0]["has_photo"] is True
+    ev = client.get("/api/crew/h", headers=_med()).json()["events"][0]
+    assert ev["has_photo"] is True and _JPEG not in json.dumps(client.get("/api/crew/h", headers=_med()).json())
+    assert client.get(f"/api/checkins/h/{item['id'] + 99}/photo", headers=as_("h")).status_code == 404
+
+
+def test_a_vitals_without_photo_says_so():
+    _vitals()
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"][0]["has_photo"] is False
+
+
+def test_the_photo_is_private_to_the_person_and_the_medical_team():
+    _vitals(photo=_JPEG)
+    cid = client.get("/api/checkins/h", headers=as_("h")).json()["recent"][0]["id"]
+    url = f"/api/checkins/h/{cid}/photo"
+    assert client.get(url).status_code == 403
+    assert client.get(url, headers=as_("k")).status_code == 403
+    assert client.get("/api/checkins/h", headers=as_("k")).status_code == 403
+
+
+@pytest.mark.parametrize("kind,payload", [("mood", {"mood": 3, "stress": 2}), ("kss", {"level": 3})])
+def test_only_vitals_take_a_photo(kind, payload):
+    r = client.post("/api/checkins", headers=as_("h"), json={"crew_id": "h", "kind": kind, "payload": payload, "photo": _JPEG})
+    assert r.status_code == 422 and r.json()["detail"][0]["field"] == "photo"
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"] == []
+
+
+@pytest.mark.parametrize("bad", [
+    "not a data url", "data:text/html;base64,PGI+", "data:image/gif;base64,R0lGODlh", "data:image/jpeg;base64,@@@@",
+    "data:image/jpeg;base64," + base64.b64encode(b"hello world, not a jpeg").decode(),
+    "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + b"\x00" * 600_000).decode(), 7, ""])
+def test_a_bad_photo_is_refused_and_nothing_is_saved(bad):
+    r = _vitals(photo=bad)
+    assert r.status_code == 422 and r.json()["detail"][0]["field"] == "photo"
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"] == []
+
+
+def test_the_photo_never_reaches_crew_mission_or_control_overviews_and_a_reset_clears_it():
+    at(3)
+    _vitals(photo=_JPEG)
+    for name, body in _crew_facing().items():
+        assert "has_photo" not in set(_keys(body)) and "base64" not in json.dumps(body), name
+    assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 1
+    client.post("/api/demo/reset")
+    assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 0
