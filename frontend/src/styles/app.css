@@ -1015,3 +1015,26 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
   .control-top .right { margin-left: 0; width: 100%; }
   .control-top .btn { flex: 1; }
 }
+
+/* ---------- Guided Response: big type, big targets, a small log ---------- */
+.er-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 40px; max-width: 1280px; }
+.er-top h2 { font-size: 26px; }
+.er-btn { height: 52px; padding: 0 22px; font-size: 17px; }
+.er-btn.big { height: 68px; padding: 0 26px; font-size: 20px; }
+.er-lead { font-size: 21px; line-height: 1.45; color: var(--muted); }
+.er-step { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.er-big { font-size: clamp(28px, 3.4vw, 42px); line-height: 1.28; }
+.proto-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.proto { min-height: 120px; padding: 22px 24px; gap: 8px; justify-content: center; }
+.proto b { font: 650 23px/1.2 var(--f-display); }
+.proto .muted { font-size: 16px; }
+.yesno { gap: 16px; }
+.yesno button { height: 128px; font-size: 44px; border-radius: 18px; }
+.er-next { height: 84px; padding: 0 36px; font-size: 24px; border-radius: 16px; gap: 12px; align-self: stretch; max-width: 560px; }
+.er-choices { display: flex; flex-wrap: wrap; gap: 12px; }
+.er-variant { padding: 18px 20px; }
+.er .timer { font-size: 64px; }
+.er-log { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+.er-log summary { cursor: pointer; }
+@media (max-width: 1100px) { .er-body { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .yesno button { height: 104px; font-size: 36px; } .er-next { height: 72px; font-size: 21px; } .er-btn { height: 46px; font-size: 15px; padding: 0 14px; } }
