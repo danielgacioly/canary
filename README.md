@@ -23,8 +23,9 @@ It compares every astronaut with **their own normal**, turns early warnings into
 10. [API](#api)
 11. [How it maps to the judging criteria](#how-it-maps-to-the-judging-criteria)
 12. [What to build next](#what-to-build-next)
-13. [Limits, honestly](#limits-honestly)
-14. [Credits and licences](#credits-and-licences)
+13. [Input checks](#input-checks)
+14. [Limits, honestly](#limits-honestly)
+15. [Credits and licences](#credits-and-licences)
 
 ---
 
@@ -476,18 +477,19 @@ Every number the crew shows comes from one table, `backend/canary/data/observati
 ```
 backend/
   canary/
-    main.py              routes and PIN sign-in
+    main.py              routes, PIN sign-in and the 422 answer shape for bad input
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, registry (crew and mission registered by Mission Control), plan, telemetry, simdata, health, risk, standards (NASA-STD-3001), reference, advice, goals, privacy, protocols, nasa, mission, selftests
+    domain/              validation (input checks shared by every form), catalog, registry (crew and mission registered by Mission Control), plan, telemetry, simdata, health, risk, standards (NASA-STD-3001), reference, advice, goals, privacy, protocols, nasa, mission, selftests
     assistant/           the AI slot: chat, briefing, suggestions, guard
     data/                protocols.json, nasa_snapshot.json, observations.csv (generated)
   tests/test_canary.py   tests
   requirements.txt
 frontend/
   src/
-    api/                 typed client and response types
+    api/                 typed client and response types (ApiError carries the {field, message} list)
+    lib/                 validate.ts (input rules), useForm.ts (errors, focus, busy, server errors), useAction.ts (standalone buttons)
     state/session.tsx    mission, signed-in person, photos, preferences, refresh signal
     state/prefs.ts       theme and accessibility preferences for the terminal
     hologram/            scene, shaders, procedural anatomy, React wrapper
@@ -526,7 +528,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/control/session` · `GET /api/control/overview` · `GET /api/control/demo` · `POST /api/control/register` · `POST /api/control/clear` | Canary Control (Mission Control PIN, its own token): sign in, follow the crew, the demo form, register crew and mission, start from zero |
 | `GET /api/crew/{id}/record` | My information: the personal record (the astronaut and the medical team) |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
-| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log, returns `conclusion` {population, personal, text} (self only; vitals outside the typing limits, such as a pulse of 900, return 400) · every test with its latest result and the recent log (self and medical team) |
+| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log, returns `conclusion` {population, personal, text} (self only; a value outside the typing limits, such as a pulse of 900, returns 422 with the field that is wrong) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
@@ -574,10 +576,23 @@ Full, interactive documentation at `/docs`. The main routes:
 
 ---
 
+## Input checks
+
+Every input is checked twice, and the server never trusts the page.
+
+- **In the page.** The rules live in `frontend/src/lib/validate.ts` (required, number with range, unit and decimals, length, date, time, PIN, closed list). `useForm.ts` runs a form: a field shows its error when it is left or on the first Save, the error disappears as soon as the value is valid, a Save with errors sends nothing and puts the focus on the first wrong field, and the button reads "Saving…" and ignores a second press. `components/Field.tsx` draws the label, the hint ("25–250 bpm") and the error in plain text under the field. A button that is not part of a form (approve, remove, reset, accept, pick a place) goes through `useAction.ts`, which catches the error and shows it next to the button or as a toast. The registration form for four seats also lists what is wrong per seat ("Seat 2 · Date of birth is required"), and each line takes you to its field.
+- **On the server.** The same rules sit in `backend/canary/domain/validation.py` and `selftests.validate` (one rule set per kind of check-in) and in the Pydantic models of `main.py` (registration, goals, messages, thresholds, questions). A bad value returns **422** with `detail: [{"field": "crew.1.dob", "message": "Date of birth is required"}]` and nothing is written. The web client reads that list and puts each message under its field; any other failure (server down, 500) becomes one line above the Save button. Auth answers (401, 403, 429) keep their plain text.
+- **Tests.** `backend/tests/test_canary.py` sends one bad value per form and checks the 422, the field and that the database did not change, plus one good value that still saves.
+
+The accepted ranges are listed in "Limits, honestly": they catch typos, they say nothing about health.
+
+---
+
 ## Limits, honestly
 
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. The blood count, creatinine, potassium, calcium and CRP are real (Inspiration4, before and after a 3-day flight; no collection during flight is public). In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for more cytokines and for dose by place and is not imported yet.
-- **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
+- **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the input plausibility limits below. The limits only catch typos and impossible numbers; they are not clinical ranges and say nothing about what is healthy.
+- **Input limits (prototype assumptions, `verified: false`):** vital signs: pulse 25 to 250 bpm, systolic pressure 60 to 260 mmHg, temperature 30 to 45 °C with one decimal, oxygen 50 to 100 % as a whole number (an empty field keeps the sensor value; all empty is refused; a comma counts as the decimal point). Sleep diary: both times, duration 1 to 16 h. Reading: title required, 1 to 600 minutes, 0 to 2000 pages. Journal: at least one line. Questionnaires: every question answered. Prescribed goal: title 3 to 120 characters, why up to 200, 1 to 60 days. Messages 1 to 1000 characters, questions to Ask Canary 1 to 500, spaces alone do not count. Alert rules: watch 0.5 to 4 σ, act 1 to 5 σ, act above watch. Registration, per seat: name 2 to 60 characters, role required, four-digit PIN different in each seat, age 25 to 70 at launch, height 140 to 210 cm, weight 40 to 150 kg, blood type and Fitzpatrick type from a closed list, 0 to 20 earlier flights, 0 to 1000 days in space; `eva` is surface, microgravity or none and earlier dose 0 to 600 mSv (no form field yet, the server checks them); mission: callsign 2 to 24 characters, name 2 to 80, launch date a real date between 2025 and 2100. Setup durations stay inside each field's min and max. Photos: PNG, JPEG or WebP, at most 8 MB.
 - **Risk layer (prototype assumptions, `verified: false`):** the fatigue weights, the cuts (2.0 and 4.0 points), the minimum of 3 signals, the 2-day sustain rule, the 3-day trend (±0.5), the drift window (14 days, 10 days ahead, minimum slope 0.08 spreads a day) and the 60-day look-back. They were tuned on the simulated crew, not on flight data. The Physical and Mental readiness scores are also a design choice (18 points per spread beyond 0.6, minus 6 per level of eyes, skin and immune), not a published score.
 - **Advice loop (prototype assumptions, `verified: false`):** the `verify` pairs (indicator and days for each alert goal and suggestion), the 0.5-spread margin and the 3-day average that decide improved / same / worse, the rule of two rounds, the alternative steps per risk, the 60-day look-back of `days_active` and the default exercise reductions (15% and 30%, at most 30%). The reductions are placeholders for the flight surgeon; nothing here has been clinically reviewed.
 - **Care windows (prototype assumptions, `verified: false`):** every `window_days`, `ops` and `after_days` in `protocols.json` is read from the illustrative text of `after` and rounded up to whole days (`care_note`); the 0.8 sensitivity factor (adjustable, no published rule says how much tighter a recovering patient should be watched); the radiation protocol as `full` (follow-up tests, no restriction). Windows are in whole days because the mission clock is. Critical alerts reach the medical officer when a write route runs `notify.sync`, not by a background clock, because nothing in the system depends on real time.

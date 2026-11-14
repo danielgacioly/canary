@@ -31,7 +31,7 @@ export function number(label: string, o: NumberOpts = {}): Rule<string> {
   return v => {
     if (blank(v)) return o.optional ? null : `${label} is required`
     const n = parseNumber(v)
-    if (n === null) return `${label} must be a number${o.unit ? `, in ${o.unit}` : ''}`
+    if (n === null) return `${label} must be a number${o.unit ? ` (${o.unit})` : ''}`
     if (o.integer && !Number.isInteger(n)) return `${label} must be a whole number`
     if (o.decimals !== undefined && !o.integer) {
       const f = 10 ** o.decimals
