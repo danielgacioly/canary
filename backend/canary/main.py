@@ -921,7 +921,9 @@ def control_overview():
 def control_demo():
     """What the 'fill with the demo crew' button puts in the form."""
     return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
-            "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"]}
+            "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"],
+            # the itinerary each profile gives, with and without its rover leg, for the review step
+            "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS}}
 
 
 BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]

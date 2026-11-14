@@ -392,6 +392,7 @@ def test_the_demo_form_carries_eva_role_and_the_rover_presets():
     assert [p["eva"] for p in demo["crew"]] == ["surface", "none", "surface", "surface"]
     assert all("prior_dose_msv" in p for p in demo["crew"])  # empty in the demo: the form shows the estimate
     assert demo["rover_presets"] == ["mars", "moon"] and demo["iss_dose_msv_per_day"] == catalog.LOCATIONS["iss"]["dose_rate"]
+    assert demo["itineraries"]["moon"]["rover"] != demo["itineraries"]["moon"]["plain"] and demo["itineraries"]["iss"]["rover"] == demo["itineraries"]["iss"]["plain"]
 
 
 @pytest.mark.parametrize("preset,rover_place,body", [("moon", "moon_rover", "moon"), ("mars", "mars_rover", "mars")])
