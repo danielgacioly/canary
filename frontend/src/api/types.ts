@@ -96,10 +96,24 @@ export interface Protocols { order: string[]; protocols: Record<string, Protocol
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
 export interface Claim { text: string; source_ids: string[] }
+// AI layer contract: docs/ai/schema.md §6 (backend/canary/assistant/contracts.py). New keys are optional so
+// answers from the rule-based path (and older logs) still type-check.
+export type AssistantMode = 'ai' | 'grounded' | 'refused' | 'emergency' | 'unknown' | 'fallback'
+export type AssistantStatusValue = 'supported' | 'insufficient_evidence' | 'out_of_scope'
+export interface Observation { statement: string; source_ids: string[] }
+export type Explanation = Observation
+export interface RecommendedAction { id: string; label: string }
+export interface GuardReport { dropped_claims: number; rejected_numbers: string[]; reason: string | null }
 export interface AssistantAnswer {
-  id: number; mode: 'ai' | 'grounded' | 'refused' | 'emergency' | 'unknown'; provider: string; provider_error?: string | null
+  id: number; mode: AssistantMode; provider: string; provider_error?: string | null
   answer: string; claims: Claim[]; sources: string[]; tools_used: { tool: string; args: Record<string, string> }[]; dropped: number
   question?: string
+  status?: AssistantStatusValue
+  observations?: Observation[]   // facts from data (telemetry, status, checkin, goals, summary, nasa)
+  explanations?: Explanation[]   // possible explanations from approved knowledge (kb:)
+  limitations?: string[]
+  recommended_action?: RecommendedAction | null
+  guard?: GuardReport
 }
 export interface AssistantStatus { provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
 export interface Briefing { id: number; crew_id: string; day: number; status: string; text: string; mode: string; bytes: number; created_at: number; deliver_at: number | null }
