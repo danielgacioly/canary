@@ -40,10 +40,12 @@ def explain_system(crew_id: str, sys: str) -> dict:
 
 
 def get_risks(crew_id: str) -> dict:
-    """Each risk with its level, trend, the day it started and the evidence behind it. Read-only; the rules decide, not a model."""
+    """Each risk with its level, trend, the day it started, the evidence behind it, where its data comes from (`data`) and
+    the hazards that are possible factors. Read-only; the rules decide, not a model."""
     ms = _ms()
     risks = health.snapshot(crew_id, ms)["risks"]
     srcs = [e["source"] for r in risks for e in r["evidence"]]
+    srcs += [f"card:risk:{r['id']}" for r in risks if r["level"]] + [f"card:hazard:{h}" for r in risks for h in r["hazards"]]
     return {"data": risks, "sources": list(dict.fromkeys(srcs)) or [f"risk:{crew_id}:day{ms['day']}"]}
 
 
@@ -67,7 +69,7 @@ TOOLS: Dict[str, dict] = {
                       "params": {"crew_id": "string", "ind": "|".join(INDICATORS)}},
     "explain_system": {"fn": explain_system, "description": "What spaceflight does to a body system and its current status.",
                        "params": {"crew_id": "string", "sys": "|".join(SYSTEMS)}},
-    "get_risks": {"fn": get_risks, "description": "Risk levels (for now behavioural health and performance) with trend, start day and evidence.",
+    "get_risks": {"fn": get_risks, "description": "Every risk (behavioural health, radiation, vision, nutrition, kidneys, immunity, heart, bone and muscle) with level, trend, start day, evidence, data origin (real, partial or simulated), the NASA red-risk mark and the hazards that are possible factors.",
                   "params": {"crew_id": "string"}},
     "get_protocol": {"fn": get_protocol, "description": "Summary of a Guided Response protocol (never the full emergency flow).",
                      "params": {"pid": "string"}},
@@ -104,7 +106,7 @@ def route(crew_id: str, question: str) -> List[dict]:
             calls.append(("get_protocol", {"pid": pid}))
     if re.search(r"what (should|do) i do|what now|today|how am i|status|overall", q) or not calls:
         calls.insert(0, ("get_status", {"crew_id": crew_id}))
-    if re.search(r"risk|fatigue|exhaust|burn ?out|worn out", q):
+    if re.search(r"risk|fatigue|exhaust|burn ?out|worn out|radiation|vision|sans|nutrition|kidney|immun|heart|cardio|bone|muscle|hazard|ridge|why", q):
         calls.append(("get_risks", {"crew_id": crew_id}))
     if re.search(r"goal|task|plan", q):
         calls.append(("list_goals", {"crew_id": crew_id}))
