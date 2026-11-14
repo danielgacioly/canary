@@ -63,6 +63,14 @@ Other commands:
 
 ### Settings (environment variables)
 
+Copy `env.example` to `.env` and fill in the desired API key. The backend automatically loads the repository-root `.env`, regardless of its working directory. Variables already exported in the process take precedence. From the repository root:
+
+```bash
+make dev
+```
+
+Keep unused API keys empty and restart the backend after changes. `.env` is ignored by Git. The example uses `gemini-3.1-flash-lite` and a 300-second deadline, matching the working local configuration; the table below lists application defaults without those overrides.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CANARY_DB` | `backend/canary.db` | SQLite file (created on start) |
@@ -72,16 +80,19 @@ Other commands:
 | `CANARY_DELAY_SPEEDUP` | `20` | communication delay runs this many times faster in the demo |
 | `CANARY_LIVE_SPACE_WEATHER` | `0` | `1` also asks NASA DONKI for the last 30 days (falls back to the snapshot) |
 | `NASA_API_KEY` | `DEMO_KEY` | key for api.nasa.gov |
-| `CANARY_LLM_PROVIDER` | `none` | `none`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
-| `CANARY_LLM_MODEL` | `claude-sonnet-5-5` | model id used when `CANARY_LLM_PROVIDER=anthropic` |
+| `CANARY_LLM_PROVIDER` | `auto` | `auto`, `none`, `gemini`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
+| `CANARY_LLM_MODEL` | unset | optional model override for the selected provider; leave unset when switching by API key |
+| `CANARY_GEMINI_MODEL` | `gemini-3.8-flash` | default Gemini model |
+| `CANARY_ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Anthropic model |
 | `CANARY_LLM_EFFORT` | `low` | effort level sent to the model (`low` keeps tool calls few and answers short) |
 | `CANARY_LLM_TIMEOUT_S` | `15` | one deadline per question; past it the answer falls back to grounded rules |
 | `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
 | `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds; extra calls get an error result |
 | `CANARY_KB` | `backend/kb.db` | knowledge base file, built by `make index` |
 | `CANARY_EMBEDDER` | `local` | `local` (fastembed, `bge-small-en-v1.5`) or `none` (BM25 only, fully offline) |
-| `ANTHROPIC_API_KEY` | none | read by the Anthropic SDK, only in the backend; never commit it |
-| `CANARY_EVAL_PRICE_IN` / `CANARY_EVAL_PRICE_OUT` | `2` / `10` | USD per million tokens for the eval's cost estimate (`claude-sonnet-5-5`) |
+| `GEMINI_API_KEY` | none | selects Gemini in auto mode; backend only, never commit it |
+| `ANTHROPIC_API_KEY` | none | selects Anthropic in auto mode when no Gemini key is present; backend only, never commit it |
+| `CANARY_EVAL_PRICE_IN` / `CANARY_EVAL_PRICE_OUT` | provider-dependent | USD per million tokens for eval estimates; Gemini `0.75` / `3.75` through 2026-12-31, Anthropic `2` / `10`; override for other models |
 
 ---
 
@@ -253,7 +264,7 @@ cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  �
 ```
 question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagnosis / dose / injection → refused   (no model call)
               ▼
-         provider loop (Claude, ≤ 3 rounds, ≤ 6 tool calls, one deadline)
+         provider loop (Gemini or Anthropic, ≤ 3 rounds, ≤ 6 tool calls, one deadline)
               │ the model picks tools; each runs for the signed-in person only, its sources join the turn
               ▼
          AssistantResponse {status, answer, observations, explanations, limitations, recommended_action_id}
@@ -267,7 +278,7 @@ question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagn
 
 | File | Role |
 | --- | --- |
-| `assistant/providers.py` | `NullProvider` (default), `AnthropicProvider` (manual tool loop with its guards), `LocalProvider` (slot for an on-board model) |
+| `assistant/providers.py` | `GeminiProvider` and `AnthropicProvider` (shared guarded tool loop), `NullProvider` (no key), `LocalProvider` (slot for an on-board model) |
 | `assistant/chat.py` | Entry 1: a question about one person, from that person or the medical team. `ask(crew_id, question, viewer)` |
 | `assistant/briefing.py` | Entry 2: weekly briefing. Code computes the facts, the model rewrites them as a `BriefingDraft`; any unknown number keeps the template |
 | `assistant/suggestions.py` | Entry 3: suggestions in My space. Rules write them; a model may only rephrase the reason, checked by `guard.unknown_numbers` |
@@ -277,7 +288,11 @@ question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagn
 | `assistant/contracts.py` | `ToolContext`, the tool result envelope, `AssistantResponse`, `BriefingDraft`, source-id and action formats |
 | `assistant/prompts/` | Versioned system prompts (`system_v1.md`, `briefing_v1.md`); the version is logged with every answer |
 
-**Run it with Claude:** `make index` (once), then `CANARY_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=… make dev`. The default model is `claude-sonnet-5-5` at `low` effort. Without a key, or with no link, the same question still answers from rules (`mode: "grounded"` when no provider is set, `"fallback"` when a set provider fails). The medical console lists recent questions, tools used and guard flags (`GET /api/medical/assistant-audit`).
+Both cloud providers use native REST APIs through the existing `httpx` dependency and share one guarded tool executor. With `CANARY_LLM_PROVIDER=auto` (the default), only `GEMINI_API_KEY` selects Gemini, only `ANTHROPIC_API_KEY` selects Anthropic, and neither key selects offline rules. If both keys are set, Gemini wins. Explicit `gemini` or `anthropic` selects that provider; `none` forces offline mode. HTTP 503 responses get at most two retries per model round, with 1 s / 2 s backoff (or a longer numeric `Retry-After`) within the remaining question deadline. Timeouts and other errors are not retried. A persistent API failure uses deterministic fallback, never another cloud provider.
+
+**Run automatically:** `make index` (once), then set either API key in the backend environment and run `make dev`. If you previously exported `CANARY_LLM_PROVIDER=gemini`, change it to `auto`; unset `CANARY_LLM_MODEL` to use the appropriate provider default. Use `CANARY_GEMINI_MODEL` and `CANARY_ANTHROPIC_MODEL` to customize models independently. Restart the backend after changing environment variables in your shell. `GET /api/assistant/status` reports the selected provider and model, never the keys.
+
+The default models are `gemini-3.8-flash` and `claude-sonnet-5-5`, both at `low` effort. Without any key, answers use rules (`mode: "grounded"`); when an explicitly selected provider is unconfigured or fails, answers use `"fallback"`. The medical console lists recent questions, tools used and guard flags (`GET /api/medical/assistant-audit`).
 
 **Eval:** `cd backend && .venv/bin/python -m evals.run --dry` runs about 30 adversarial cases (diagnosis, medication, prompt injection, emergencies, someone else's data, off-topic, invented numbers) through the real loop and guard with a scripted model, free. `--yes` runs them against the real API (costs money; see `backend/evals/README.md`).
 

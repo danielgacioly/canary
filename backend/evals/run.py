@@ -2,7 +2,7 @@
 
     cd backend
     .venv/bin/python -m evals.run --dry          # scripted provider, no network, free
-    .venv/bin/python -m evals.run --yes          # real Anthropic API: costs money, needs ANTHROPIC_API_KEY
+    .venv/bin/python -m evals.run --yes          # selected cloud API: costs money, needs its API key
 
 Options: --case ID (repeatable), --group NAME (repeatable), --out PATH.
 
@@ -29,10 +29,10 @@ OUT_DIR = HERE / "out"
 DEMO_PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
 DRY_PROVIDER = "eval-scripted"
 
-# Price per million tokens for claude-sonnet-5-5 ($2 input / $10 output). Override with
+# Price per million tokens for gemini-3.8-flash ($0.75 input / $3.75 output through 2026-12-31). Override with
 # CANARY_EVAL_PRICE_IN / CANARY_EVAL_PRICE_OUT (USD per million tokens) for another model or a price change.
-PRICE_IN = float(os.environ.get("CANARY_EVAL_PRICE_IN", "2"))
-PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", "10"))
+PRICE_IN = float(os.environ.get("CANARY_EVAL_PRICE_IN", "0.75"))
+PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", "3.75"))
 # Rough upper bound per model call for the warning before a real run.
 EST_IN_PER_CALL, EST_OUT_PER_CALL = 8000, 800
 
@@ -44,7 +44,8 @@ SOURCE_RE = re.compile(r"^(telemetry|status|goals|checkin|nasa|summary|kb|card|p
 def _prepare_env(dry: bool) -> str:
     db_path = os.path.join(tempfile.mkdtemp(prefix="canary-eval-"), "eval.db")
     os.environ["CANARY_DB"] = db_path
-    os.environ["CANARY_LLM_PROVIDER"] = DRY_PROVIDER if dry else "anthropic"
+    if dry:
+        os.environ["CANARY_LLM_PROVIDER"] = DRY_PROVIDER
     os.environ.setdefault("CANARY_LIVE_SPACE_WEATHER", "0")
     for k, v in (("CANARY_CREW_PINS", ",".join(f"{c}:{p}" for c, p in DEMO_PINS.items())),
                  ("CANARY_MEDICAL_PIN", "1961")):
@@ -98,7 +99,7 @@ def _has_tool_results(req: Any) -> bool:
 
 class ScriptedEvalProvider:
     """Holds the dry-run state (current case, recorded model calls) and builds each case's scripted
-    AssistantResponse. Used directly as the provider only when `AnthropicProvider` takes no injected client.
+    AssistantResponse. Used directly as the provider only when `GeminiProvider` takes no injected client.
 
     Replays each case's `dry` script. Duck-typed to `providers.LLMProvider` (name, configured, complete).
 
@@ -191,50 +192,45 @@ class ScriptedEvalProvider:
 
 
 class ScriptedClient:
-    """Fake Anthropic client for the dry run: `client.beta.messages.create(**kwargs)` returns plain-dict
-    messages, so the real `AnthropicProvider` loop (tool validation, run_tool, loop guards, usage) runs as is.
+    """Fake HTTP client returning native Gemini responses through the real provider loop.
 
-    Round 1 with tools on: a `tool_use` turn with the case's `dry.tools`. Once tool results are in the
-    messages (or the case has no tools): an `end_turn` with the case's AssistantResponse as JSON text, citing
-    source ids found in the tool results."""
+    The first round calls the scripted tools; the next cites their actual returned sources.
+    """
 
-    def __init__(self) -> None:
-        self.beta = self
-        self.messages = self
-
-    def create(self, **kw: Any) -> dict:
+    def post(self, url: str, **kwargs: Any) -> Any:
+        import httpx
+        kw = kwargs["json"]
         case = ScriptedEvalProvider.current or {}
         script = case.get("dry") or {}
         with_tools = bool(kw.get("tools"))
-        msgs = kw.get("messages") or []
+        msgs = kw.get("contents") or []
         rec = {"task": "chat" if with_tools else "other", "input_tokens": len(json.dumps(kw, default=str)) // 4,
                "output_tokens": 0, "turn": "final"}
         ScriptedEvalProvider.calls.append(rec)
-        has_results = any(isinstance(m.get("content"), list) and any(
-            isinstance(b, dict) and b.get("type") == "tool_result" for b in m["content"]) for m in msgs)
-        if not with_tools:   # briefing / suggestions: not scripted, the caller keeps its rule text
-            content, stop = [{"type": "text", "text": "not scripted"}], "end_turn"
-        elif script.get("tools") and not has_results:
-            content = [{"type": "tool_use", "id": f"toolu_eval_{i}", "name": t["name"], "input": t["args"]}
-                       for i, t in enumerate(script["tools"])]
-            stop, rec["turn"] = "tool_use", "tool_use"
+        results = [p["functionResponse"]["response"] for m in msgs for p in m.get("parts", [])
+                   if "functionResponse" in p]
+        if not with_tools:  # briefing / suggestions: caller keeps its rule text
+            parts = [{"text": "not scripted"}]
+        elif script.get("tools") and not results:
+            parts = [{"functionCall": {"id": f"eval_{i}", "name": t["name"], "args": t["args"]},
+                      "thoughtSignature": f"eval_signature_{i}"} for i, t in enumerate(script["tools"])]
+            rec["turn"] = "tool_use"
         else:
-            results = [b.get("content") for m in msgs if isinstance(m.get("content"), list)
-                       for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_result"]
-            content = [{"type": "text", "text": json.dumps(ScriptedEvalProvider.response(script, _ids_in(results)))}]
-            stop = "end_turn"
-        rec["output_tokens"] = len(json.dumps(content)) // 4
-        return {"type": "message", "role": "assistant", "model": "eval-scripted", "stop_reason": stop,
-                "content": content, "usage": {"input_tokens": rec["input_tokens"],
-                                              "output_tokens": rec["output_tokens"]}}
+            parts = [{"text": json.dumps(ScriptedEvalProvider.response(script, _ids_in(results)))}]
+        rec["output_tokens"] = len(json.dumps(parts)) // 4
+        body = {"modelVersion": "eval-scripted",
+                "candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": parts}}],
+                "usageMetadata": {"promptTokenCount": rec["input_tokens"],
+                                  "candidatesTokenCount": rec["output_tokens"]}}
+        return httpx.Response(200, request=httpx.Request("POST", url), json=body)
 
 
 def _dry_factory() -> Any:
-    """The real AnthropicProvider driven by ScriptedClient when it accepts an injected client; otherwise the
+    """The real GeminiProvider driven by ScriptedClient when it accepts an injected client; otherwise the
     duck-typed ScriptedEvalProvider (older provider layer without a loop)."""
     import inspect
     from canary.assistant import providers
-    cls = getattr(providers, "AnthropicProvider", None)
+    cls = getattr(providers, "GeminiProvider", None)
     if cls is not None and "client" in inspect.signature(cls.__init__).parameters:
         p = cls(client=ScriptedClient())
         try:
@@ -278,18 +274,18 @@ def _install_provider(dry: bool) -> str:
         factory = _dry_factory
         settings.llm_provider = DRY_PROVIDER
     else:
-        real = providers._PROVIDERS["anthropic"] if hasattr(providers, "_PROVIDERS") else None
-        if real is None:
-            raise SystemExit("providers._PROVIDERS['anthropic'] not found: cannot wrap the real provider")
-        factory = lambda: _CountingWrapper(real())  # noqa: E731
-        settings.llm_provider = "anthropic"
+        selected = providers.get_provider()
+        if selected.name not in ("gemini", "anthropic") or not selected.configured:
+            raise SystemExit("No configured cloud provider selected")
+        factory = lambda: _CountingWrapper(selected)  # noqa: E731
+        settings.llm_provider = selected.name
 
     registry = getattr(providers, "_PROVIDERS", None)
     if isinstance(registry, dict):
         if dry:
             registry[DRY_PROVIDER] = factory
         else:
-            registry["anthropic"] = factory
+            registry[settings.llm_provider] = factory
         return "settings"
     # Fallback: patch the factory function wherever it was imported by name.
     import importlib
@@ -497,16 +493,22 @@ def _select(cases: List[dict], ids: List[str], groups: List[str], dry: bool) -> 
 
 def _real_guard(n: int, yes: bool) -> None:
     from canary.config import settings
+    from canary.assistant.providers import get_provider
+    global PRICE_IN, PRICE_OUT
+    provider = get_provider()
+    default_in, default_out = ("2", "10") if provider.name == "anthropic" else ("0.75", "3.75")
+    PRICE_IN = float(os.environ.get("CANARY_EVAL_PRICE_IN", default_in))
+    PRICE_OUT = float(os.environ.get("CANARY_EVAL_PRICE_OUT", default_out))
     calls = n * settings.llm_max_steps
     est = calls * (EST_IN_PER_CALL * PRICE_IN + EST_OUT_PER_CALL * PRICE_OUT) / 1e6
-    print(f"WARNING: the real eval calls the paid Anthropic API ({settings.llm_model}).")
+    print(f"WARNING: the real eval calls the paid {provider.name} API ({getattr(provider, 'model', None)}).")
     print(f"  {n} cases, up to {calls} model calls; rough upper bound ~${est:.2f} "
           f"at ${PRICE_IN}/${PRICE_OUT} per million input/output tokens (check current pricing).")
     if not yes:
         print("Not running. Add --yes to confirm, or use --dry for the free scripted run.")
         raise SystemExit(2)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY is not set. Not running.")
+    if provider.name not in ("gemini", "anthropic") or not provider.configured:
+        print("No configured cloud provider selected. Set GEMINI_API_KEY or ANTHROPIC_API_KEY. Not running.")
         raise SystemExit(2)
 
 
@@ -611,8 +613,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out = pathlib.Path(args.out) if args.out else OUT_DIR / f"{'dry' if args.dry else 'real'}-{stamp}.json"
     from canary.config import settings
+    from canary.assistant.providers import status as provider_status
     report = {"created_at": stamp, "mode": "dry" if args.dry else "real", "provider_injection": how,
-              "provider": settings.llm_provider, "model": None if args.dry else settings.llm_model,
+              "provider": settings.llm_provider, "model": None if args.dry else provider_status()["model"],
               "db": db_path, "price_per_mtok": {"input": PRICE_IN, "output": PRICE_OUT},
               "summary": {"passed": passed, "total": len(rows), "must_pass_ok": must_ok,
                           "input_tokens": total_in, "output_tokens": total_out, "est_cost_usd": round(cost, 4),

@@ -54,22 +54,19 @@ def test_every_tool_has_a_valid_args_case():
     assert set(VALID_ARGS) == set(tools.TOOLS)
 
 
-def test_anthropic_tools_are_strict_and_have_no_crew_id():
-    rendered = tools.anthropic_tools()
+def test_gemini_tools_are_strict_and_have_no_crew_id():
+    rendered = tools.gemini_tools()
     assert [t["name"] for t in rendered] == list(tools.TOOLS)
     for t in rendered:
-        assert t["strict"] is True and t["description"]
-        s = t["input_schema"]
+        assert t["description"]
+        s = t["parametersJsonSchema"]
         assert s["type"] == "object" and s["additionalProperties"] is False
         assert s["required"] == list(s["properties"])
         assert "crew_id" not in s["properties"] and "viewer" not in s["properties"]
-        blob = json.dumps(s)
-        for kw in ("minimum", "maximum", "maxLength"):
-            assert f'"{kw}"' not in blob  # not in the strict grammar; enforced by validate_args
 
 
 def test_enums_come_from_the_catalogue():
-    props = {t["name"]: t["input_schema"]["properties"] for t in tools.anthropic_tools()}
+    props = {t["name"]: t["parametersJsonSchema"]["properties"] for t in tools.gemini_tools()}
     assert props["get_indicator"]["ind"]["enum"] == list(catalog.INDICATORS)
     assert props["explain_system"]["sys"]["enum"] == list(catalog.SYSTEMS)
     assert set(props["get_protocol"]["pid"]["enum"]) == {"cpr", "seizure", "choke", "chest", "allergy", "bleed", "eye", "crisis", "rad", "triage"}

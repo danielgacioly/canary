@@ -195,8 +195,8 @@ The place and gravity filters read `mission.state()["location"]`, which follows 
 | `question` | TEXT | existing | |
 | `response` | TEXT (JSON) | existing | the `AssistantResponse` below |
 | `created_at` | REAL | existing | |
-| `provider` | TEXT | **new** | `none`, `anthropic`, `local` |
-| `model` | TEXT | **new** | e.g. `claude-sonnet-5-5` |
+| `provider` | TEXT | **new** | `none`, `gemini`, `anthropic`, `local` (resolved provider, never `auto`) |
+| `model` | TEXT | **new** | e.g. `gemini-3.8-flash` |
 | `kb_version` | TEXT | **new** | `kb_meta.corpus_hash` used to answer |
 | `outcome` | TEXT | **new** | `ai`, `grounded`, `unknown`, `refused`, `emergency`, `fallback` |
 | `guard_flags` | TEXT (JSON) | **new** | what the guard dropped or rejected, and why |

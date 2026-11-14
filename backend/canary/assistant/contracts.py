@@ -215,11 +215,12 @@ def _strictify(node: Any) -> Any:
 
 
 def json_schema(model: type) -> Dict[str, Any]:
-    """The model's JSON Schema in the shape Anthropic structured outputs accept: every object has
+    """The model's JSON Schema for structured model outputs: every object has
     `additionalProperties: false` and lists all its properties as required; unsupported constraints
     (lengths, patterns, defaults) are removed and enforced by pydantic on the way back instead.
 
-    Use as: output_config={"format": {"type": "json_schema", "schema": json_schema(AssistantResponse)}}.
+    Use as: generationConfig={"responseMimeType": "application/json",
+    "responseJsonSchema": json_schema(AssistantResponse)}.
     """
     return _strictify(copy.deepcopy(model.model_json_schema()))
 

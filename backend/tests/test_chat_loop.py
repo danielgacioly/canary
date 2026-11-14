@@ -3,7 +3,7 @@
 Covers the manual tool loop (validate -> run_tool -> log -> all results in one message), every loop guard
 (rounds, tool budget, repeats, deadline), every exit to the grounded fallback (guard hard fail, refusal,
 max_tokens, bad output, API errors, timeout), the briefing and suggestions entries, the request settings
-sent to the Messages API, and the medical audit route.
+sent to the Gemini API, and the medical audit route.
 """
 import json
 import os
@@ -96,40 +96,38 @@ def test_tool_use_then_supported_answer(monkeypatch):
         assert key in r
 
     row = log_row(r["id"])
-    assert row["provider"] == "scripted" and row["model"] == "claude-sonnet-5-5" and row["outcome"] == "ai"
+    assert row["provider"] == "scripted" and row["model"] == "gemini-3.8-flash" and row["outcome"] == "ai"
     assert row["input_tokens"] == 200 and row["output_tokens"] == 100 and row["latency_ms"] >= 0
     assert json.loads(row["guard_flags"]) == []
     turns = db.q("SELECT step,tool,args,sources,ok FROM assistant_turns WHERE log_id=? ORDER BY id", (r["id"],))
     assert [(t["step"], t["tool"], t["ok"]) for t in turns] == [(1, "get_indicator", 1), (1, "list_goals", 1)]
     assert json.loads(turns[0]["args"]) == {"ind": "sleep"} and json.loads(turns[0]["sources"]) == src
 
-    # second call: the assistant turn passed back unchanged, then ALL tool results in ONE user message
-    second = p.api_calls[1]["messages"]
-    assert [m["role"] for m in second] == ["user", "assistant", "user"]
-    assert second[1]["content"][0].type == "thinking" and second[1]["content"][0].signature.startswith("sig-")
-    results = second[2]["content"]
-    asked = [b.id for b in second[1]["content"] if b.type == "tool_use"]
-    assert [b["type"] for b in results] == ["tool_result", "tool_result"]
-    assert [b["tool_use_id"] for b in results] == asked
-    assert not any(b.get("is_error") for b in results)
-    assert json.loads(results[0]["content"])["sources"] == src
+    # Complete model parts (including signatures), then all results in one user turn.
+    second = p.api_calls[1]["contents"]
+    assert [m["role"] for m in second] == ["user", "model", "user"]
+    assert second[1]["parts"][0]["thoughtSignature"].startswith("sig-")
+    results = [p["functionResponse"] for p in second[2]["parts"]]
+    asked = [p["functionCall"]["id"] for p in second[1]["parts"] if "functionCall" in p]
+    assert [r["id"] for r in results] == asked
+    assert not any(r["response"].get("error") for r in results)
+    assert results[0]["response"]["sources"] == src
+    assert all(p["thoughtSignature"] for p in second[1]["parts"] if "functionCall" in p)
 
 
 def test_request_settings(monkeypatch):
     p, _ = ask(monkeypatch, [final(good_answer())])
     kw = p.api_calls[0]
-    assert kw["model"] == settings.llm_model and kw["max_tokens"] == 2000
-    assert kw["thinking"] == {"type": "adaptive"}
-    assert kw["output_config"]["effort"] == settings.llm_effort
-    assert kw["output_config"]["format"]["type"] == "json_schema"
-    assert set(kw["output_config"]["format"]["schema"]["properties"]) >= {"status", "observations", "recommended_action_id"}
-    assert kw["tool_choice"] == {"type": "auto"}
-    assert all(t["strict"] for t in kw["tools"]) and len(kw["tools"]) == len(tools.TOOLS)
-    assert kw["system"][0]["cache_control"] == {"type": "ephemeral"} and "Canary" in kw["system"][0]["text"]
-    assert kw["betas"] == ["server-side-fallback-2026-07-01"] and kw["fallbacks"] == "default"
+    config = kw["generationConfig"]
+    assert config["maxOutputTokens"] == 2000
+    assert config["thinkingConfig"] == {"thinkingLevel": settings.llm_effort.upper()}
+    assert config["responseMimeType"] == "application/json"
+    assert set(config["responseJsonSchema"]["properties"]) >= {"status", "observations", "recommended_action_id"}
+    assert kw["toolConfig"] == {"functionCallingConfig": {"mode": "AUTO"}}
+    assert len(kw["tools"][0]["functionDeclarations"]) == len(tools.TOOLS)
+    assert "Canary" in kw["systemInstruction"]["parts"][0]["text"]
     assert 0 < kw["timeout"] <= settings.llm_timeout_s
-    assert not {"temperature", "top_p", "top_k"} & set(kw)
-    first = kw["messages"][0]["content"]
+    first = kw["contents"][0]["parts"][0]["text"]
     assert "Helena" in first and "their own data" in first and QUESTION in first
 
 
@@ -160,8 +158,8 @@ def test_kb_source_meta(monkeypatch):
 def test_failed_tool_gets_is_error_and_is_logged(monkeypatch):
     p, r = ask(monkeypatch, [tool_use(("get_indicator", {"ind": "nope"}), ("get_indicator", {"ind": "sleep"})),
                              final(good_answer())])
-    results = p.api_calls[1]["messages"][2]["content"]
-    assert results[0]["is_error"] is True and "must be one of" in json.loads(results[0]["content"])["error"]
+    results = p.api_calls[1]["contents"][2]["parts"]
+    assert "must be one of" in results[0]["functionResponse"]["response"]["error"]
     assert "is_error" not in results[1]
     turns = db.q("SELECT tool,ok FROM assistant_turns WHERE log_id=? ORDER BY id", (r["id"],))
     assert [t["ok"] for t in turns] == [0, 1]
@@ -170,8 +168,8 @@ def test_failed_tool_gets_is_error_and_is_logged(monkeypatch):
 
 def test_crew_id_argument_is_rejected(monkeypatch):
     p, r = ask(monkeypatch, [tool_use(("get_status", {"crew_id": "k"})), final(good_answer())])
-    res = p.api_calls[1]["messages"][2]["content"][0]
-    assert res["is_error"] and "crew_id" in json.loads(res["content"])["error"]
+    res = p.api_calls[1]["contents"][2]["parts"][0]
+    assert "crew_id" in res["functionResponse"]["response"]["error"]
     # the sleep source was never returned, so the claim is dropped and the status downgraded
     assert r["mode"] == "ai" and r["status"] == "insufficient_evidence" and r["observations"] == []
     assert {"G-SRC-01", "G-STATUS-01"} <= set(r["guard"]["rule_ids"])
@@ -191,10 +189,10 @@ def test_max_steps(monkeypatch):
 def test_tool_budget(monkeypatch):
     inds = ["sleep", "react", "mood", "stress", "social", "hr", "bp", "temp"]
     p, r = ask(monkeypatch, [tool_use(*[("get_indicator", {"ind": i}) for i in inds]), final(good_answer())])
-    results = p.api_calls[1]["messages"][2]["content"]
+    results = p.api_calls[1]["contents"][2]["parts"]
     assert len(results) == 8
-    assert [bool(b.get("is_error")) for b in results] == [False] * 6 + [True] * 2
-    assert "budget" in json.loads(results[-1]["content"])["error"]
+    assert [bool(b["functionResponse"]["response"].get("error")) for b in results] == [False] * 6 + [True] * 2
+    assert "budget" in results[-1]["functionResponse"]["response"]["error"]
     assert len(db.q("SELECT id FROM assistant_turns WHERE log_id=?", (r["id"],))) == settings.llm_max_tool_calls
     assert r["mode"] == "ai" and "loop:max_tool_calls" in json.loads(log_row(r["id"])["guard_flags"])
 
@@ -202,7 +200,7 @@ def test_tool_budget(monkeypatch):
 def test_repeated_call_is_not_run_again(monkeypatch):
     p, r = ask(monkeypatch, [tool_use(("get_indicator", {"ind": "sleep"})), tool_use(("get_indicator", {"ind": "sleep"})),
                              final(good_answer())])
-    again = json.loads(p.api_calls[2]["messages"][4]["content"][0]["content"])
+    again = p.api_calls[2]["contents"][4]["parts"][0]["functionResponse"]["response"]
     assert "Repeated call" in again["note"] and again["sources"] == sleep_obs()[1]
     assert len(db.q("SELECT id FROM assistant_turns WHERE log_id=?", (r["id"],))) == 1
     assert r["mode"] == "ai" and "loop:repeat" in json.loads(log_row(r["id"])["guard_flags"])
@@ -352,8 +350,8 @@ def test_briefing_uses_a_valid_draft(monkeypatch):
     b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
     assert b["mode"] == "ai" and "1 WHAT WORRIES" in b["text"]
     kw = p.api_calls[0]
-    assert "tools" not in kw and "tool_choice" not in kw
-    assert "sections" in kw["output_config"]["format"]["schema"]["properties"]
+    assert "tools" not in kw and "toolConfig" not in kw
+    assert "sections" in kw["generationConfig"]["responseJsonSchema"]["properties"]
     assert p.requests[0].task == "briefing"
 
 
@@ -383,7 +381,7 @@ def test_suggestions_rewrite(monkeypatch):
     s = client.get("/api/suggestions/h", headers=as_("h")).json()
     assert s["mode"] == "ai" and all(x["why"] == "A gentler way to say it." for x in s["items"])
     kw = p.api_calls[0]
-    assert "tools" not in kw and kw["output_config"]["format"]["schema"]["required"] == ["items"]
+    assert "tools" not in kw and kw["generationConfig"]["responseJsonSchema"]["required"] == ["items"]
 
 
 def test_suggestions_keep_rules_on_invented_numbers(monkeypatch):
@@ -399,31 +397,32 @@ def test_suggestions_keep_rules_on_failure(monkeypatch, turn):
     assert client.get("/api/suggestions/h", headers=as_("h")).json()["mode"] == "rules"
 
 
-# ---------------------------------------------------------------- the real SDK, offline
+# ---------------------------------------------------------------- the real HTTP client, offline
 
-def test_sdk_accepts_the_request_shape():
-    """The installed SDK builds the request (betas header, fallbacks, output_config) against a mock transport."""
-    import anthropic
-    import httpx2
+def test_http_request_shape(monkeypatch):
+    import httpx
     seen = {}
+    monkeypatch.setenv("GEMINI_API_KEY", "test-not-a-key")
 
     def handler(request):
         seen["body"] = json.loads(request.content)
-        seen["beta"] = request.headers.get("anthropic-beta")
-        return httpx2.Response(200, json={
-            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-5-5",
-            "stop_reason": "end_turn", "stop_sequence": None,
-            "content": [{"type": "text", "text": json.dumps({"items": [{"id": "sleep", "why": "Rest more."}]})}],
-            "usage": {"input_tokens": 10, "output_tokens": 5}})
-    sdk = anthropic.Anthropic(api_key="test-not-a-key", max_retries=0,
-                              http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
-    out = providers.AnthropicProvider(client=sdk).complete(
-        providers.ProviderRequest(task="suggestions", system="rules", question="[]"))
+        assert request.headers["x-goog-api-key"] == "test-not-a-key"
+        assert str(request.url) == f"https://generativelanguage.googleapis.com/v1beta/models/{providers.GeminiProvider().model}:generateContent"
+        assert "test-not-a-key" not in str(request.url)
+        return httpx.Response(200, json={
+            "modelVersion": providers.GeminiProvider().model,
+            "candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": [
+                {"text": json.dumps({"items": [{"id": "sleep", "why": "Rest more."}]})}]}}],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "thoughtsTokenCount": 3}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        out = providers.GeminiProvider(client=client).complete(
+            providers.ProviderRequest(task="suggestions", system="rules", question="[]"))
     assert out.ok and json.loads(out.answer) == [{"id": "sleep", "why": "Rest more."}]
+    assert out.input_tokens == 10 and out.output_tokens == 8
     body = seen["body"]
-    assert body["fallbacks"] == "default" and "server-side-fallback-2026-07-01" in seen["beta"]
-    assert body["thinking"] == {"type": "adaptive"} and body["output_config"]["format"]["type"] == "json_schema"
-    assert not {"temperature", "top_p", "top_k"} & set(body)
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert "tools" not in body and "toolConfig" not in body
+    assert not {"betas", "fallbacks", "output_config"} & set(body)
 
 
 def test_status_lists_entries():
@@ -447,6 +446,58 @@ def test_audit_route(monkeypatch):
     newest, older = rows
     assert newest["mode"] == "fallback" and "model:refusal" in newest["guard_flags"]
     assert older["mode"] == "ai" and older["tools"] == ["get_indicator"] and older["status"] == "supported"
-    assert older["provider"] == "scripted" and older["model"] == "claude-sonnet-5-5"
+    assert older["provider"] == "scripted" and older["model"] == "gemini-3.8-flash"
     assert isinstance(older["latency_ms"], int)
     assert len(client.get("/api/medical/assistant-audit?limit=1", headers=medical()).json()) == 1
+
+
+@pytest.mark.parametrize("body,reason", [
+    ({"promptFeedback": {"blockReason": "SAFETY"}}, "model:refusal"),
+    ({"candidates": []}, "model:bad_output"),
+    ({"candidates": [{"finishReason": "MALFORMED_FUNCTION_CALL"}]}, "model:bad_output"),
+    ({"candidates": [{"finishReason": "STOP", "content": {"parts": []}}]}, "model:bad_output"),
+])
+def test_gemini_blocked_or_empty_response_falls_back(monkeypatch, body, reason):
+    _, r = ask(monkeypatch, [body])
+    assert r["mode"] == "fallback" and r["guard"]["reason"].startswith(reason)
+
+
+def test_gemini_configuration(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "obsolete-key")
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
+    assert isinstance(providers.get_provider(), providers.GeminiProvider)
+    assert not providers.get_provider().configured
+    assert providers.status()["model"] == providers.GeminiProvider().model
+    assert providers.status()["available"] == ["none", "gemini", "anthropic", "local"]
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    assert providers.get_provider().configured
+
+
+def test_gemini_missing_key_uses_fallback_answer(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    use(monkeypatch, providers.GeminiProvider())
+    r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": QUESTION}, headers=as_("h")).json()
+    assert r["mode"] == "fallback" and r["claims"]
+
+
+def test_gemini_ignores_thought_text(monkeypatch):
+    body = {"candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": [
+        {"text": "private reasoning, not JSON", "thought": True},
+        {"text": json.dumps(good_answer())}]}}]}
+    p = ScriptedProvider(messages=[body])
+    out = p.complete(providers.ProviderRequest(task="chat", system="s", question=QUESTION, ctx=ctx()))
+    assert out.ok and "private reasoning" not in out.answer
+
+
+@pytest.mark.parametrize("code,reason", [(401, "api:status"), (429, "api:rate_limit"),
+                                         (500, "api:status"), (504, "api:timeout")])
+def test_gemini_http_errors_do_not_expose_response_body(code, reason):
+    import httpx
+    def handler(request):
+        return httpx.Response(code, json={"error": {"message": "secret-key-and-data"}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+        out = providers.GeminiProvider(client=transport).complete(
+            providers.ProviderRequest(task="suggestions", system="s", question="[]"))
+    assert not out.ok and out.guard_exit == reason
+    assert "secret-key-and-data" not in out.error

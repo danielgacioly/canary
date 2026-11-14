@@ -1,5 +1,21 @@
 # Canary AI layer: implementation plan
 
+> **Current provider support (2026-11-14):** Gemini and Anthropic coexist through native REST adapters
+> sharing `ToolCallingProvider` (budgets, validation, tool execution, audit and fallback).
+> `CANARY_LLM_PROVIDER=auto` is the default: select the configured API key; Gemini wins if both are set;
+> neither key means offline rules. Explicit `gemini`, `anthropic`, or `none` overrides automatic selection.
+> Defaults: `CANARY_GEMINI_MODEL=gemini-3.8-flash`, `CANARY_ANTHROPIC_MODEL=claude-sonnet-5-5`.
+> Leave `CANARY_LLM_MODEL` unset for key-only switching; it remains an optional global override.
+> Both use the existing `httpx` dependency. Native model messages retain thinking signatures.
+> HTTP 503 responses get up to two retries per round within the question deadline; other errors are not retried.
+> Persistent API failures fall back to deterministic rules, never another provider. The real eval uses the selected provider.
+> The original wave descriptions below record the initial Anthropic implementation.
+> Verified: `make test` passes (428 backend tests + frontend typecheck); dry eval passes 34/34.
+> Live smoke test: Gemini 3.1 Flash-Lite completed the native tool loop with fictional data and valid structured output in 46 seconds.
+> Gemini 3.8 Flash returned explicit high-demand 503 errors. The user confirmed the chat works with Flash-Lite.
+> `env.example` reflects that working local model and 300-second deadline; `.env` and keys stay untracked.
+> The full paid adversarial evaluation has not been run.
+
 **Scope.** Canary is the whole crew-health system already in this repo. This plan covers only its AI layer (`backend/canary/assistant/`): connect a real model with tool calling, harden the English guard rules, and add a vector knowledge base. Everything else (alerts, goals, Guided Response, NASA data, the body) stays as it is.
 
 **Principle kept from day one:** deterministic code decides alerts, emergencies and thresholds. The model only explains data that tools return, and every sentence it writes is checked before anyone sees it.

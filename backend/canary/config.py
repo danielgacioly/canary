@@ -5,7 +5,13 @@ import re
 import secrets
 from typing import Dict
 
+from dotenv import load_dotenv
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# Load the repository-root file regardless of the process working directory.
+# Explicit process variables (including isolated test paths) take precedence.
+load_dotenv(ROOT / ".env", override=False)
 
 
 PIN_RE = re.compile(r"^\d{4}$")
@@ -45,11 +51,12 @@ class Settings:
     # NASA DONKI live space weather. DEMO_KEY works with low rate limits.
     nasa_api_key: str = os.environ.get("NASA_API_KEY", "DEMO_KEY")
     live_space_weather: bool = os.environ.get("CANARY_LIVE_SPACE_WEATHER", "0") == "1"
-    # AI assistant provider: "none" (default), "anthropic" or "local". See canary/assistant/providers.py
-    llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
-    # Model settings for the tool-calling loop (docs/ai/plan.md, Phase 0). The API key is never read here:
-    # the Anthropic SDK reads ANTHROPIC_API_KEY from the environment itself.
-    llm_model: str = os.environ.get("CANARY_LLM_MODEL", "claude-sonnet-5-5")
+    # Auto selects the configured API key (Gemini first when both are present); none forces offline.
+    llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "auto").strip().lower()
+    # Optional global override; normally each provider uses its own model to allow key-only switching.
+    llm_model: str = os.environ.get("CANARY_LLM_MODEL", "").strip()
+    gemini_model: str = os.environ.get("CANARY_GEMINI_MODEL", "gemini-3.8-flash")
+    anthropic_model: str = os.environ.get("CANARY_ANTHROPIC_MODEL", "claude-sonnet-5-5")
     llm_effort: str = os.environ.get("CANARY_LLM_EFFORT", "low")
     # After this many seconds the answer falls back to grounded rules.
     llm_timeout_s: float = float(os.environ.get("CANARY_LLM_TIMEOUT_S", "15"))

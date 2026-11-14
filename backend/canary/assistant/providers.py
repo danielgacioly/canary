@@ -1,4 +1,4 @@
-"""LLM provider interface. Pick one with CANARY_LLM_PROVIDER (none | anthropic | local).
+"""LLM provider interface. Pick one with CANARY_LLM_PROVIDER (auto | none | gemini | anthropic | local).
 
 Three AI entries share `complete(ProviderRequest)` (contracts.AI_ENTRIES, docs/ai/plan.md Phase 2):
 
@@ -27,13 +27,13 @@ from .contracts import ToolContext, ToolResult
 @dataclass
 class ProviderRequest:
     task: str                      # "chat" | "briefing" | "suggestions" (contracts.AI_ENTRIES)
-    system: str                    # stable rules for the model (prompts/*.md), sent with cache_control
+    system: str                    # stable rules for the model (prompts/*.md), sent as systemInstruction
     question: str                  # the user message: question plus who asks, or the briefing/suggestions input
     context: List[dict] = field(default_factory=list)  # chat: unused (tools fetch data); others: computed facts
     knowledge: List[dict] = field(default_factory=list)  # legacy: cards pasted in the prompt (not sent any more)
     ctx: Optional[ToolContext] = None        # chat: the bound person and viewer every tool call runs in
     deadline: Optional[float] = None         # time.monotonic() value; default now + settings.llm_timeout_s
-    output_schema: Optional[Dict[str, Any]] = None  # JSON Schema for output_config.format (default per task)
+    output_schema: Optional[Dict[str, Any]] = None  # JSON Schema for responseJsonSchema (default per task)
 
 
 @dataclass
@@ -109,23 +109,11 @@ def default_schema(task: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-# ---------------------------------------------------------------- Anthropic
+# ---------------------------------------------------------------- shared tool loop and provider adapters
 
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_TOKENS = 2000
 REPEAT_NOTE = "Repeated call: this is the same result as before. Use it instead of calling again."
 BUDGET_NOTE = "Tool budget used up for this question: answer from the results you already have."
-
-
-def _get(obj: Any, key: str, default: Any = None) -> Any:
-    """Attribute or key access, so SDK objects and plain dicts (tests) both work."""
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-
-def _final_text(content: List[Any]) -> str:
-    return "".join(_get(b, "text", "") or "" for b in content if _get(b, "type") == "text").strip()
 
 
 def _parse_json(text: str) -> Any:
@@ -135,87 +123,82 @@ def _parse_json(text: str) -> Any:
         return None
 
 
-class AnthropicProvider:
-    """Claude through the Anthropic API (ground segment, or a demo with internet).
+class ToolCallingProvider:
+    """Shared execution budgets, tool validation, audit and failure handling.
 
-    The SDK reads ANTHROPIC_API_KEY (or another configured credential) from the environment itself; this
-    class never reads, logs or stores it. `client` may be injected (tests use a scripted fake client)."""
-    name = "anthropic"
+    Subclasses translate native messages without altering their signed model content.
+    """
+    name: str
+    key_env: str
+    model_setting: str
 
     def __init__(self, client: Any = None):
         self._client = client
 
     @property
     def configured(self) -> bool:
+        return self._client is not None or bool(os.environ.get(self.key_env, "").strip())
+
+    @property
+    def model(self) -> str:
+        return settings.llm_model or getattr(settings, self.model_setting)
+
+    def _post(self, url: str, body: dict, headers: dict, timeout: float) -> dict:
+        import httpx
+        deadline = time.monotonic() + timeout
+
+        def send(client):
+            for attempt in range(3):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise httpx.TimeoutException("AI request deadline exhausted")
+                response = client.post(url, json=body, headers=headers, timeout=remaining)
+                if response.status_code != 503 or attempt == 2:
+                    return response
+                # Retry only an explicit unavailable response, never an ambiguous timeout.
+                delay = 2 ** attempt
+                retry_after = response.headers.get("retry-after", "")
+                if retry_after.isdigit():
+                    delay = max(delay, int(retry_after))
+                if deadline - time.monotonic() <= delay:
+                    return response
+                response.close()
+                time.sleep(delay)
+            raise AssertionError("unreachable")
+
         if self._client is not None:
-            return True
+            response = send(self._client)
+        else:
+            with httpx.Client() as client:
+                response = send(client)
+        response.raise_for_status()
         try:
-            import anthropic  # noqa: F401
-        except ImportError:
-            return False
-        return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-
-    def _sdk(self) -> Any:
-        if self._client is None:
-            import anthropic
-            # No SDK retries: the question has one deadline, and a failure falls back to the grounded answer.
-            self._client = anthropic.Anthropic(max_retries=0)
-        return self._client
-
-    # -- one Messages API call
-
-    def _call(self, req: ProviderRequest, messages: List[dict], with_tools: bool, timeout: float) -> Any:
-        schema = req.output_schema or default_schema(req.task)
-        output_config: Dict[str, Any] = {"effort": settings.llm_effort}
-        if schema:
-            output_config["format"] = {"type": "json_schema", "schema": schema}
-        kwargs: Dict[str, Any] = dict(
-            model=settings.llm_model,
-            max_tokens=MAX_TOKENS,
-            thinking={"type": "adaptive"},
-            output_config=output_config,
-            system=[{"type": "text", "text": req.system, "cache_control": {"type": "ephemeral"}}],
-            messages=messages,
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
-            timeout=max(timeout, 0.1),
-        )
-        if with_tools:
-            kwargs["tools"] = tools.anthropic_tools()
-            kwargs["tool_choice"] = {"type": "auto"}
-        return self._sdk().beta.messages.create(**kwargs)
+            result = response.json()
+        except ValueError:
+            return {}
+        return result if isinstance(result, dict) else {}
 
     @staticmethod
     def _api_error(e: BaseException) -> Optional[Tuple[str, str]]:
-        """(guard_exit, error text) for an SDK error, or None when `e` is not one."""
-        try:
-            import anthropic
-        except ImportError:
-            return None
-        if isinstance(e, anthropic.APITimeoutError):
+        import httpx
+        if isinstance(e, httpx.TimeoutException):
             return "api:timeout", "AI service timed out"
-        if isinstance(e, anthropic.RateLimitError):
-            return "api:rate_limit", "AI service rate limit"
-        if isinstance(e, anthropic.APIConnectionError):
+        if isinstance(e, httpx.HTTPStatusError):
+            code = e.response.status_code
+            if code == 429:
+                return "api:rate_limit", "AI service rate limit"
+            if code == 503:
+                return "api:status", "AI service temporarily unavailable (503)"
+            if code in (408, 504):
+                return "api:timeout", "AI service timed out"
+            return "api:status", f"AI service error {code}"
+        if isinstance(e, httpx.RequestError):
             return "api:connection", "no connection to the AI service"
-        if isinstance(e, anthropic.APIStatusError):
-            return "api:status", f"AI service error {e.status_code}"
-        if isinstance(e, anthropic.AnthropicError):  # missing credentials and other client-side errors
-            return "api:error", f"AI service unavailable ({type(e).__name__})"
         return None
-
-    @staticmethod
-    def _usage(out: ProviderResult, msg: Any) -> None:
-        u = _get(msg, "usage")
-        if u is not None:
-            out.input_tokens += sum(int(_get(u, k, 0) or 0) for k in
-                                    ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-            out.output_tokens += int(_get(u, "output_tokens", 0) or 0)
-        out.model = _get(msg, "model") or out.model
 
     def complete(self, req: ProviderRequest) -> ProviderResult:
         deadline = req.deadline if req.deadline is not None else time.monotonic() + settings.llm_timeout_s
-        out = ProviderResult(ok=False, model=settings.llm_model)
+        out = ProviderResult(ok=False, model=self.model)
         if req.task not in contracts.AI_ENTRIES:
             out.error, out.guard_exit = f"unknown task {req.task!r}", "api:error"
             return out
@@ -230,17 +213,8 @@ class AnthropicProvider:
         out.ok, out.guard_exit, out.error = False, exit_, error or GUARD_EXITS[exit_]
         return out
 
-    def _stop(self, out: ProviderResult, msg: Any) -> Optional[ProviderResult]:
-        """Handle the stop reasons that end a call before content is read."""
-        reason = _get(msg, "stop_reason")
-        if reason == "refusal":
-            return self._fail(out, "model:refusal")
-        if reason == "max_tokens":
-            return self._fail(out, "model:max_tokens")
-        return None
-
     def _finish(self, out: ProviderResult, msg: Any, task: str) -> ProviderResult:
-        text = _final_text(_get(msg, "content", []) or [])
+        text = self._text(msg)
         data = _parse_json(text)
         if data is None:
             out.answer = text
@@ -252,8 +226,6 @@ class AnthropicProvider:
             out.answer = json.dumps(data["items"], ensure_ascii=False)
         return out
 
-    # -- briefing / suggestions: one call, no tools
-
     def _single(self, req: ProviderRequest, deadline: float, out: ProviderResult) -> ProviderResult:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -263,23 +235,23 @@ class AnthropicProvider:
             user += "\n\nComputed facts (JSON):\n" + json.dumps(req.context, ensure_ascii=False, default=str)
         out.steps = 1
         try:
-            msg = self._call(req, [{"role": "user", "content": user}], with_tools=False, timeout=remaining)
-        except Exception as e:  # noqa: BLE001 - only SDK errors are swallowed, see _api_error
+            msg = self._call(req, [self._user_message(user)], with_tools=False, timeout=remaining)
+        except Exception as e:  # noqa: BLE001 - only transport errors are swallowed, see _api_error
             err = self._api_error(e)
             if err is None:
                 raise
             return self._fail(out, *err)
         self._usage(out, msg)
+        if time.monotonic() >= deadline:
+            return self._fail(out, "loop:timeout")
         stopped = self._stop(out, msg)
         if stopped:
             return stopped
         return self._finish(out, msg, req.task)
 
-    # -- chat: the manual tool loop with its guards
-
     def _loop(self, req: ProviderRequest, deadline: float, out: ProviderResult) -> ProviderResult:
         ctx = req.ctx
-        messages: List[dict] = [{"role": "user", "content": req.question}]
+        messages: List[dict] = [self._user_message(req.question)]
         seen: Dict[Tuple[str, str], dict] = {}   # (tool, canonical args) -> tool_result payload
         calls = 0
         while True:
@@ -291,25 +263,27 @@ class AnthropicProvider:
             out.steps += 1
             try:
                 msg = self._call(req, messages, with_tools=True, timeout=remaining)
-            except Exception as e:  # noqa: BLE001 - only SDK errors are swallowed, see _api_error
+            except Exception as e:  # noqa: BLE001 - only transport errors are swallowed, see _api_error
                 err = self._api_error(e)
                 if err is None:
                     raise
                 return self._fail(out, *err)
             self._usage(out, msg)
+            if time.monotonic() >= deadline:
+                return self._fail(out, "loop:timeout")
             stopped = self._stop(out, msg)
             if stopped:
                 return stopped
-            content = list(_get(msg, "content", []) or [])
-            uses = [b for b in content if _get(b, "type") == "tool_use"]
-            if _get(msg, "stop_reason") != "tool_use" or not uses:
+            content = self._model_message(msg)
+            uses = self._tool_calls(msg)
+            if not uses:
                 return self._finish(out, msg, req.task)
 
-            # Pass the assistant turn back unchanged (thinking blocks included), then ALL results in ONE message.
-            messages.append({"role": "assistant", "content": content})
+            # Echo native model content unchanged, including thinking signatures.
+            messages.append(content)
             results = []
             for b in uses:
-                name, args = _get(b, "name"), _get(b, "input")
+                name, args = b.get("name"), b.get("args", {})
                 if isinstance(args, str):
                     args = _parse_json(args)
                 key = (str(name), json.dumps(args, sort_keys=True, default=str))
@@ -337,23 +311,150 @@ class AnthropicProvider:
                     if s not in out.sources:
                         out.sources.append(s)
                 results.append(self._result_block(b, payload))
-            messages.append({"role": "user", "content": results})
+            messages.append(self._user_message(results))
+
+
+class GeminiProvider(ToolCallingProvider):
+    """Gemini Developer API, with credentials only in the request header."""
+    name = "gemini"
+    key_env = "GEMINI_API_KEY"
+    model_setting = "gemini_model"
+
+    def _call(self, req: ProviderRequest, messages: List[dict], with_tools: bool, timeout: float) -> Any:
+        from urllib.parse import quote
+
+        config = {"maxOutputTokens": MAX_TOKENS,
+                  "thinkingConfig": {"thinkingLevel": settings.llm_effort.upper()}}
+        schema = req.output_schema or default_schema(req.task)
+        if schema:
+            config.update(responseMimeType="application/json", responseJsonSchema=schema)
+        body = {"systemInstruction": {"parts": [{"text": req.system}]},
+                "contents": messages, "generationConfig": config}
+        if with_tools:
+            body["tools"] = [{"functionDeclarations": tools.gemini_tools()}]
+            body["toolConfig"] = {"functionCallingConfig": {"mode": "AUTO"}}
+        url = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(self.model, safe="") + ":generateContent"
+        return self._post(url, body, {"x-goog-api-key": os.environ.get(self.key_env, "").strip()}, timeout)
+
+    @staticmethod
+    def _usage(out: ProviderResult, msg: Any) -> None:
+        u = msg.get("usageMetadata") or {}
+        out.input_tokens += int(u.get("promptTokenCount") or 0)
+        out.output_tokens += int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
+        out.model = msg.get("modelVersion") or out.model
+
+    @staticmethod
+    def _candidate(msg: dict) -> dict:
+        candidates = msg.get("candidates") or []
+        return candidates[0] if candidates else {}
+
+    def _stop(self, out: ProviderResult, msg: Any) -> Optional[ProviderResult]:
+        """Handle the stop reasons that end a call before content is read."""
+        reason = self._candidate(msg).get("finishReason")
+        if (msg.get("promptFeedback") or {}).get("blockReason") or reason in {
+            "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"}:
+            return self._fail(out, "model:refusal")
+        if reason == "MAX_TOKENS":
+            return self._fail(out, "model:max_tokens")
+        if reason != "STOP":
+            return self._fail(out, "model:bad_output")
+        return None
 
     @staticmethod
     def _result_block(block: Any, payload: dict) -> dict:
-        r = {"type": "tool_result", "tool_use_id": _get(block, "id"),
-             "content": json.dumps(payload, ensure_ascii=False, default=str)}
+        response = {"name": block["name"], "response": payload}
+        if block.get("id"):
+            response["id"] = block["id"]
+        return {"functionResponse": response}
+
+    def _text(self, msg: dict) -> str:
+        parts = (self._candidate(msg).get("content") or {}).get("parts", [])
+        return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+
+    @staticmethod
+    def _user_message(content: Any) -> dict:
+        return {"role": "user", "parts": [{"text": content}] if isinstance(content, str) else content}
+
+    def _model_message(self, msg: dict) -> dict:
+        return self._candidate(msg).get("content") or {}
+
+    def _tool_calls(self, msg: dict) -> list:
+        return [p["functionCall"] for p in self._model_message(msg).get("parts", []) if "functionCall" in p]
+
+
+class AnthropicProvider(ToolCallingProvider):
+    """Anthropic Messages API through the same HTTP transport and guarded executor."""
+    name = "anthropic"
+    key_env = "ANTHROPIC_API_KEY"
+    model_setting = "anthropic_model"
+
+    def _call(self, req: ProviderRequest, messages: List[dict], with_tools: bool, timeout: float) -> dict:
+        output_config = {"effort": settings.llm_effort}
+        schema = req.output_schema or default_schema(req.task)
+        if schema:
+            output_config["format"] = {"type": "json_schema", "schema": schema}
+        body = {"model": self.model, "max_tokens": MAX_TOKENS,
+                "thinking": {"type": "adaptive"}, "output_config": output_config,
+                "system": [{"type": "text", "text": req.system, "cache_control": {"type": "ephemeral"}}],
+                "messages": messages, "fallbacks": "default"}
+        if with_tools:
+            body["tools"] = tools.anthropic_tools()
+            body["tool_choice"] = {"type": "auto"}
+        headers = {"Authorization": "Bearer " + os.environ.get(self.key_env, "").strip(),
+                   "anthropic-version": "2026-10-21",
+                   "anthropic-beta": "server-side-fallback-2026-07-01"}
+        return self._post("https://api.anthropic.com/v1/messages", body, headers, timeout)
+
+    @staticmethod
+    def _usage(out: ProviderResult, msg: dict) -> None:
+        usage = msg.get("usage") or {}
+        out.input_tokens += sum(int(usage.get(k) or 0) for k in
+                                ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+        out.output_tokens += int(usage.get("output_tokens") or 0)
+        out.model = msg.get("model") or out.model
+
+    def _stop(self, out: ProviderResult, msg: dict) -> Optional[ProviderResult]:
+        reason = msg.get("stop_reason")
+        if reason == "refusal":
+            return self._fail(out, "model:refusal")
+        if reason == "max_tokens":
+            return self._fail(out, "model:max_tokens")
+        if reason not in {"end_turn", "tool_use"}:
+            return self._fail(out, "model:bad_output")
+        return None
+
+    @staticmethod
+    def _text(msg: dict) -> str:
+        return "".join(p.get("text", "") for p in msg.get("content", []) if p.get("type") == "text").strip()
+
+    @staticmethod
+    def _user_message(content: Any) -> dict:
+        return {"role": "user", "content": content}
+
+    @staticmethod
+    def _model_message(msg: dict) -> dict:
+        return {"role": "assistant", "content": msg.get("content", [])}
+
+    @staticmethod
+    def _tool_calls(msg: dict) -> list:
+        return [{"id": p.get("id"), "name": p.get("name"), "args": p.get("input", {})}
+                for p in msg.get("content", []) if p.get("type") == "tool_use"]
+
+    @staticmethod
+    def _result_block(block: dict, payload: dict) -> dict:
+        result = {"type": "tool_result", "tool_use_id": block["id"],
+                  "content": json.dumps(payload, ensure_ascii=False, default=str)}
         if payload.get("error") is not None:
-            r["is_error"] = True
-        return r
+            result["is_error"] = True
+        return result
 
 
 class LocalProvider:
-    """Slot for a small model running on board, with no network. Same interface as AnthropicProvider.
+    """Slot for a small model running on board, with no network. Same interface as GeminiProvider.
 
     What it would need (not built in this plan): a small instruction-tuned model served by llama.cpp or Ollama
     with JSON-schema-constrained output (grammar from `default_schema(task)`) and tool calling, driven by the same
-    loop and guards as AnthropicProvider."""
+    loop and guards as GeminiProvider."""
     name = "local"
     configured = False
 
@@ -361,17 +462,25 @@ class LocalProvider:
         return ProviderResult(ok=False, error="LocalProvider is a slot: not implemented yet")
 
 
-_PROVIDERS = {"none": NullProvider, "anthropic": AnthropicProvider, "local": LocalProvider}
+_PROVIDERS = {"none": NullProvider, "gemini": GeminiProvider, "anthropic": AnthropicProvider, "local": LocalProvider}
 
 
 def get_provider() -> LLMProvider:
+    if settings.llm_provider == "auto":
+        # Deterministic priority if both keys are set. Never switch providers after an API failure.
+        for name in ("gemini", "anthropic"):
+            provider = _PROVIDERS[name]()
+            if provider.configured:
+                return provider
+        return NullProvider()
     return _PROVIDERS.get(settings.llm_provider, NullProvider)()
 
 
 def status() -> dict:
     p = get_provider()
     return {"provider": p.name, "configured": p.configured, "available": list(_PROVIDERS),
-            "model": settings.llm_model if p.name == "anthropic" else None,
+            "model": getattr(p, "model", None),
+            "selection": settings.llm_provider,
             "entries": list(contracts.AI_ENTRIES),
             "limits": {"max_steps": settings.llm_max_steps, "max_tool_calls": settings.llm_max_tool_calls,
                        "timeout_s": settings.llm_timeout_s},

@@ -3,8 +3,8 @@
 A model explains; deterministic code decides alerts, emergencies and thresholds. Every answer is checked
 before anyone sees it.
 
-- providers.py   NullProvider (default), AnthropicProvider (manual tool loop: CANARY_LLM_MAX_STEPS rounds,
-                 CANARY_LLM_MAX_TOOL_CALLS calls, one CANARY_LLM_TIMEOUT_S deadline), LocalProvider (slot)
+- providers.py   Automatic key selection: GeminiProvider / AnthropicProvider; shared tool loop: CANARY_LLM_MAX_STEPS rounds,
+                 CANARY_LLM_MAX_TOOL_CALLS calls, one CANARY_LLM_TIMEOUT_S deadline; NullProvider when no key, LocalProvider (slot)
 - chat.py        entry 1: ask(crew_id, question, viewer) -> precheck, provider loop, postcheck, log
 - briefing.py    entry 2: weekly briefing; the model rewrites computed facts as a BriefingDraft
 - suggestions.py entry 3: rule-written suggestions; a model may only rephrase each reason

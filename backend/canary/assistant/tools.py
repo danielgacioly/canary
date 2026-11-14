@@ -13,7 +13,7 @@ Contract (docs/ai/schema.md §5, assistant/contracts.py):
 
 Entry points:
 
-- `anthropic_tools()` renders the strict JSON Schemas for the Messages API (`tools=`).
+- `gemini_tools()` renders JSON Schemas for the Gemini function declarations.
 - `run_tool(ctx, name, args)` validates the arguments against the same schema and runs the tool.
 - `route(crew_id, question, ctx=None)` is the deterministic no-model path (no provider, timeout, API down).
 """
@@ -231,7 +231,6 @@ TOOLS: Dict[str, dict] = {
     },
 }
 
-# Constraints the strict tool grammar does not accept. `validate_args` still enforces them on the server.
 _NOT_IN_STRICT_GRAMMAR = ("minimum", "maximum", "minLength", "maxLength", "pattern")
 
 
@@ -247,6 +246,12 @@ def anthropic_tools() -> List[dict]:
         schema["properties"] = {p: _for_api(s) for p, s in schema["properties"].items()}
         out.append({"name": name, "description": t["description"], "input_schema": schema, "strict": True})
     return out
+
+
+def gemini_tools() -> List[dict]:
+    """Gemini function declarations; the same schemas are enforced again before execution."""
+    return [{"name": name, "description": t["description"],
+             "parametersJsonSchema": copy.deepcopy(t["input_schema"])} for name, t in TOOLS.items()]
 
 
 def schema() -> List[dict]:

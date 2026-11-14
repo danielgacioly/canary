@@ -5,11 +5,11 @@ Two ways to script a model:
 1. `ScriptedProvider(turns)`: each turn is a `ProviderResult` to return from `complete()` or an exception
    instance to raise. For entries that do not need the tool loop (or for testing callers in isolation).
 
-2. `ScriptedProvider(messages=[...])`: Anthropic-like messages (`tool_use(...)`, `final(...)`, `refusal()`,
-   `cut_off()`) or exceptions (e.g. `api_timeout()`), replayed one per Messages API call by `FakeClient`.
-   `complete()` then runs the real `AnthropicProvider` loop on that fake client, so loop guards, tool
-   validation, run_tool, dedupe and the tool_result shape are all exercised. `api_calls` records the kwargs
-   of every API call (a deep copy of `messages` included).
+2. `ScriptedProvider(messages=[...])`: Scripted messages (`tool_use(...)`, `final(...)`, `refusal()`,
+   `cut_off()`) or exceptions (e.g. `api_timeout()`), replayed one per Gemini API call by `FakeClient`.
+   `complete()` then runs the real `GeminiProvider` loop on that fake client, so loop guards, tool
+   validation, run_tool, dedupe and the functionResponse shape are all exercised. `api_calls` records the JSON body
+   of every API call (a deep copy of `contents` included).
 
 A message turn may also be a callable `fn(kwargs) -> message` (e.g. to sleep and test the deadline).
 """
@@ -19,19 +19,19 @@ import json
 from types import SimpleNamespace
 from typing import Any, Callable, List, Optional, Sequence, Union
 
-from canary.assistant.providers import AnthropicProvider, ProviderRequest, ProviderResult
+from canary.assistant.providers import GeminiProvider, ProviderRequest, ProviderResult
 
 Turn = Union[ProviderResult, BaseException]
 _ids = itertools.count(1)
 
 
-# ---------------------------------------------------------------- Anthropic-like messages
+# ---------------------------------------------------------------- Scripted messages
 
 def _usage(i: int = 100, o: int = 50) -> SimpleNamespace:
     return SimpleNamespace(input_tokens=i, output_tokens=o, cache_read_input_tokens=0, cache_creation_input_tokens=0)
 
 
-def message(stop_reason: str, content: list, model: str = "claude-sonnet-5-5") -> SimpleNamespace:
+def message(stop_reason: str, content: list, model: str = "gemini-3.8-flash") -> SimpleNamespace:
     return SimpleNamespace(type="message", role="assistant", stop_reason=stop_reason, content=content,
                            model=model, usage=_usage(), stop_details=None)
 
@@ -78,51 +78,66 @@ def response(answer: str, observations=(), explanations=(), status: str = "suppo
             "limitations": list(limitations), "recommended_action_id": action}
 
 
-# ---------------------------------------------------------------- SDK errors without a network
+# ---------------------------------------------------------------- transport errors without a network
 
 def _request():
-    import httpx2
-    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    import httpx
+    return httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/models/test:generateContent")
 
 
 def api_timeout():
-    import anthropic
-    return anthropic.APITimeoutError(request=_request())
+    import httpx
+    return httpx.ReadTimeout("timeout", request=_request())
 
 
 def api_connection():
-    import anthropic
-    return anthropic.APIConnectionError(request=_request())
+    import httpx
+    return httpx.ConnectError("connection", request=_request())
 
 
 def api_status(code: int = 500):
-    import anthropic
-    import httpx2
-    resp = httpx2.Response(code, request=_request(), json={"type": "error", "error": {"type": "api_error", "message": "x"}})
-    cls = anthropic.RateLimitError if code == 429 else anthropic.InternalServerError if code >= 500 else anthropic.APIStatusError
-    return cls("error", response=resp, body=None)
+    import httpx
+    resp = httpx.Response(code, request=_request(), json={"error": {"message": "x"}})
+    return httpx.HTTPStatusError("error", request=_request(), response=resp)
 
 
-# ---------------------------------------------------------------- fake client
+# ---------------------------------------------------------------- fake HTTP client
 
 class FakeClient:
-    """Stands in for anthropic.Anthropic(): only `beta.messages.create(**kwargs)` is used by the provider."""
+    """Replay turns at the HTTP boundary so the real Gemini serialization is exercised."""
 
     def __init__(self, turns: Sequence[Any]):
         self.turns = list(turns)
         self.api_calls: List[dict] = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
-    def _create(self, **kwargs: Any) -> Any:
-        self.api_calls.append({**kwargs, "messages": copy.deepcopy(kwargs.get("messages"))})
+    def post(self, url, **kwargs):
+        import httpx
+        self.api_calls.append({**copy.deepcopy(kwargs["json"]), "timeout": kwargs["timeout"]})
         if len(self.api_calls) > len(self.turns):
             raise AssertionError(f"FakeClient ran out of messages after {len(self.turns)} call(s)")
         turn = self.turns[len(self.api_calls) - 1]
         if isinstance(turn, BaseException):
             raise turn
         if callable(turn):
-            return turn(kwargs)
-        return turn
+            turn = turn(self.api_calls[-1])
+        if isinstance(turn, dict):
+            body = turn
+        else:
+            parts = []
+            for block in turn.content:
+                if block.type == "thinking":
+                    parts.append({"text": block.thinking, "thought": True, "thoughtSignature": block.signature})
+                elif block.type == "text":
+                    parts.append({"text": block.text})
+                else:
+                    parts.append({"functionCall": {"id": block.id, "name": block.name, "args": block.input},
+                                  "thoughtSignature": "signature-for-" + block.id})
+            body = {"modelVersion": turn.model,
+                    "usageMetadata": {"promptTokenCount": turn.usage.input_tokens,
+                                      "candidatesTokenCount": turn.usage.output_tokens},
+                    "candidates": [{"finishReason": {"refusal": "SAFETY", "max_tokens": "MAX_TOKENS"}.get(turn.stop_reason, "STOP"),
+                                    "content": {"role": "model", "parts": parts}}]}
+        return httpx.Response(200, request=httpx.Request("POST", url), json=body)
 
 
 # ---------------------------------------------------------------- the provider double
@@ -157,7 +172,7 @@ class ScriptedProvider:
     def complete(self, req: ProviderRequest) -> ProviderResult:
         self.requests.append(req)
         if self.client is not None:
-            out = AnthropicProvider(client=self.client).complete(req)
+            out = GeminiProvider(client=self.client).complete(req)
             self.results.append(out)
             return out
         if len(self.requests) > len(self.turns):
