@@ -275,8 +275,8 @@ Example, Helena:
 
 1. **Day 147.** The fatigue risk is at level 2. She accepts *Protect your sleep window*. Canary stores `start_bad` 2.81 and `check_day` 154. On day 149 `GET /api/advice/h` says `pending`, and the goal carries `advice: {status: "pending", check_day: 154}`.
 2. **Day 154.** The check runs: her sleep is 4.11 spreads from normal against 2.81 at the start, `worse`. The goal row reads "Checked on day 154: worse".
-3. **Round two.** She tries another step on day 154 (say breathing, verifying stress after 7 days). On day 161 stress is still not better: a second round without improvement.
-4. **Escalation.** On day 161 the suggestions list shows *Change one thing in your day, not three* (or another alternative), and Kenji's inbox has one `advice` message. Asking again for day 161, or any later day until a new round ends, shows the same alternative and sends nothing more.
+3. **Round two.** She tries another step on day 154 (say breathing, verifying stress after 7 days). In the simulation Helena starts to recover around day 160, so in the demo this round ends well. If it did not (the tests build that case on purpose), it would be a second round without improvement.
+4. **Escalation.** The suggestions list then shows *Change one thing in your day, not three* (or another alternative), and Kenji's inbox has one `advice` message. Asking again for the same day, or any later day until a new round ends, shows the same alternative and sends nothing more.
 
 Alerts also last: each has `since_day`, `days_active` (found by walking back day by day, at most 60 days, cached, never stored) and `seen`. `POST /api/alerts/{crew}/{alert}/seen` marks the current episode; if the alert goes away and comes back it is a new episode and not seen. While the fatigue risk is at level 1 or 2 the day's exercise goal is lighter and says why (`adjusted: {pct, minutes, target, reason, max_pct}`), by the percentage the medical team sets in `PUT /api/medical/exercise-adjust` (default 15% at level 1 and 30% at level 2, never above `max_pct`). Canary never goes beyond that limit and does not prescribe.
 
