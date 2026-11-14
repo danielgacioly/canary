@@ -894,3 +894,58 @@ ul.recent li { display: grid; grid-template-columns: minmax(120px, 200px) 1fr au
 .chips-pick button { height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--line-2); font-size: 13px; transition: background 120ms var(--ease-out); }
 .chips-pick button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .seg-ctl.wrap { flex-wrap: wrap; }
+
+/* ---------- health: the body always fills its column, no hole beside a tall panel ---------- */
+.hero > div:first-child { display: flex; flex-direction: column; }
+.hero > div:first-child .bodycard { flex: 1; height: auto; min-height: min(70vh, 620px); }
+.tile > div:last-child { margin-top: auto; }
+
+/* ---------- goals: one area at a time, room to breathe ---------- */
+.goals-page { display: flex; flex-direction: column; gap: 48px; max-width: 980px; }
+.goals-summary { color: var(--muted); font-size: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.goals-summary b { color: var(--ink); font-weight: 600; margin-right: 6px; }
+.dot-sep { width: 4px; height: 4px; border-radius: 50%; background: var(--line-2); margin: 0 12px; display: inline-block; }
+.goal-group-head { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.goal-group-head h2 { font-size: 20px; }
+.goal-group-head .bar-track { flex: 1; max-width: 260px; margin-left: auto; height: 6px; }
+.goal-list .goal { padding: 18px 2px; gap: 16px; }
+.goal-list .goal .gt { font-size: 15.5px; }
+.goal-list .goal .small { margin-top: 3px; }
+.goal-list .chk { width: 24px; height: 24px; border-radius: 7px; }
+
+/* ---------- suggestions ---------- */
+.suggest { display: flex; flex-direction: column; gap: 22px; }
+.slot-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: 12px; }
+.slot-line .small { flex: 1 1 320px; }
+.suggest-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.suggest-card { display: flex; flex-direction: column; gap: 12px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; }
+.suggest-card h2 { font-size: 19px; }
+.suggest-card .steps li { font-size: 14px; }
+.area-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* ---------- patches page ---------- */
+.patches.big { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+.patches.big .patch { padding: 22px; gap: 10px; background: transparent; border: 1px solid var(--line); }
+.patches.big .patch svg { width: 52px; height: 52px; }
+.patches.big .patch.off { opacity: .6; }
+.patch-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: auto; }
+.patch-progress .bar-track { flex: 1; }
+
+/* ---------- profile chip menu ---------- */
+.chip-wrap { position: relative; }
+.chip-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; padding: 6px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .28); animation: rise 160ms var(--ease-out) both; transform-origin: bottom center; z-index: 5; }
+.chip-menu button { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; font-size: 14px; text-align: left; }
+.chip-menu button:hover { background: var(--surface-2); }
+.chip-menu button.danger { color: var(--act); }
+.suggest-goal { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.suggest-goal b { font-size: 14px; font-weight: 600; }
+.suggest-goal .btn { margin-top: 4px; }
+.tabs { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: none; white-space: nowrap; }
+@media (max-width: 760px) {
+  .story { gap: 8px; }
+  .story .dots { flex: 1; min-width: 24px; }
+  .story .dots button { flex: 1; width: auto; min-width: 4px; }
+  .story > .small { font-size: 12px; }
+}

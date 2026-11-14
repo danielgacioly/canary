@@ -327,3 +327,18 @@ def test_tests_page_saves_results_privately_and_completes_goals():
     assert any(a["id"] == "wellbeing" for a in client.get("/api/crew/h", headers=h).json()["alerts"])
     assert client.get("/api/checkins/h", headers=as_("k")).status_code == 403
     assert client.post("/api/checkins", json={"crew_id": "h", "kind": "nope", "payload": {}}, headers=h).status_code == 422
+
+
+def test_suggestions_are_personal_grounded_and_become_goals():
+    at(2)  # day 147: Helena's sleep, mood and crew time are slipping
+    h = as_("h")
+    s = client.get("/api/suggestions/h", headers=h).json()
+    ids = [x["id"] for x in s["items"]]
+    assert s["mode"] == "rules" and "sleep" in ids and "social" in ids
+    sleep = next(x for x in s["items"] if x["id"] == "sleep")
+    assert "h against your normal" in sleep["why"] and sleep["sources"]
+    assert client.get("/api/suggestions/h", headers=as_("k")).status_code == 403
+    s = client.post("/api/suggestions/h/sleep/accept", headers=h).json()
+    assert next(x for x in s["items"] if x["id"] == "sleep")["accepted"]
+    g = client.get("/api/goals/h", headers=h).json()["personal"]
+    assert any(x["id"] == "sg_sleep" and x["by"] == "suggestion" for x in g)

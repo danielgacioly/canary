@@ -38,7 +38,7 @@ export interface AreaState { score: number; level: Level; status: string }
 export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean }
 export interface Goal {
   id: string; area: Area; title: string; why: string; sys?: string | null
-  action?: string | null; by: 'routine' | 'alert' | 'medical'; done: boolean
+  action?: string | null; by: 'routine' | 'alert' | 'medical' | 'suggestion'; done: boolean
 }
 export interface Badge { id: string; name: string; desc: string; area: string; progress: number; need: number; earned: boolean }
 export interface Profile {
@@ -117,3 +117,5 @@ export interface MedGoal { id: number; who: string; area: Area; title: string; w
 export interface TestResult { kind: string; day: number; at: number; summary: string; payload: Record<string, unknown> }
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
+export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
+export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }

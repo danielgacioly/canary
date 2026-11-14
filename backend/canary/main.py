@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__, auth, db
-from .assistant import briefing, chat, providers, tools
+from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
 from .domain import goals, health, mission, nasa, plan, privacy, protocols, selftests, telemetry
 from .domain.catalog import CAREER_LIMIT_MSV, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
@@ -552,6 +552,27 @@ def assistant_history(crew_id: str, v: dict = Depends(viewer)):
 
 class BriefingIn(BaseModel):
     crew_id: str
+
+
+@app.get("/api/suggestions/{crew_id}", tags=["assistant"])
+def suggestions_for(crew_id: str, v: dict = Depends(viewer)):
+    """Entry 3: personal suggestions from the person's own data. Private to the person."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "suggestions are for the astronaut only")
+    return suggestions.build(crew_id)
+
+
+@app.post("/api/suggestions/{crew_id}/{sid}/accept", tags=["assistant"])
+def suggestion_accept(crew_id: str, sid: str, v: dict = Depends(viewer)):
+    """Turn a suggestion into a goal for the next 7 days."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "suggestions are for the astronaut only")
+    try:
+        return suggestions.accept(crew_id, sid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.post("/api/briefings", tags=["assistant"])

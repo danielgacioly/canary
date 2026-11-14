@@ -1,9 +1,10 @@
 // My space: one private page per astronaut. Locked, it only asks "Choose your profile".
-// Inside: Health (numbers), Goals, Dashboard (the charts) and Settings (photo, PIN, lock).
+// Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
+// and Settings (photo, PIN, lock).
 import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { CrewDetail, GoalsResponse } from '../api/types'
+import type { CrewDetail, GoalsResponse, Suggestions } from '../api/types'
 import BodyView, { Blood } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
@@ -12,8 +13,8 @@ import { Icon, LineChart, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { useApi, useSession } from '../state/session'
 
-type Tab = 'health' | 'goals' | 'dashboard' | 'settings'
-const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['dashboard', 'Dashboard'], ['settings', 'Settings']]
+type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'settings'
+const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['suggestions', 'Suggestions'], ['patches', 'Patches'], ['dashboard', 'Dashboard'], ['settings', 'Settings']]
 
 export default function MySpace() {
   const { me } = useSession()
@@ -42,6 +43,8 @@ function Inside({ me }: { me: string }) {
       <Tabs value={tab} options={TABS} onChange={t => nav(t === 'health' ? '/me' : `/me/${t}`)} />
       {tab === 'health' && <BodyView d={d} onCheck={setCheck} />}
       {tab === 'goals' && <GoalsTab me={me} onCheck={setCheck} />}
+      {tab === 'suggestions' && <SuggestionsTab me={me} />}
+      {tab === 'patches' && <PatchesTab me={me} />}
       {tab === 'dashboard' && <DashboardTab d={d} me={me} />}
       {tab === 'settings' && <SettingsTab d={d} me={me} />}
       {check && <Check kind={check} onClose={() => setCheck(null)} />}
@@ -49,7 +52,7 @@ function Inside({ me }: { me: string }) {
   )
 }
 
-/* ---------------------------------------------------------------- goals */
+/* ---------------------------------------------------------------- goals: one area at a time, room to breathe */
 function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void }) {
   const { catalog } = useSession()
   const { data } = useApi<GoalsResponse>(() => api.goals(me), [me])
@@ -58,37 +61,88 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
   const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const done = data.personal.filter(g => g.done).length
   return (
-    <>
-      <div className="stats rise">
-        <div className="stat"><div className="k">Today</div><b className="num">{done}<small>of {data.personal.length}</small></b></div>
-        <div className="stat"><div className="k">Streak</div><b className="num">{p.streak}<small>{p.streak === 1 ? 'day' : 'days'}</small></b></div>
-        <div className="stat"><div className="k">Last 7 days</div><b className="num">{p.completion_7d}<small>% done</small></b></div>
-        <div className="stat"><div className="k">Patches</div><b className="num">{p.badges_earned}<small>of {p.badges.length}</small></b></div>
-      </div>
-      <section className="two-lists rise" style={{ ['--d' as string]: 1 }}>
-        {(['physical', 'mental'] as const).map(a => {
-          const list = data.personal.filter(g => g.area === a)
-          return (
-            <div key={a}>
-              <div className="section-head"><h2>{a === 'physical' ? 'Physical' : 'Mental'}</h2><span className="sub">{list.filter(g => g.done).length} of {list.length}</span></div>
-              {list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} />)}
+    <div className="goals-page">
+      <p className="goals-summary rise">
+        <b>{done} of {data.personal.length}</b> done today
+        <span className="dot-sep" />{p.streak}-day streak
+        <span className="dot-sep" />{p.completion_7d}% over the last 7 days
+      </p>
+      {(['physical', 'mental'] as const).map((a, i) => {
+        const list = data.personal.filter(g => g.area === a)
+        const n = list.filter(g => g.done).length
+        return (
+          <section key={a} className="goal-group rise" style={{ ['--d' as string]: i + 1 }}>
+            <div className="goal-group-head">
+              <h2>{a === 'physical' ? 'Physical' : 'Mental'}</h2>
+              <span className="sub">{n} of {list.length}</span>
+              <span className="bar-track"><i style={{ width: `${(100 * n) / Math.max(1, list.length)}%`, background: a === 'physical' ? 'var(--physical)' : 'var(--mental)' }} /></span>
             </div>
-          )
-        })}
-      </section>
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+            <div className="goal-list">{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} />)}</div>
+          </section>
+        )
+      })}
+      <section className="rise" style={{ ['--d' as string]: 3 }}>
         <div className="section-head"><h2>Crew missions this week</h2><span className="sub">Shared goals for the whole crew</span></div>
         <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
       </section>
-      <section className="rise" style={{ ['--d' as string]: 3 }}>
-        <div className="section-head"><h2>Patches</h2><span className="sub">{p.badges_earned} of {p.badges.length} earned</span></div>
-        <div className="patches">{p.badges.map(b => (
-          <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}>
-            <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
-            <span className="small dim">{b.earned ? 'Earned' : `${b.progress} of ${b.need}`}</span>
-          </div>))}</div>
-      </section>
-    </>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- suggestions: the AI slot, fed by your own data */
+function SuggestionsTab({ me }: { me: string }) {
+  const { bump, toast } = useSession()
+  const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
+  if (!data) return <Loading what="suggestions" />
+  const accept = async (sid: string) => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') }
+  return (
+    <div className="suggest">
+      <div className="slot-line rise">
+        <span className="tag">{data.mode === 'ai' ? `AI · ${data.provider}` : 'AI slot · no model connected'}</span>
+        <span className="small muted">Built from your numbers against your own normal, your goals this week, your tests and the next leg of the plan. {data.mode === 'ai' ? 'A model rephrased them; every number was checked.' : 'Until a model is connected, rules write them from the same data.'} Only you see them.</span>
+      </div>
+      <div className="suggest-list">
+        {data.items.map((s, i) => (
+          <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
+            <div className="row" style={{ gap: 10 }}>
+              <span className="area-dot" style={{ background: s.area === 'mental' ? 'var(--mental)' : 'var(--physical)' }} />
+              <span className="small muted">{s.area === 'mental' ? 'Mental' : 'Physical'}</span>
+            </div>
+            <h2>{s.title}</h2>
+            <p className="muted">{s.why}</p>
+            <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
+            {s.goal && (
+              <div className="suggest-goal">
+                <span className="small muted">Goal for the next 7 days</span>
+                <b>{s.goal}</b>
+                {s.accepted
+                  ? <span className="status s0"><span className="dot" />In your goals</span>
+                  : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>}
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- patches: their own page */
+function PatchesTab({ me }: { me: string }) {
+  const { data } = useApi<GoalsResponse>(() => api.goals(me), [me])
+  if (!data) return <Loading what="patches" />
+  const p = data.profile
+  return (
+    <div className="col" style={{ gap: 24 }}>
+      <p className="goals-summary rise"><b>{p.badges_earned} of {p.badges.length}</b> patches earned<span className="dot-sep" />They come from habits kept over time, never from health numbers</p>
+      <div className="patches big">{p.badges.map((b, i) => (
+        <div key={b.id} className={`patch rise ${b.earned ? '' : 'off'}`} style={{ ['--d' as string]: i }}>
+          <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
+          {b.earned ? <span className="small" style={{ color: 'var(--gold)' }}>Earned</span> : (
+            <span className="patch-progress"><span className="bar-track"><i style={{ width: `${(100 * b.progress) / b.need}%` }} /></span><span className="small dim num">{b.progress}/{b.need}</span></span>
+          )}
+        </div>))}</div>
+    </div>
   )
 }
 

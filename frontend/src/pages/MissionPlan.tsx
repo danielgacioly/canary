@@ -23,7 +23,9 @@ export default function MissionPlan() {
   const { mission, catalog } = useSession()
   const { data: c } = useApi<PlanConditions>(() => api.conditions(), [])
   const [sel, setSel] = useState<number | null>(null)
-  useEffect(() => { if (c) setSel(s => (s === null ? Math.max(0, c.leg_index) : s)) }, [c])
+  // The leg the crew is on now is always the one open by default, also after the clock moves.
+  const nowLeg = c ? Math.max(0, c.leg_index) : null
+  useEffect(() => { if (nowLeg !== null) setSel(nowLeg) }, [nowLeg, c?.today])
   if (!c || !mission || !catalog || sel === null) return <Loading what="mission plan" />
 
   const leg = c.legs[sel]

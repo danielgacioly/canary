@@ -1,5 +1,5 @@
-// Health: the body and the verdict first, then the physical and mental systems as number
-// tiles (charts live on the Dashboard tab). Click any part of the body or any tile and the
+// Health: the body and the verdict first, then the numbers of the current lens as tiles:
+// Physical shows the physical systems, Mental the mental facets (charts live on the Dashboard tab). Click any part of the body or any tile and the
 // verdict area becomes that system.
 import { useMemo, useRef, useState } from 'react'
 import type { CrewDetail, Indicator } from '../api/types'
@@ -61,41 +61,38 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
         </div>
       </section>
 
-      <section id="sec-physical">
-        <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score} · sorted by what needs attention</span></div>
-        <div className="tiles">
-          {physical.map((s, i) => {
-            const st = d.systems[s]; const ind = st.indicators[0] ? d.indicators[st.indicators[0]] : null
-            return (
-              <button key={s} className={`tile rise s${st.level} ${sel === s ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => choose(s, true)}>
-                <div className="top"><span className="dot" />{st.name}</div>
-                <div className="foot">
+      {lens === 'physical' ? (
+        <section id="sec-physical" key="physical">
+          <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score} · sorted by what needs attention</span></div>
+          <div className="tiles">
+            {physical.map((s, i) => {
+              const st = d.systems[s]; const ind = st.indicators[0] ? d.indicators[st.indicators[0]] : null
+              return (
+                <button key={s} className={`tile rise s${st.level} ${sel === s ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => choose(s, true)}>
+                  <div className="top"><span className="dot" />{st.name}</div>
                   <div><div className="tv">{ind ? fmt(ind) : s === 'skin' ? d.dose.mission_msv : st.status}<small>{ind ? ind.unit : s === 'skin' ? 'mSv' : ''}</small></div>
                     <div className="small dim" style={{ marginTop: 6 }}>{ind ? `normal ${ind.baseline.toFixed(ind.dp)}` : s === 'skin' ? `${d.dose.pct_of_limit}% of career limit` : st.note ?? 'Self-check'}</div></div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
-      <section id="sec-mental">
-        <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score} · rest, focus, mood, stress, connection</span></div>
-        <div className="tiles">
-          {mental.map((k, i) => {
-            const ind = d.indicators[k]
-            return (
-              <button key={k} className={`tile rise s${ind.level}`} style={{ ['--d' as string]: i }} onClick={() => choose('brain', true)}>
-                <div className="top"><span className="dot" />{ind.facet}<span className="small dim right">{ind.name}</span></div>
-                <div className="foot">
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ) : (
+        <section id="sec-mental" key="mental">
+          <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score} · rest, focus, mood, stress, connection</span></div>
+          <div className="tiles">
+            {mental.map((k, i) => {
+              const ind = d.indicators[k]
+              return (
+                <button key={k} className={`tile rise s${ind.level} ${sel === 'brain' ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => choose('brain', true)}>
+                  <div className="top"><span className="dot" />{ind.facet}<span className="small dim right">{ind.name}</span></div>
                   <div><div className="tv">{fmt(ind)}<small>{ind.unit}</small></div><div className="small dim" style={{ marginTop: 6 }}>normal {ind.baseline.toFixed(ind.dp)}</div></div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </>
   )
 }
@@ -149,18 +146,6 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
         <div className="col rise" style={{ gap: 10, ['--d' as string]: 2 }}>
           <h3>{alert.title}</h3>
           <ol className="steps">{alert.todo.map(t => <li key={t}>{t}</li>)}</ol>
-        </div>
-      )}
-      {!!st.indicators.length && (
-        <div className="rise" style={{ ['--d' as string]: 3 }}>
-          {st.indicators.map(k => {
-            const i = d.indicators[k]
-            return (
-              <div key={k} className="metric">
-                <div><div className="lbl">{i.name}</div><div className="big">{fmt(i)}<small>{i.unit}</small></div><div className="small dim">normal {i.baseline.toFixed(i.dp)} · <span className={`s${i.level} c`}>{['on track', 'watch', 'act'][i.level]}</span></div></div>
-              </div>
-            )
-          })}
         </div>
       )}
       <p className="muted rise" style={{ ['--d' as string]: 4 }}>{info.space}</p>

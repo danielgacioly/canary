@@ -20,7 +20,7 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
         <div className="gt">{g.title}</div>
         {!compact && <div className="small dim">{g.why}</div>}
       </div>
-      {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : 'From an alert'}</span>}
+      {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : g.by === 'suggestion' ? 'Your pick' : 'From an alert'}</span>}
     </div>
   )
 }

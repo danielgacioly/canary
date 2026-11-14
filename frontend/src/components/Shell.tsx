@@ -7,16 +7,15 @@ import { useApi, useSession } from '../state/session'
 import { CrewDots, Dot } from './People'
 import { CanaryMark, Icon } from './ui'
 
-// Crew first: the system always opens on the whole crew. Personal data sits behind "Your space".
+// Crew first: the system always opens on the whole crew. Personal data sits behind "Your health".
 const NAV: { group: string; items: [string, string, string][] }[] = [
   { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/tests', 'test', 'Tests'], ['/plan', 'plan', 'Mission plan'], ['/ranking', 'rank', 'Ranking']] },
-  { group: 'Your space', items: [['/me', 'today', 'My space']] },
+  { group: 'Your health', items: [['/me', 'today', 'My space']] },
 ]
 
 export default function Shell() {
   const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs } = useSession()
   const [where, setWhere] = useState(false)
-  const nav = useNavigate()
   const { data: crew } = useApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
@@ -40,12 +39,7 @@ export default function Shell() {
         <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
         <NavLink to="/settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
         <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
-        <div className="foot">
-          <button className="me-chip" onClick={() => nav('/me')} title="My space">
-            {mine ? <Dot p={mine} size="sm" me /> : <span className="pdot sm"><Icon name="lock" /></span>}
-            <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine ? mine.name : 'My space'}</b><span className="small muted">{mine ? 'Open my space' : 'Choose your profile'}</span></span>
-          </button>
-        </div>
+        <div className="foot"><ProfileChip mine={mine} /></div>
       </aside>
 
       <div className="main">
@@ -140,6 +134,37 @@ export function PlaceGrid({ onPick, current }: { onPick: (k: string, name: strin
           <span className="small muted">{p.what}</span>
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Your profile at the foot of the sidebar. Signed in, it opens a small menu with Lock. */
+function ProfileChip({ mine }: { mine?: { id: string; initials: string; name: string } }) {
+  const { setMe } = useSession()
+  const nav = useNavigate()
+  const [open, setOpen] = useState(false)
+  if (!mine) {
+    return (
+      <button className="me-chip" onClick={() => nav('/me')} title="My space">
+        <span className="pdot sm"><Icon name="lock" /></span>
+        <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>My space</b><span className="small muted">Choose your profile</span></span>
+      </button>
+    )
+  }
+  return (
+    <div className="chip-wrap" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }}>
+      {open && (
+        <div className="chip-menu" role="menu">
+          <button role="menuitem" onClick={() => { setOpen(false); nav('/me') }}><Icon name="today" />Open my space</button>
+          <button role="menuitem" onClick={() => { setOpen(false); nav('/me/settings') }}><Icon name="gear" />My settings</button>
+          <button role="menuitem" className="danger" onClick={() => { setOpen(false); setMe(null); nav('/crew') }}><Icon name="lock" />Lock my space</button>
+        </div>
+      )}
+      <button className="me-chip" onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}>
+        <Dot p={mine} size="sm" me />
+        <span className="grow"><b style={{ display: 'block', fontSize: 14 }}>{mine.name}</b><span className="small muted">Signed in</span></span>
+        <Icon name="lock" />
+      </button>
     </div>
   )
 }

@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 39 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 40 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -77,21 +77,23 @@ Other commands:
 
 ## What it does
 
-A sidebar in three groups (Crew, Your space, Support), **crew first**: the system always opens on the whole crew, and your own data sits behind your private space. Each page reads top to bottom like a dashboard: the most important thing first, details further down.
+A sidebar in three groups (**Crew**: Crew, Tests, Mission plan, Ranking; **Your health**: My space; **Support**: Ask Canary, Medical console, Settings, About & data), **crew first**: the system always opens on the whole crew, and your own data sits behind your private space. Each page reads top to bottom like a dashboard: the most important thing first, details further down.
 
 | Page | What you see |
 | --- | --- |
 | **Intro** | Four beats of the canary story over a starfield while the body assembles, then **Your mission**: the configured itinerary draws itself in and the crew is introduced. Nothing to fill in |
 | **Admin setup preview** (`/setup`) | Not part of the crew flow; a preview of the future mission-admin flow. | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
 | **Crew** (home) | The four astronauts as neutral dots with today's routine. **Hazards here today**: NASA's five hazards of spaceflight (radiation, isolation, distance, gravity, closed environment) rated low, moderate or high for the current place, a solar storm warning on top when one hits; tap a hazard to see which body systems it acts on. **Crew missions** in their own full-width section with the crew streak. **Who sees what** folded at the bottom. No status, no scores, no vitals, no averages |
-| **My space** (private) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, four tabs: **Health**, **Goals**, **Dashboard** (every chart) and **Settings** (profile photo, Change PIN, Lock). |
-| My space · **Health** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as number tiles (value, your normal, status colour); the charts are on the Dashboard tab. Click any part of the body or any tile and the top area becomes that system. |
-| My space · **Goals** | Done today, streak, 7-day completion and patches; physical and mental goals side by side; crew missions; patches. No points, no levels: goals are goals |
-| **Tests** (crew area, private results) | Choose your profile and enter the PIN, then run any test or log: **Cognition** (reaction time, processing speed as a digit-symbol task, working memory as a digit span, the kinds of task in NASA's Cognition battery), **How you feel** (mood and stress, Karolinska Sleepiness Scale, NASA-TLX workload, PHQ-2 and GAD-2 wellbeing), **Body** (vital signs, Amsler grid, symptoms) and **Logs** (sleep diary, reading, a three-line journal whose text is never saved). Each row shows the last result; results feed your health, complete matching goals and can raise a gentle alert (very sleepy, a hard stretch, strong symptoms) |
+| **My space** (private, under Your health) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, six tabs: **Health**, **Goals**, **Suggestions**, **Patches**, **Dashboard** (every chart) and **Settings** (profile photo, Change PIN, Lock). Signed in, your profile at the foot of the sidebar opens a menu with **Open my space**, **My settings** and **Lock my space** |
+| My space · **Health** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. The **Physical / Mental** switch changes the body's lens and the numbers below it: Physical shows only the physical systems, Mental only the mental facets, always as number tiles (value, your normal, status colour). Click a part of the body or a tile and the top area becomes that system (what it means, what to do, a check to run), without repeating the numbers; the body column always matches the height of that panel. Charts are on the Dashboard tab |
+| My space · **Goals** | One line of summary (done today, streak, 7-day completion), then **Physical** and **Mental** as separate, roomy lists with their own progress, then the crew missions. No points, no levels: goals are goals |
+| My space · **Suggestions** | The AI slot's third entry. Personal recommendations built from your numbers against your own normal, how often you met each goal this week, your test results and the next leg of the plan: protect your sleep window, more time with the crew, read more (or keep going with the book you logged), start a small hobby (sketching the view, a crewmate's language, the plant chamber), breathing after shift, exercise, hydration, preparing for the next gravity change, staying close to home, talking to someone. Each card says why with your own numbers, gives three steps and can be added to your goals for 7 days |
+| My space · **Patches** | The nine mission patches on their own page, with progress towards the ones not earned yet |
+| **Tests** (Crew group, private results) | Choose your profile and enter the PIN, then run any test or log: **Cognition** (reaction time, processing speed as a digit-symbol task, working memory as a digit span, the kinds of task in NASA's Cognition battery), **How you feel** (mood and stress, Karolinska Sleepiness Scale, NASA-TLX workload, PHQ-2 and GAD-2 wellbeing), **Body** (vital signs, Amsler grid, symptoms) and **Logs** (sleep diary, reading, a three-line journal whose text is never saved). Each row shows the last result; results feed your health, complete matching goals and can raise a gentle alert (very sleepy, a hard stretch, strong symptoms) |
 | My space · **Dashboard** | The last 30 days of every indicator against your normal, goals done per day, and lymphocytes from NASA OSD-569 |
 | **Settings** | For the terminal: theme (dark, light, match device), larger text, higher contrast, reduce motion, read Guided Response steps aloud, show the demo bar, replay the intro, reset the demo |
 | **Ranking** | One headline (who leads, by how many goals), what counts, then one row per person: medal, goals done in the last 7 days as a bar, the gap to the person ahead, completion, streak and patches |
-| **Mission plan** | The registered itinerary read for health: a timeline with every leg listed underneath (pick one), the leg's gravity, radiation, Earth delay and hospital distance, its five hazards, what the body faces, what Canary changes, and the projected mission dose against the career limit. Editing the plan belongs to the admin flow |
+| **Mission plan** | The registered itinerary read for health: a timeline with every leg listed underneath (the leg the crew is on now is always open by default, also after the clock moves; pick another to look ahead), the leg's gravity, radiation, Earth delay and hospital distance, its five hazards, what the body faces, what Canary changes, and the projected mission dose against the career limit. Editing the plan belongs to the admin flow |
 
 Always reachable: the **crew dots** and **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** (4-digit PIN) and **About & data**; the **demo bar** at the bottom drives the story.
 
@@ -193,7 +195,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
    ├─ domain/nasa        DONKI · Curiosity RAD · OSD-569 snapshot (+ optional live DONKI)
    ├─ domain/plan        mission plan: itinerary legs, presets, location by day
    ├─ domain/mission     mission clock, place, demo story
-   ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing
+   ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing · suggestions
    ├─ auth               PINs (hashed), crew session tokens, rate limit
    └─ main.py            routes, PIN sign-in for each private space and the medical console
    ▼
@@ -253,6 +255,7 @@ question ─► guard.precheck ─► tools (read-only) ─► LLMProvider ─�
 | `assistant/guard.py` | Sends emergencies to Guided Response, refuses diagnosis and doses, drops any claim citing a source the tools did not return, rejects briefing text with invented numbers |
 | `assistant/chat.py` | Entry 1: an astronaut asks a question |
 | `assistant/briefing.py` | Entry 2: one-page weekly briefing for the flight surgeon. Code computes the facts, the model only writes prose, the astronaut approves it before it is queued for Earth |
+| `assistant/suggestions.py` | Entry 3: personal suggestions in My space. Code gathers the facts (indicators against the personal normal, goals met this week, self-tests, the next leg), rules write each suggestion with the numbers behind it, and a connected model may only rephrase the reason; `guard.unknown_numbers` rejects a rewrite with any number not in the facts. Accepted suggestions become goals for 7 days |
 
 **To plug in a model:** implement `complete()` in `AnthropicProvider` (ground segment, needs a link; read `ANTHROPIC_API_KEY` from the environment, never commit it) or `LocalProvider` (on board, e.g. a small model through llama.cpp or Ollama), return the JSON shape in the module docstring, then run with `CANARY_LLM_PROVIDER=anthropic`. The guard and the tests stay the same.
 
@@ -304,19 +307,20 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission
-    assistant/           the AI slot
+    domain/              catalog, plan, telemetry, health, goals, privacy, protocols, nasa, mission, selftests
+    assistant/           the AI slot: chat, briefing, suggestions, guard
     data/                protocols.json, nasa_snapshot.json
-  tests/test_canary.py   36 tests
+  tests/test_canary.py   40 tests
   requirements.txt
 frontend/
   src/
     api/                 typed client and response types
-    state/session.tsx    mission, terminal user, refresh signal
+    state/session.tsx    mission, signed-in person, photos, preferences, refresh signal
+    state/prefs.ts       theme and accessibility preferences for the terminal
     hologram/            scene, shaders, procedural anatomy, React wrapper
-    components/          shell, People (neutral crew dots, PIN gate), PinPad, Stars, BodyView (body + observations), goals, charts, patches
-    features/            Guided Response, Ask Canary, self-checks
-    pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Dashboard, Settings), Settings, Ranking, MissionPlan, Medical, About
+    components/          Shell (sidebar, profile menu, top bar, demo bar), People (crew dots, profile picker), PinPad, Timeline, Hazards, Stars, BodyView (body + observations), goals, charts, patches
+    features/            Guided Response, Ask Canary, self-tests and logs (Checks)
+    pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, Settings), Tests, Settings, Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
 data/prepare_nasa_data.py
@@ -340,6 +344,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew/{id}` | One astronaut in full, with operational status: the astronaut and the medical team only |
 | `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, streak and patches · tick a goal |
+| `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
 | `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |

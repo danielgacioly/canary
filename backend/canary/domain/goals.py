@@ -52,7 +52,7 @@ def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict
     log = _log(crew_id) if log is None else log
     if (day, goal_id) in log:
         return bool(log[(day, goal_id)])
-    if goal_id.startswith(("al_", "med_")):
+    if goal_id.startswith(("al_", "med_", "sg_")):
         return False
     return _sim_done(crew_id, goal_id, day, today)
 
@@ -61,6 +61,11 @@ def medical_goals(crew_id: str, day: int) -> List[dict]:
     rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=?", (crew_id, day, day))
     return [{"id": f"med_{r['id']}", "area": r["area"], "title": r["title"], "why": r["why"],
              "by": "medical"} for r in rows]
+
+
+def suggested(crew_id: str, day: int) -> List[dict]:
+    """Suggestions the person turned into goals (see assistant/suggestions.py). They last a week."""
+    return [g for g in db.get_setting("suggested_goals", {}).get(crew_id, []) if g["from_day"] <= day <= g["to_day"]]
 
 
 def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[dict]:
@@ -79,6 +84,9 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
                         "done": is_done(crew_id, g["id"], day, day, log)})
     for g in medical_goals(crew_id, day):
         out.append({**g, "done": is_done(crew_id, g["id"], day, day, log)})
+    for g in suggested(crew_id, day):
+        out.append({"id": g["id"], "area": g["area"], "title": g["title"], "why": "You added this from Suggestions.",
+                    "by": "suggestion", "done": is_done(crew_id, g["id"], day, day, log)})
     return out
 
 
@@ -102,7 +110,7 @@ def _history(crew_id: str, today: int) -> dict:
     for d in range(_start(today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
-        extra = sum(1 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_")))
+        extra = sum(1 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_", "sg_")))
         days[d] = {"done": done, "total": len(ids), "count": len(done) + extra}
     return days
 
