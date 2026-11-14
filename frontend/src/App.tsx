@@ -10,6 +10,7 @@ import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
 import Settings from './pages/Settings'
 import Setup from './pages/Setup'
+import Tests from './pages/Tests'
 
 function seenIntro(): boolean {
   try { return sessionStorage.getItem('canary.intro') === '1' } catch { return true }
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/today" element={<Navigate to="/me" replace />} />
         <Route path="/goals" element={<Navigate to="/me/goals" replace />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/tests" element={<Tests />} />
         <Route path="/ranking" element={<Ranking />} />
         <Route path="/crew" element={<Crew />} />
         <Route path="/crew/:id" element={<Astronaut />} />

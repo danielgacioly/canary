@@ -153,6 +153,28 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "todo": ["Repeat the test tomorrow at the same time", "Send an eye photo to Earth"],
                   "sources": [f"checkin:{crew_id}:amsler:day{am['day']}"], "goals": []})
 
+    wb = latest_checkin(crew_id, "wellbeing", ms["day"], window=14)
+    if wb and max(wb.get("phq2", 0), wb.get("gad2", 0)) >= 3:
+        A.append({"id": "wellbeing", "level": 1, "sys": "brain", "title": "Your answers point to a hard stretch.",
+                  "why": "Low mood or worry on more than half the days of the last two weeks. That is common on long missions and it helps to say it out loud.",
+                  "todo": ["Talk to the medical officer this week", "Record a private message for the mission psychologist", "Protect your sleep window"],
+                  "sources": [f"checkin:{crew_id}:wellbeing:day{wb['day']}"],
+                  "goals": [{"id": "al_talk", "area": "mental", "title": "Book 15 minutes with the medical officer"}]})
+
+    kss = latest_checkin(crew_id, "kss", ms["day"], window=1)
+    if kss and int(kss.get("level", 0)) >= 7:
+        A.append({"id": "sleepy", "level": 1, "sys": "brain", "title": "You rated yourself very sleepy.",
+                  "why": "On the Karolinska scale, 7 or more means reactions are slower than they feel.",
+                  "todo": ["Hand over critical or precise work for now", "Take a 20-minute nap if the schedule allows", "Retake the reaction test after resting"],
+                  "sources": [f"checkin:{crew_id}:kss:day{kss['day']}"], "goals": []})
+
+    sy = latest_checkin(crew_id, "symptoms", ms["day"], window=2)
+    if sy and int(sy.get("severity", 0)) >= 3 and sy.get("items"):
+        A.append({"id": "symptoms", "level": 1, "sys": None, "title": f"You reported strong {', '.join(sy['items'][:2]).lower()}.",
+                  "why": "Strong symptoms are worth a look even when the sensors look normal.",
+                  "todo": ["Tell the medical officer today", "Log it again tomorrow so the trend is clear"],
+                  "sources": [f"checkin:{crew_id}:symptoms:day{sy['day']}"], "goals": []})
+
     for i, d in inds.items():
         if d["level"] and i not in used:
             sysid = next((k for k, s in SYSTEMS.items() if i in s["indicators"]), None)

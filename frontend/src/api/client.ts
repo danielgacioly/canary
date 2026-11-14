@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  Leaderboard, Leg, MedGoal, MedicalOverview, Message, Mission, Plan, PlanConditions, Protocols, Rad, SpaceWeather,
+  Leaderboard, Leg, MedGoal, MedicalOverview, Message, Mission, Plan, PlanConditions, Protocols, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -81,8 +81,9 @@ export const api = {
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
-  checkin: (crew_id: string, kind: 'mood' | 'pvt' | 'amsler' | 'vitals', payload: Record<string, unknown>) =>
-    req<{ ok: boolean }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
+  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>) =>
+    req<{ ok: boolean; summary: string; goal: string | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
+  checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
 
   protocols: () => req<Protocols>('/protocols'),
   startEmergency: (responder: string | null) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder }) }),

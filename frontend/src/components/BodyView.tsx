@@ -1,7 +1,7 @@
 // Health: the body and the verdict first, then the physical and mental systems as number
 // tiles (charts live on the Dashboard tab). Click any part of the body or any tile and the
 // verdict area becomes that system.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { CrewDetail, Indicator } from '../api/types'
 import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
@@ -19,17 +19,28 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
   const [sel, setSel] = useState<SystemId | null>(null)
   const status = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.level])) as Record<SystemId, 0 | 1 | 2>, [d.systems])
   const names = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.name])), [d.systems])
-  const choose = (s: SystemId | null, scroll = false) => {
+  const hero = useRef<HTMLElement>(null)
+  const apply = (s: SystemId | null) => {
     setSel(s)
     if (s) setLens(d.systems[s]?.area === 'mental' ? 'mental' : 'physical')
-    if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  // From a tile below the fold: bring the body into view first, then change it, so the
+  // camera and lens transition play where you can see them instead of off screen.
+  const choose = (s: SystemId | null, scroll = false) => {
+    const top = hero.current?.getBoundingClientRect().top ?? 0
+    if (!scroll || top > -40) { apply(s); return }
+    window.scrollBy({ top: top - 80, behavior: 'smooth' })
+    let done = false
+    const go = () => { if (done) return; done = true; window.removeEventListener('scrollend', go); apply(s) }
+    window.addEventListener('scrollend', go)
+    window.setTimeout(go, 700)
   }
   const physical = [...PHYSICAL].sort((a, b) => d.systems[b].level - d.systems[a].level)
   const mental = [...FACETS].sort((a, b) => d.indicators[b].level - d.indicators[a].level)
 
   return (
     <>
-      <section className="hero">
+      <section className="hero" ref={hero}>
         <div className="rise">
           <BodyHologram status={status} lens={lens} selected={sel} onSelect={s => choose(s)} names={names}>
             <span className="body-hint">Drag to turn · click any part of the body</span>
@@ -40,7 +51,7 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
             : <Verdict d={d} self={self} onCheck={onCheck} onPick={s => choose(s)} />}
           <div className="areas rise" style={{ ['--d' as string]: 4 }}>
             {(['physical', 'mental'] as const).map(a => (
-              <button key={a} className={`area ${lens === a ? 'on' : ''}`} onClick={() => { setLens(a); setSel(null); document.getElementById(`sec-${a}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}>
+              <button key={a} className={`area ${lens === a ? 'on' : ''}`} onClick={() => { setLens(a); setSel(null) }} aria-pressed={lens === a}>
                 <div className="k">{a === 'physical' ? 'Physical' : 'Mental'}</div>
                 <b className="num"><CountUp value={d.areas[a].score} /></b>
                 <Status level={d.areas[a].level} />

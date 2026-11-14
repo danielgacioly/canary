@@ -114,3 +114,6 @@ export interface MedicalOverview {
   crew: { id: string; name: string; role: string; level: Level; ops: Ops; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
+export interface TestResult { kind: string; day: number; at: number; summary: string; payload: Record<string, unknown> }
+export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
+export interface TestHistory { tests: TestDef[]; recent: TestResult[] }

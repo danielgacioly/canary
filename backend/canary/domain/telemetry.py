@@ -89,6 +89,8 @@ def overrides(crew_id: str, day: int) -> Dict[str, float]:
                 out["stress"] = float(p["stress"])
         elif r["kind"] == "pvt":
             out["react"] = float(p["ms"])
+        elif r["kind"] == "sleep" and p.get("hours") is not None:
+            out["sleep"] = float(p["hours"])
         elif r["kind"] == "vitals":
             for k in ("hr", "bp", "temp", "spo2"):
                 if p.get(k) is not None:

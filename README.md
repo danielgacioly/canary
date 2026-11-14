@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 38 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 39 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -87,6 +87,7 @@ A sidebar in three groups (Crew, Your space, Support), **crew first**: the syste
 | **My space** (private) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, four tabs: **Health**, **Goals**, **Dashboard** (every chart) and **Settings** (profile photo, Change PIN, Lock). |
 | My space · **Health** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as number tiles (value, your normal, status colour); the charts are on the Dashboard tab. Click any part of the body or any tile and the top area becomes that system. |
 | My space · **Goals** | Done today, streak, 7-day completion and patches; physical and mental goals side by side; crew missions; patches. No points, no levels: goals are goals |
+| **Tests** (crew area, private results) | Choose your profile and enter the PIN, then run any test or log: **Cognition** (reaction time, processing speed as a digit-symbol task, working memory as a digit span, the kinds of task in NASA's Cognition battery), **How you feel** (mood and stress, Karolinska Sleepiness Scale, NASA-TLX workload, PHQ-2 and GAD-2 wellbeing), **Body** (vital signs, Amsler grid, symptoms) and **Logs** (sleep diary, reading, a three-line journal whose text is never saved). Each row shows the last result; results feed your health, complete matching goals and can raise a gentle alert (very sleepy, a hard stretch, strong symptoms) |
 | My space · **Dashboard** | The last 30 days of every indicator against your normal, goals done per day, and lymphocytes from NASA OSD-569 |
 | **Settings** | For the terminal: theme (dark, light, match device), larger text, higher contrast, reduce motion, read Guided Response steps aloud, show the demo bar, replay the intro, reset the demo |
 | **Ranking** | One headline (who leads, by how many goals), what counts, then one row per person: medal, goals done in the last 7 days as a bar, the gap to the person ahead, completion, streak and patches |
@@ -339,9 +340,9 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew/{id}` | One astronaut in full, with operational status: the astronaut and the medical team only |
 | `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, streak and patches · tick a goal |
+| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
-| `POST /api/checkins` | Mood, reaction test, Amsler grid, vital signs |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
 | `GET/POST /api/messages` | Messages with communication delay |
 | `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |

@@ -312,3 +312,18 @@ def test_plan_conditions_project_the_dose():
     assert len(c["legs"]) == 4 and c["legs"][2]["location"] == "transit"
     doses = [v for _, v in c["dose"]["series"]]
     assert doses == sorted(doses) and c["dose"]["end_msv"] > c["dose"]["limit_msv"] * 0.5
+
+
+def test_tests_page_saves_results_privately_and_completes_goals():
+    at(2)
+    h = as_("h")
+    r = client.post("/api/checkins", json={"crew_id": "h", "kind": "sleep", "payload": {"bed": "23:00", "wake": "06:30", "quality": 4}}, headers=h).json()
+    assert r["goal"] == "sleep" and r["summary"].startswith("7.5 h")
+    assert client.post("/api/checkins", json={"crew_id": "h", "kind": "journal", "payload": {"lines": 3, "text": "secret"}}, headers=h).json()["goal"] == "journal"
+    client.post("/api/checkins", json={"crew_id": "h", "kind": "wellbeing", "payload": {"answers": [2, 2, 0, 1]}}, headers=h)
+    hist = client.get("/api/checkins/h", headers=h).json()
+    latest = {t["id"]: t["latest"] for t in hist["tests"]}
+    assert latest["sleep"]["payload"]["hours"] == 7.5 and latest["journal"]["payload"] == {"lines": 3}  # the text is never kept
+    assert any(a["id"] == "wellbeing" for a in client.get("/api/crew/h", headers=h).json()["alerts"])
+    assert client.get("/api/checkins/h", headers=as_("k")).status_code == 403
+    assert client.post("/api/checkins", json={"crew_id": "h", "kind": "nope", "payload": {}}, headers=h).status_code == 422

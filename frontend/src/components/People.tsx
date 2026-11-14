@@ -41,7 +41,7 @@ export function CrewDots({ people }: { people: DotPerson[] }) {
 }
 
 /** The locked state of My space: pick a profile, then the PIN. Nothing else on screen. */
-export function ProfilePicker({ preselect = null }: { preselect?: string | null }) {
+export function ProfilePicker({ preselect = null, title = 'Choose your profile' }: { preselect?: string | null; title?: string }) {
   const { catalog, setMe } = useSession()
   const [, setParams] = useSearchParams()
   const [who, setWho] = useState<string | null>(preselect && DEMO_PINS[preselect] ? preselect : null)
@@ -51,7 +51,7 @@ export function ProfilePicker({ preselect = null }: { preselect?: string | null 
   return (
     <div className="page picker">
       <span className="lock rise"><Icon name="lock" size={22} /></span>
-      <h1 className="rise">Choose your profile</h1>
+      <h1 className="rise">{title}</h1>
       <div className="picker-grid">
         {catalog.crew.map((c, i) => (
           <button key={c.id} className="rise" style={{ ['--d' as string]: i + 1 }} onClick={() => setWho(c.id)}>

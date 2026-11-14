@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, plan, privacy, protocols, telemetry
+from .domain import goals, health, mission, nasa, plan, privacy, protocols, selftests, telemetry
 from .domain.catalog import CAREER_LIMIT_MSV, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
@@ -370,19 +370,40 @@ def leaderboard():
 # ---------------------------------------------------------------- check-ins (self measurements)
 class CheckinIn(BaseModel):
     crew_id: str
-    kind: str = Field(pattern="^(mood|pvt|amsler|vitals)$")
+    kind: str = Field(pattern="^(" + "|".join(sorted(selftests.TEST_IDS)) + ")$")
     payload: dict
 
 
 @app.post("/api/checkins", tags=["crew"])
 def checkin(body: CheckinIn, v: dict = Depends(viewer)):
+    """A test or log from the Tests page (or a quick check from My space). Private: self and medical team."""
     _crew(body.crew_id)
     require_self(body.crew_id, v)
     day = mission.state()["day"]
+    p = selftests.normalise(body.kind, body.payload)
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
-         (body.crew_id, day, body.kind, json.dumps(body.payload), time.time()))
-    goals.set_done(body.crew_id, body.kind, day, True)
-    return {"ok": True, "snapshot": health.snapshot(body.crew_id, mission.state())}
+         (body.crew_id, day, body.kind, json.dumps(p), time.time()))
+    g = selftests.goal_for(body.kind, p)
+    if g:
+        goals.set_done(body.crew_id, g, day, True)
+    return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
+            "snapshot": health.snapshot(body.crew_id, mission.state())}
+
+
+@app.get("/api/checkins/{crew_id}", tags=["crew"])
+def checkin_history(crew_id: str, v: dict = Depends(viewer)):
+    """Every test with its latest result, plus the recent log. Self and medical team only."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    rows = db.q("SELECT id,kind,day,payload,created_at FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 200", (crew_id,))
+    latest, recent = {}, []
+    for r in rows:
+        p = json.loads(r["payload"])
+        item = {"kind": r["kind"], "day": r["day"], "at": r["created_at"], "summary": selftests.summary(r["kind"], p), "payload": p}
+        latest.setdefault(r["kind"], item)
+        if len(recent) < 20:
+            recent.append(item)
+    return {"tests": [{**t, "latest": latest.get(t["id"])} for t in selftests.TESTS], "recent": recent}
 
 
 # ---------------------------------------------------------------- guided response
