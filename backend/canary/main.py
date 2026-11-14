@@ -768,6 +768,8 @@ def medical_overview():
         s = health.snapshot(c["id"], ms)
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
                     "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"],
+                    "risks": [{k: r[k] for k in ("id", "name", "nasa_red", "level", "trend", "since_day", "data")} for r in s["risks"]],
+                    "dose": s["dose"], "standard_profile": standards.crew_profile(c["id"]),
                     "care_events": care.events(c["id"], ms["day"])})
     return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5],
             "notices": notify.list_for(ms["day"]), "care_sensitivity": care.sensitivity()}

@@ -1686,6 +1686,15 @@ def test_the_career_dose_reaches_the_person_and_the_medical_team_only():
     assert med.status_code == 200 and med.json()["dose"]["career_msv"] >= med.json()["dose"]["prior_msv"]
 
 
+def test_the_medical_overview_carries_career_dose_and_red_risks():
+    at(3)
+    assert client.get("/api/medical/overview").status_code == 401
+    for c in client.get("/api/medical/overview", headers=_med()).json()["crew"]:
+        assert c["dose"]["career_msv"] >= c["dose"]["prior_msv"] and c["standard_profile"]["eva"] in ("none", "microgravity", "surface")
+        assert c["risks"] and all({"id", "name", "nasa_red", "level", "trend", "since_day", "data"} == set(r) for r in c["risks"])
+        assert any(r["nasa_red"] for r in c["risks"])  # slim: no evidence text or hazard links here, the person view has those
+
+
 def test_the_catalog_carries_the_indicator_guide_with_its_sources():
     g = client.get("/api/catalog").json()["guide"]
     assert {"bp", "hr", "temp", "spo2", "gluc", "exer", "sleep", "mood", "vo2", "grip", "bone", "radiation"} <= set(g)
