@@ -11,6 +11,9 @@ import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import { Icon, LineChart, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
+import { ActionError } from '../components/Field'
+import { useAction } from '../lib/useAction'
+import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
 type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'info' | 'settings'
@@ -94,8 +97,9 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
 function SuggestionsTab({ me }: { me: string }) {
   const { bump, toast } = useSession()
   const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
+  const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
-  const accept = async (sid: string) => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') }
+  const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
   return (
     <div className="suggest">
       <div className="slot-line rise">
@@ -227,12 +231,19 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
   const file = useRef<HTMLInputElement>(null)
   const [pinOpen, setPinOpen] = useState(false)
   const first = d.crew.name.split(' ')[0]
+  const photo = useAction()
+  const [photoErr, setPhotoErr] = useState<string | null>(null)
   const pick = async (f: File | undefined) => {
     if (!f) return
-    try {
-      await api.setPhoto(me, await squareJpeg(f, 256))
+    const bad = imageFile(f)  // PNG, JPEG or WebP, at most 8 MB: said under the buttons, not in a toast
+    setPhotoErr(bad)
+    if (bad) return
+    await photo.run(async () => {
+      let url: string
+      try { url = await squareJpeg(f, 256) } catch { throw new Error('That file could not be read as an image. Pick another photo.') }
+      await api.setPhoto(me, url)
       bump(); toast('Photo updated')
-    } catch (e) { toast(`Could not use that image: ${(e as Error).message}`) }
+    })
   }
   return (
     <div className="settings">
@@ -242,9 +253,10 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
           <Dot p={d.crew} size="lg" />
           <div className="grow"><b>Shown to the crew</b><p className="small muted">Like a name badge: it appears on the crew page and in the top bar. Nothing else about you does.</p></div>
           <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = '' }} />
-          <button className="btn" onClick={() => file.current?.click()}>{photos[me] ? 'Change photo' : 'Add photo'}</button>
-          {photos[me] && <button className="btn ghost" onClick={async () => { await api.deletePhoto(me); bump() }}>Remove</button>}
+          <button className="btn" disabled={photo.busy} onClick={() => file.current?.click()}>{photo.busy ? 'Saving…' : photos[me] ? 'Change photo' : 'Add photo'}</button>
+          {photos[me] && <button className="btn ghost" disabled={photo.busy} onClick={() => { setPhotoErr(null); photo.run(async () => { await api.deletePhoto(me); bump() }) }}>Remove</button>}
         </div>
+        <ActionError error={photoErr ?? photo.error} />
       </section>
       <section className="set-group rise" style={{ ['--d' as string]: 1 }}>
         <h2>Security</h2>

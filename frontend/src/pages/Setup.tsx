@@ -8,6 +8,7 @@ import type { Leg } from '../api/types'
 import { Dot } from '../components/People'
 import Stars from '../components/Stars'
 import { CanaryMark, Icon, Loading } from '../components/ui'
+import * as rules from '../lib/validate'
 import { useSession } from '../state/session'
 
 type Dest = 'mars' | 'iss' | 'moon'
@@ -111,7 +112,22 @@ export default function Setup() {
   const [phase, setPhase] = useState<'edit' | 'launching'>('edit')
   const [count, setCount] = useState(3)
   const [err, setErr] = useState('')
+  const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({})
+  const [blocked, setBlocked] = useState(false)
   const busy = useRef(false)
+  const badRef = useRef(false)
+  badRef.current = Object.keys(fieldErrs).length > 0
+  /** A duration box reports its error here. While one is wrong the person cannot move on or start the mission. */
+  const report = useCallback((key: string, message: string | null) => {
+    setFieldErrs(e => { if ((e[key] ?? null) === message) return e; const n = { ...e }; if (message) n[key] = message; else delete n[key]; return n })
+  }, [])
+  /** True when it is fine to go on. Otherwise says why and puts the focus on the first wrong box. */
+  const clear = useCallback(() => {
+    if (!badRef.current) { setBlocked(false); return true }
+    setBlocked(true)
+    document.querySelector<HTMLElement>('.numfield [aria-invalid="true"]')?.focus()
+    return false
+  }, [])
 
   const v = vals[dest]
   const legs = useMemo(() => buildLegs(dest, v, dest === 'mars' && withReturn), [dest, v, withReturn])
@@ -124,7 +140,7 @@ export default function Setup() {
 
   /** Save the plan, then (optionally) play the launch before landing on the crew page. */
   const launch = useCallback(async (planName: string, planLegs: Seg[], countdown: boolean) => {
-    if (busy.current) return
+    if (busy.current || !clear()) return
     busy.current = true
     setErr('')
     if (countdown) { setCount(3); setPhase('launching') }
@@ -141,10 +157,10 @@ export default function Setup() {
       setPhase('edit')
       setErr((e as Error).message)
     }
-  }, [bump, nav, setMission])
+  }, [bump, nav, setMission, clear])
 
   const useDemo = () => launch(SPECS.mars.name, buildLegs('mars', SPECS.mars.defaults, false), false)
-  const next = () => { if (step < 3) setStep(step + 1) }
+  const next = () => { if (step < 3 && clear()) setStep(step + 1) }
   const back = () => { if (step > 0) setStep(step - 1) }
 
   // Countdown 3, 2, 1 while the plan saves.
@@ -160,13 +176,14 @@ export default function Setup() {
       if (e.key !== 'Enter' || phase !== 'edit') return
       const el = document.activeElement as HTMLElement | null
       if (el && (el.tagName === 'BUTTON' || el.tagName === 'A')) return
+      if (!clear()) return
       el?.blur()
       if (step < 3) setStep(s => s + 1)
       else launch(name, legs, true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, step, launch, name, legs])
+  }, [phase, step, launch, name, legs, clear])
 
   if (!catalog) return <div className="intro"><Loading what="mission setup" /></div>
   const last = legs[legs.length - 1].end
@@ -220,16 +237,18 @@ export default function Setup() {
             <div className="setup-cols fields">
               <div className="col rise" style={{ ['--d' as string]: 1, gap: 18 }}>
                 <label className="field"><span className="lbl">Mission name</span>
-                  <input value={name} maxLength={80} onChange={e => { setName(e.target.value); setNameEdited(true) }} /></label>
-                {SPECS[dest].fields.map(f => <NumField key={f.key} f={f} value={v[f.key]} onChange={n => setVal(f.key, n)} />)}
+                  <input value={name} maxLength={80} onChange={e => { setName(e.target.value); setNameEdited(true) }} />
+                  <span className="hint">Up to 80 characters. Left empty, the plan is called Mission plan.</span></label>
+                {SPECS[dest].fields.map(f => <NumField key={f.key} f={f} value={v[f.key]} onChange={n => setVal(f.key, n)} report={report} />)}
                 {dest === 'mars' && (
                   <>
                     <button className="row small toggle" onClick={() => setWithReturn(!withReturn)} aria-pressed={withReturn}>
                       <span className={`switch ${withReturn ? 'on' : ''}`} />Include the return trip
                     </button>
-                    {withReturn && SPECS.mars.returnFields!.map(f => <NumField key={f.key} f={f} value={v[f.key]} onChange={n => setVal(f.key, n)} />)}
+                    {withReturn && SPECS.mars.returnFields!.map(f => <NumField key={f.key} f={f} value={v[f.key]} onChange={n => setVal(f.key, n)} report={report} />)}
                   </>
                 )}
+                {blocked && Object.keys(fieldErrs).length > 0 && <p className="form-err" role="alert">Fix the duration marked above before you continue.</p>}
               </div>
               <div className="rise" style={{ ['--d' as string]: 2 }}>
                 <Preview legs={legs} names={Object.fromEntries(Object.entries(catalog.locations).map(([k, p]) => [k, p.name]))} />
@@ -291,24 +310,24 @@ export default function Setup() {
   )
 }
 
-/** A slider and a number box for the same value. The box keeps what you type until it is a valid number. */
-function NumField({ f, value, onChange }: { f: Field; value: number; onChange: (n: number) => void }) {
+/** A slider and a number box for the same value. The box keeps what you type: a wrong number is not changed behind
+ *  your back, it shows what is wrong under the box and stops the setup from moving on until it is fixed. */
+function NumField({ f, value, onChange, report }: { f: Field; value: number; onChange: (n: number) => void; report: (key: string, message: string | null) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
-  const commit = (raw: string) => {
-    const n = Math.round(Number(raw))
-    if (raw.trim() !== '' && Number.isFinite(n)) onChange(Math.min(f.max, Math.max(f.min, n)))
-    setDraft(null)
-  }
+  const check = rules.number(f.label, { min: f.min, max: f.max, unit: 'days', integer: true })
+  const err = draft === null ? null : check(draft)
+  useEffect(() => { report(f.key, err); return () => report(f.key, null) }, [f.key, err, report])
+  const id = `num-${f.key}`
   return (
     <div className="numfield">
-      <div className="row"><span className="lbl grow">{f.label}</span>
-        <input className="in num" type="number" inputMode="numeric" min={f.min} max={f.max} value={draft ?? value} aria-label={`${f.label}, days`}
-          onChange={e => { setDraft(e.target.value); const n = Number(e.target.value); if (Number.isInteger(n) && n >= f.min && n <= f.max) onChange(n) }}
-          onBlur={e => commit(e.target.value)} />
+      <div className="row"><label className="lbl grow" htmlFor={id}>{f.label}</label>
+        <input id={id} className="in num" type="text" inputMode="numeric" value={draft ?? value} autoComplete="off" aria-invalid={err ? true : undefined} aria-describedby={`${id}-msg`}
+          onChange={e => { setDraft(e.target.value); if (!check(e.target.value)) onChange(Number(e.target.value.trim().replace(',', '.'))) }}
+          onBlur={() => { if (!err) setDraft(null) }} />
         <span className="small dim">days</span>
       </div>
-      <input type="range" min={f.min} max={f.max} value={value} onChange={e => { setDraft(null); onChange(Number(e.target.value)) }} aria-label={f.label} />
-      <span className="small dim">{f.hint}</span>
+      <input type="range" min={f.min} max={f.max} value={value} onChange={e => { setDraft(null); onChange(Number(e.target.value)) }} aria-label={`${f.label}, slider`} />
+      <span className={err ? 'small err' : 'small dim'} id={`${id}-msg`}>{err ?? f.hint}</span>
     </div>
   )
 }

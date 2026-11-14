@@ -18,17 +18,19 @@ interface FieldProps extends ControlProps {
   hint?: string
   optional?: boolean
   as?: 'input' | 'select' | 'textarea'
+  /** Keep the label for screen readers only (a one-line input such as the question box). */
+  hideLabel?: boolean
   /** Turns what was typed into the stored value (for example digits only). */
   map?: (typed: string) => unknown
   children?: ReactNode
 }
 
-export function Field({ form, name, label, hint, optional, as: Tag = 'input', map, children, ...control }: FieldProps) {
+export function Field({ form, name, label, hint, optional, as: Tag = 'input', hideLabel, map, children, ...control }: FieldProps) {
   const p = form.bind(name, { map })
   const err = form.error(name)
   return (
     <div className="field">
-      <label className="lbl" htmlFor={p.id}>{label}{optional && <span className="dim"> (optional)</span>}</label>
+      <label className={hideLabel ? 'lbl sr-only' : 'lbl'} htmlFor={p.id}>{label}{optional && <span className="dim"> (optional)</span>}</label>
       <Tag {...control} {...p}>{children}</Tag>
       {err ? <span className="err" id={`${p.id}-err`}>{err}</span> : hint ? <span className="hint" id={`${p.id}-hint`}>{hint}</span> : null}
     </div>

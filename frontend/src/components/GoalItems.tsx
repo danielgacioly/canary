@@ -1,21 +1,25 @@
 import { api } from '../api/client'
 import type { Goal, TeamGoal } from '../api/types'
 import type { CheckKind } from '../features/Checks'
+import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 import { Icon } from './ui'
 
 export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; crewId: string; onCheck?: (k: CheckKind) => void; readOnly?: boolean; compact?: boolean }) {
   const { bump, toast } = useSession()
-  const toggle = async () => {
+  const act = useAction('toast')
+  const toggle = () => {
     if (readOnly) return
     if (!g.done && g.action && onCheck) { onCheck(g.action as CheckKind); return }
-    await api.setGoal(crewId, g.id, !g.done)
-    if (!g.done) toast('Goal done')
-    bump()
+    act.run(async () => {
+      await api.setGoal(crewId, g.id, !g.done)
+      if (!g.done) toast('Goal done')
+      bump()
+    })
   }
   return (
     <div className={`goal ${g.done ? 'done' : ''}`}>
-      <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly}><Icon name="check" size={14} /></button>
+      <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly || act.busy}><Icon name="check" size={14} /></button>
       <div className="grow">
         <div className="gt">{g.title}</div>
         {!compact && <div className="small dim">{g.why}</div>}

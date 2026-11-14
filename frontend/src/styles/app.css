@@ -1056,3 +1056,8 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .field input.span-in { font: 500 26px var(--f-mono); letter-spacing: .2em; }
 .field.group > .lbl b { color: var(--ink); font-weight: 600; font-size: 15px; }
 .btn.start { align-self: flex-start; }
+.numfield .err { color: var(--act); }
+.numfield input.in[aria-invalid="true"] { border-color: var(--act); }
+.err { color: var(--act); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.ask-row { align-items: flex-start; }
