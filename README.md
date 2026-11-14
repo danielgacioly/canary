@@ -210,7 +210,7 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 | One FastAPI process | Runs offline on board, one thing to deploy and test | Microservices: more failure points, no benefit at this size |
 | SQLite | A single file, no server, survives with no network | Postgres: belongs on the ground station later |
 | Telemetry behind `TelemetrySource`, fed by an observation file | Real data replaces simulated rows by dropping in a CSV, with no code change | Formulas inside the code that nobody can open and check |
-| Personal baseline (z-score) | Astronauts are fit outliers; population ranges miss their changes | Fixed clinical thresholds only |
+| Personal baseline (z-score) **and** population range | Astronauts are fit outliers, so their own normal gives the early warning; the population range stays as the safety limit | Either one alone |
 | Protocols as JSON | The medical team can review and replace them without code | Protocols in code |
 | No accounts for the crew, a 4-digit PIN per private space | A shared terminal in a cabin: a PIN is fast, and Guided Response needs no sign-in | Logins with passwords: friction in an emergency; trusting a plain id: anyone could open anyone's health |
 | PIN + signed token for doctors | Only the medical team writes prescriptions and rules | Full identity system: out of scope for a prototype |
@@ -236,7 +236,7 @@ cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  �
    body system status  →  colour on the 3D body  →  physical / mental readiness score
 ```
 
-Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
+Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. The baseline in that formula is the person's pre-flight mean, and a population range can raise the level by itself (see "Reference ranges and their sources"). Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
 
 ### Where a value comes from and how old it is
 
@@ -246,6 +246,32 @@ Every day of the 60/25/15 blend is read the same way, through `telemetry.observa
 2. Otherwise the last row of the observation file up to that day, with the origin of the row (`simulated` or `real`).
 
 Each indicator in `GET /api/crew/{id}` also says `origin` (where today's value came from), `last_measured_day` and `age_days` (days since the person last measured it themselves; `null` if never). The four cognitive and self-report indicators (`dsst`, `span`, `kss`, `tlx`, Brain & mind) follow the same baseline, spread and thresholds as the others.
+
+### Reference ranges and their sources
+
+Canary compares every number with two references. The **population range** is the safety limit: outside it the indicator is at least level 1, and past a *critical* limit it is level 2 on its own (even before launch, even when the personal numbers look fine; it is judged on the day's reading, not the three-day blend). The **personal baseline** is the early warning: mean of the person's measurements on the plan's pre-flight days (file rows plus their own check-ins; the mean is shown at the app's precision, the spread never goes below the catalog's `sd`; with fewer than 5 pre-flight measurements, or no pre-flight leg, the catalog seed is used). Inside the population range the personal z-score still decides, as before. Thresholds can be overridden for one indicator with the setting `thresholds_by_indicator` (`{"sleep": {"watch": 1.0, "act": 2.0}}`); there is no screen for it.
+
+<!-- reference-table:start (generated from backend/canary/domain/reference.py) -->
+| Indicator | Unit | Low | High | Critical (below / above) | Source | Verified |
+| --- | --- | --- | --- | --- | --- | :---: |
+| `hr` Resting pulse | bpm | 40 | 100 | 30 / 150 | AHA: resting heart rate 60 to 100 bpm in adults, 40 to 60 is common in trained people. Critical limits: prototype assumption | no |
+| `bp` Blood pressure | mmHg | 90 | 139 | 70 / 180 | Systolic pressure. Below 90 is low blood pressure; 140 or more is hypertension (ESC/ESH 2018); above 180 is the AHA hypertensive-crisis line. Critical low: prototype assumption | no |
+| `spo2` Blood oxygen | % | 95 | 100 | 90 / - | Usual pulse-oximetry range 95 to 100%; below 90% is hypoxaemia (WHO pulse oximetry training manual) | no |
+| `temp` Temperature | °C | 36.1 | 37.2 | 35 / 40 | MedlinePlus: normal body temperature about 36.1 to 37.2 °C; below 35 °C is hypothermia; above 40 °C is hyperpyrexia | no |
+| `gluc` Fasting glucose | mg/dL | 70 | 99 | 54 / - | ADA Standards of Care: fasting normal below 100 mg/dL; level 2 hypoglycaemia below 54 mg/dL. Low edge 70: ADA level 1 | no |
+| `sleep` Sleep | h | 6 | 10 | - | National Sleep Foundation 2015: 7 to 9 h recommended for adults, 6 to 10 h may be appropriate | no |
+| `water` Water | L | F 1.6 / M 2 | - | - | EFSA 2010: adequate intake from drinks about 1.6 L (women) and 2.0 L (men) | no |
+| `exer` Exercise | min | 21 | - | - | WHO 2020 physical activity guidelines: 150 min a week of moderate activity, about 21 min a day | no |
+| `grip` Grip strength | kg | F 16 / M 27 | - | - | EWGSOP2 2019 sarcopenia cut-offs: grip below 16 kg (women) or 27 kg (men) is low strength | no |
+| `kss` Sleepiness | /9 | - | 6 | - | Karolinska Sleepiness Scale (Åkerstedt and Gillberg 1990): 7 or more means sleepy | no |
+| `react` Reaction time | ms | 150 | 500 | - | prototype assumption: wide on purpose, the result depends on the device and screen lag | no |
+| `dsst` Processing speed | correct | 20 | 100 | - | prototype assumption: wide on purpose, depends on the task version and device | no |
+| `span` Working memory | digits | 4 | 10 | - | prototype assumption: wide on purpose; forward digit span of adults is usually 5 to 9 | no |
+
+No population range (personal or relative scales): `mood`, `stress`, `social`, `tlx`, `bone`.
+<!-- reference-table:end -->
+
+None of these ranges is `verified`: they are known clinical references written down for the prototype, to be checked by the team before the pitch. Critical limits without a guideline are marked as prototype assumptions, and the PVT, DSST and span ranges are wide on purpose because they depend on the device. They are risk limits, not diagnoses.
 
 ---
 
@@ -372,7 +398,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, streak and patches · tick a goal |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
-| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only; vitals outside the typing limits, such as a pulse of 900, return 400) · every test with its latest result and the recent log (self and medical team) |
+| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log, returns `conclusion` {population, personal, text} (self only; vitals outside the typing limits, such as a pulse of 900, return 400) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
@@ -415,6 +441,7 @@ Full, interactive documentation at `/docs`. The main routes:
 
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
 - **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
+- **Reference ranges to verify:** every entry of `reference.POPULATION` is `verified: false` (table above). Simulated glucose of Tomás sits just above 99 mg/dL on a few isolated days (level 1, none in a story scene).
 - **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.

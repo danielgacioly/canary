@@ -541,3 +541,124 @@ def test_vitals_outside_what_can_be_typed_are_refused():
 def selftests_limits_are_not_clinical():
     from canary.domain import selftests
     return selftests.VITALS_LIMITS_SOURCE["verified"] is False and "not clinical" in selftests.VITALS_LIMITS_SOURCE["source"]
+
+
+# ---------------------------------------------------------------- Prompt 2: two references (population safety limit + personal baseline)
+STORY_ALERTS = {  # scene step -> crew -> (alert id, level), as before the population ranges and the computed baseline
+    1: {"t": [("sickness", 1)]},
+    2: {"h": [("behaviour", 2), ("missing_mood", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1)]},
+    3: {"h": [("storm", 2), ("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("storm", 2), ("ind_bone", 1)],
+        "a": [("storm", 2)], "t": [("storm", 2), ("ind_bone", 1)]},
+    4: {"h": [("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1)]},
+    5: {"h": [("storm", 2), ("regravity", 1), ("ind_bone", 1)], "k": [("storm", 2), ("regravity", 1), ("ind_grip", 1), ("ind_bone", 1)],
+        "a": [("storm", 2), ("ind_hr", 2), ("ind_grip", 1), ("ind_bone", 1)], "t": [("storm", 2), ("ind_hr", 1), ("ind_bone", 1)]},
+}
+
+
+@pytest.mark.parametrize("step", range(6))
+def test_story_scenes_keep_the_same_alerts(step):
+    ms = at(step)
+    for c in catalog.CREW:
+        got = [(a["id"], a["level"]) for a in health.snapshot(c["id"], ms)["alerts"]]
+        assert got == STORY_ALERTS.get(step, {}).get(c["id"], []), (step, c["id"])
+
+
+def test_a_critical_reading_is_level_two_even_while_learning():
+    ms = _day(-30)
+    assert ms["learning"]
+    assert _checkin("a", "vitals", {"spo2": 85}).status_code == 200
+    s = health.snapshot("a", ms)
+    i = s["indicators"]["spo2"]
+    assert i["level"] == 2 and i["population"]["status"] == "critical" and i["population"]["verified"] is False
+    assert [(a["id"], a["level"]) for a in s["alerts"]] == [("ind_spo2", 2)]
+    assert s["systems"]["lungs"]["level"] == 2
+    assert health.snapshot("k", ms)["alerts"] == []  # nobody else is affected
+
+
+def test_outside_the_normal_range_is_at_least_level_one_after_launch():
+    ms = _day(100)
+    assert _checkin("a", "vitals", {"temp": 37.9}).status_code == 200  # fever range, not critical
+    i = health.snapshot("a", ms)["indicators"]["temp"]
+    assert i["population"]["status"] == "out" and i["level"] >= 1
+    assert _checkin("a", "vitals", {"temp": 41}).status_code == 200
+    assert health.snapshot("a", ms)["indicators"]["temp"]["level"] == 2
+
+
+def test_inside_the_population_range_the_personal_baseline_still_raises_level_two():
+    ms = _day(100)
+    assert _checkin("a", "pvt", {"ms": 450}).status_code == 200  # inside 150 to 500 ms, far from her own 250
+    i = health.snapshot("a", ms)["indicators"]["react"]
+    assert i["population"]["status"] == "in" and i["z"] >= 2.5 and i["level"] == 2
+
+
+def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the_seed():
+    for c in catalog.CREW:
+        for ind, B in health.baselines(c["id"]).items():
+            sd = catalog.INDICATORS[ind]["sd"]
+            assert B["from"] == "preflight" and B["n"] >= health.MIN_PREFLIGHT, (c["id"], ind)
+            assert abs(B["mean"] - c["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
+            assert B["sd"] >= sd  # the floor
+    _day(100)
+    d = client.get("/api/crew/h", headers=as_("h")).json()["indicators"]["sleep"]
+    assert d["baseline_from"] == "preflight" and d["baseline"] == health.baselines("h")["sleep"]["mean"] and d["spread"] >= 0.5
+
+
+def test_a_plan_without_preflight_falls_back_to_the_catalog_seed():
+    plan_no_pre = {"name": "No pre-flight", "legs": [{"location": "rocket", "start": 0, "end": 3}, {"location": "transit", "start": 4, "end": 100}]}
+    assert client.put("/api/plan", json=plan_no_pre).status_code == 200
+    b = health.baselines("h")
+    assert all(x["from"] == "catalog" and x["mean"] == catalog.CREW_BY_ID["h"]["base"][i] for i, x in b.items())
+
+
+def test_a_preflight_checkin_moves_the_baseline():
+    _day(-30)
+    before = health.baselines("a")["react"]["mean"]
+    for _ in range(3):
+        assert _checkin("a", "pvt", {"ms": 400}).status_code == 200
+    assert health.baselines("a")["react"]["mean"] != before
+
+
+def test_a_test_returns_a_conclusion_against_both_references():
+    _day(100)
+    c = _checkin("a", "pvt", {"ms": 330}).json()["conclusion"]
+    assert c["population"] == "Within the normal human range" and "slower than your own average" in c["personal"]
+    assert c["text"] == f"{c['population']}, {c['personal']}."
+    for kind, payload in (("dsst", {"correct": 50}), ("span", {"span": 6}), ("kss", {"level": 4}), ("tlx", {"scores": {"a": 50}}),
+                          ("mood", {"mood": 4, "stress": 2}), ("sleep", {"bed": "23:00", "wake": "06:00", "quality": 3}),
+                          ("vitals", {"hr": 60})):
+        c = _checkin("a", kind, payload).json()["conclusion"]
+        assert c and c["population"] and c["personal"], kind
+    assert _checkin("a", "journal", {"lines": 3}).json()["conclusion"] is None
+    assert "Past the safety limit" in _checkin("a", "vitals", {"spo2": 85}).json()["conclusion"]["text"]
+
+
+def test_thresholds_can_be_overridden_for_one_indicator():
+    ms = _day(100)
+    before = health.snapshot("a", ms)["indicators"]
+    db.set_setting("thresholds_by_indicator", {"sleep": {"watch": -9, "act": -8}})
+    after = health.snapshot("a", ms)["indicators"]
+    assert after["sleep"]["level"] == 2
+    assert {i: x["level"] for i, x in after.items() if i != "sleep"} == {i: x["level"] for i, x in before.items() if i != "sleep"}
+
+
+def test_every_population_range_has_a_source_and_the_readme_table_is_generated_from_it():
+    from canary.domain import reference
+    import pathlib
+    for ind, P in reference.POPULATION.items():
+        assert ind in catalog.INDICATORS and P["source"], ind
+        assert P["verified"] is False  # the team checks them before the pitch
+    assert all(reference.POPULATION[i]["source"].find("assumption") >= 0 for i in ("react", "dsst", "span"))
+    readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text()
+    assert reference.table_md() in readme
+    assert reference.check("grip", "F", 15)["status"] == "out" and reference.check("grip", "M", 30)["status"] == "in"
+    assert reference.check("mood", "F", 1)["status"] == "in"
+
+
+def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
+    from canary.domain import nasa
+    b = nasa.blood("C001")
+    assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"}
+    for a in b["analytes"].values():
+        assert len(a["status"]) == len(b["timepoints"]) == len(a["values"]) and set(a["status"]) <= {"in", "out", None}
+        assert a["range"]["min"] < a["range"]["max"]
+    assert b["lymphocytes"] == b["analytes"]["lym"]["values"]

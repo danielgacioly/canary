@@ -62,7 +62,8 @@ export interface CrewList {
   mission: Mission; crew: CrewSummary[]; team: TeamGoal[]; dose: Dose
   space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
 }
-export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string }
+export interface Analyte { unit: string; range: { min: number; max: number }; values: (number | null)[]; status: ('in' | 'out' | null)[] }
+export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' }
 export interface CrewDetail {
   crew: CrewInfo; mission: Mission; indicators: Record<string, Indicator>; systems: Record<string, SystemState>
   alerts: Alert[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
