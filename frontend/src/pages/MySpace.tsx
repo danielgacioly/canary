@@ -15,6 +15,7 @@ import { Icon, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
 import { bonePctOfPreflight, nasaLine, ORIGIN } from '../lib/health'
+import { squareJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
@@ -317,24 +318,6 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
       {pinOpen && <ChangePin me={me} first={first} onClose={() => setPinOpen(false)} onDone={() => { setPinOpen(false); toast('PIN changed. Use the new one next time.') }} />}
     </div>
   )
-}
-
-/** Center-crop and shrink an image to a small JPEG data URL. */
-function squareJpeg(f: File, size: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    const url = URL.createObjectURL(f)
-    img.onload = () => {
-      const s = Math.min(img.width, img.height)
-      const c = document.createElement('canvas')
-      c.width = c.height = size
-      c.getContext('2d')!.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size)
-      URL.revokeObjectURL(url)
-      resolve(c.toDataURL('image/jpeg', 0.85))
-    }
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('not an image')) }
-    img.src = url
-  })
 }
 
 /** Three pads in a row: the current PIN (checked by the server), a new one, the new one again. */

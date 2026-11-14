@@ -7,7 +7,10 @@ import BodyView from '../components/BodyView'
 import EvaReadiness from '../components/EvaReadiness'
 import { Dot } from '../components/People'
 import { Icon, Loading, Patch, Spark } from '../components/ui'
+import { ActionError } from '../components/Field'
+import { useAction } from '../lib/useAction'
 import { useApi, useSession } from '../state/session'
+import { useState } from 'react'
 
 export default function Astronaut() {
   const { id = '' } = useParams()
@@ -56,12 +59,37 @@ function Other({ id }: { id: string }) {
             </tr>))}</tbody>
         </table></div>
       </section>
+      <VitalsPhotos d={d} />
       <section>
         <div className="section-head"><h2>Patches</h2></div>
         <div className="patches">{p.badges.map(b => (
           <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}><Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span></div>))}</div>
       </section>
     </div>
+  )
+}
+
+/** Photos of the display kept with recent vitals check-ins: the person and the medical team only. */
+function VitalsPhotos({ d }: { d: CrewDetail }) {
+  const rows = d.events.filter(e => e.kind === 'vitals' && e.has_photo)
+  const [shown, setShown] = useState<{ id: number; url: string } | null>(null)
+  const load = useAction()
+  if (!rows.length) return null
+  return (
+    <section>
+      <div className="section-head"><h2>Vital signs photos</h2><span className="sub">kept as evidence; the numbers typed are what counts</span></div>
+      <ul className="plain recent">
+        {rows.map(e => (
+          <li key={e.id}>
+            <b>Vital signs</b>
+            <span className="muted">Photo of the display</span>
+            <span className="dim small num">day {e.day} · <button type="button" className="link-btn" disabled={load.busy} onClick={() => shown?.id === e.id ? setShown(null) : load.run(async () => setShown({ id: e.id, url: (await api.checkinPhoto(d.crew.id, e.id)).data_url }))}>{shown?.id === e.id ? 'Hide photo' : 'Photo'}</button></span>
+            {shown?.id === e.id && <img className="recent-photo" src={shown.url} alt={`Photo of the display, day ${e.day}`} />}
+          </li>
+        ))}
+      </ul>
+      <ActionError error={load.error} />
+    </section>
   )
 }
 

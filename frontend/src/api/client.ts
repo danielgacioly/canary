@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
+  CheckinResult, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -112,8 +112,10 @@ export const api = {
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
-  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>) =>
-    req<{ ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
+  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>, photo?: string) =>
+    req<CheckinResult>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload, ...(photo ? { photo } : {}) }) }),
+  /** The photo of the display kept with a vitals check-in: the person and the medical team only. */
+  checkinPhoto: (crew_id: string, id: number) => req<{ data_url: string }>(`/checkins/${crew_id}/${id}/photo`),
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
   record: (crew_id: string) => req<PersonalRecord>(`/crew/${crew_id}/record`),
   suggestions: (crew_id: string) => req<Suggestions>(`/suggestions/${crew_id}`),

@@ -131,7 +131,7 @@ export interface CrewDetail {
   alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   standard_profile?: { eva: 'none' | 'microgravity' | 'surface'; prior_dose: { msv: number; estimate: boolean; source: string }; sex: string }
-  events: { kind: string; day: number; payload: Record<string, unknown> }[]
+  events: { id: number; kind: string; day: number; payload: Record<string, unknown>; has_photo: boolean }[]
   system_info: Record<string, { space: string; hazard: string }>
   ops: Ops; care_by: string; access: 'self' | 'medical'; care_events: CareEvent[]
 }
@@ -191,8 +191,11 @@ export interface MedicalOverview {
   crew: { id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
-export interface TestResult { kind: string; day: number; at: number; summary: string; payload: Record<string, unknown> }
+export interface TestResult { id: number; kind: string; day: number; at: number; summary: string; payload: Record<string, unknown>
+  /** vitals only: a photo of the display is kept with it (the person and the medical team can open it) */
+  has_photo: boolean }
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
+export interface CheckinResult { ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
 export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
 export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }

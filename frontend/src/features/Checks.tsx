@@ -1,9 +1,11 @@
 // Self-tests and logs. Quick checks (reaction, mood, Amsler, vitals) also open from My space;
 // the full set lives on the Tests page. Results are private: the person and the medical team.
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import type { CheckinResult } from '../api/types'
 import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
 import { Icon } from '../components/ui'
+import { fitJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
 import { useForm, type FormApi } from '../lib/useForm'
 import * as v from '../lib/validate'
@@ -16,7 +18,12 @@ export const CHECK_TITLE: Record<CheckKind, string> = {
   kss: 'Sleepiness', tlx: 'Workload', wellbeing: 'Wellbeing', symptoms: 'Symptoms', sleep: 'Sleep diary', reading: 'Reading', journal: 'Journal',
 }
 
+const ResultCtx = createContext<(r: Saved) => void>(() => {})
+interface Saved { r: CheckinResult; note?: string }
+
 export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () => void }) {
+  // After a successful save the form is replaced by a short result step: no long toast.
+  const [saved, setSaved] = useState<Saved | null>(null)
   return (
     <div className="scrim" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -24,43 +31,61 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
           <h2>{CHECK_TITLE[kind]}</h2>
           <button className="btn sm ghost right" onClick={onClose}><Icon name="close" size={15} /></button>
         </div>
-        {kind === 'pvt' && <Pvt onClose={onClose} />}
-        {kind === 'mood' && <Mood onClose={onClose} />}
-        {kind === 'amsler' && <Amsler onClose={onClose} />}
-        {kind === 'vitals' && <Vitals onClose={onClose} />}
-        {kind === 'dsst' && <Dsst onClose={onClose} />}
-        {kind === 'span' && <Span onClose={onClose} />}
-        {kind === 'kss' && <Kss onClose={onClose} />}
-        {kind === 'tlx' && <Tlx onClose={onClose} />}
-        {kind === 'wellbeing' && <Wellbeing onClose={onClose} />}
-        {kind === 'symptoms' && <Symptoms onClose={onClose} />}
-        {kind === 'sleep' && <SleepLog onClose={onClose} />}
-        {kind === 'reading' && <Reading onClose={onClose} />}
-        {kind === 'journal' && <Journal onClose={onClose} />}
+        {saved ? <Result saved={saved} onDone={onClose} /> : (
+          <ResultCtx.Provider value={setSaved}>
+            {kind === 'pvt' && <Pvt />}
+            {kind === 'mood' && <Mood />}
+            {kind === 'amsler' && <Amsler />}
+            {kind === 'vitals' && <Vitals />}
+            {kind === 'dsst' && <Dsst />}
+            {kind === 'span' && <Span />}
+            {kind === 'kss' && <Kss />}
+            {kind === 'tlx' && <Tlx />}
+            {kind === 'wellbeing' && <Wellbeing />}
+            {kind === 'symptoms' && <Symptoms />}
+            {kind === 'sleep' && <SleepLog />}
+            {kind === 'reading' && <Reading />}
+            {kind === 'journal' && <Journal />}
+          </ResultCtx.Provider>
+        )}
       </div>
     </div>
   )
 }
 
-/** Sends one result. It throws when the server refuses it: the caller (a form or useSave) shows the message. */
-function useSubmit(onClose: () => void) {
-  const { me, bump, toast } = useSession()
-  return async (kind: CheckKind, payload: Record<string, unknown>, msg?: string) => {
+/** What the save means: the summary, how it compares with your own normal and the population range, and any goal it completed. */
+function Result({ saved: { r, note }, onDone }: { saved: Saved; onDone: () => void }) {
+  return (
+    <div className="col check-result" style={{ gap: 12 }} role="status">
+      <p className="result-sum">{r.summary}</p>
+      {note && <p className="muted">{note}</p>}
+      {r.conclusion && <p>{r.conclusion.text}</p>}
+      {r.goal && <p className="small" style={{ color: 'var(--ok)' }}>A goal for today is complete.</p>}
+      <button className="btn pri" autoFocus onClick={onDone}>Done</button>
+    </div>
+  )
+}
+
+/** Sends one result. It throws when the server refuses it: the caller (a form or useSave) shows the message. On success the modal shows the result step. */
+function useSubmit() {
+  const { me, bump } = useSession()
+  const show = useContext(ResultCtx)
+  return async (kind: CheckKind, payload: Record<string, unknown>, note?: string, photo?: string) => {
     if (!me) throw new Error('Enter your PIN in My space first.')
-    const r = await api.checkin(me, kind, payload)
-    bump(); toast(`${msg ?? `Saved: ${r.summary}${r.goal ? ' · goal done' : ''}`}${r.conclusion ? ` ${r.conclusion.text}` : ''}`); onClose()
+    const r = await api.checkin(me, kind, payload, photo)
+    bump(); show({ r, note })
   }
 }
 
 /** For results sent with one button (no typed input): catches a refusal and keeps its message next to the button. */
-function useSave(onClose: () => void) {
-  const submit = useSubmit(onClose)
+function useSave() {
+  const submit = useSubmit()
   const a = useAction()
   return { save: (kind: CheckKind, payload: Record<string, unknown>, msg?: string) => a.run(() => submit(kind, payload, msg)), busy: a.busy, error: a.error }
 }
 
-function Pvt({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Pvt() {
+  const { save, busy, error } = useSave()
   const [st, setSt] = useState<'idle' | 'wait' | 'go' | 'early'>('idle')
   const [rts, setRts] = useState<number[]>([])
   const t0 = useRef(0), tm = useRef<number>()
@@ -84,7 +109,7 @@ function Pvt({ onClose }: { onClose: () => void }) {
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>
       )}
       <div className="row wrap">{rts.map((r, i) => <span key={i} className="tag num">{r} ms</span>)}</div>
-      {rts.length >= 5 && <button className="btn pri" disabled={busy} onClick={() => save('pvt', { ms: avg, rounds: rts }, `Reaction test saved: ${avg} ms`)}>{busy ? 'Saving…' : 'Save result'}</button>}
+      {rts.length >= 5 && <button className="btn pri" disabled={busy} onClick={() => save('pvt', { ms: avg, rounds: rts })}>{busy ? 'Saving…' : 'Save result'}</button>}
       <ActionError error={error} />
     </div>
   )
@@ -98,12 +123,12 @@ function Scale5({ form, name, label, hint }: { form: FormApi; name: string; labe
   )
 }
 
-function Mood({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function Mood() {
+  const submit = useSubmit()
   const form = useForm({
     initial: { mood: 0, stress: 0 },
     validate: f => ({ mood: f.mood ? null : 'Pick your mood, from 1 (low) to 5 (great)', stress: f.stress ? null : 'Pick your stress, from 1 (calm) to 5 (very)' }),
-    submit: f => submit('mood', f, 'Check-in sent. Thank you for being honest.'),
+    submit: f => submit('mood', f, 'Thank you for being honest. A hard day counts the same as a good one.'),
   })
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
@@ -116,15 +141,15 @@ function Mood({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Amsler({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Amsler() {
+  const { save, busy, error } = useSave()
   return (
     <div className="col">
       <p className="muted">Cover one eye. Look only at the centre dot from 30 cm. Do any lines look wavy, blurred or missing?</p>
       <div className="amsler" aria-label="Amsler grid">{Array.from({ length: 400 }).map((_, i) => <i key={i} />)}</div>
       <div className="yesno">
-        <button className="n" disabled={busy} onClick={() => save('amsler', { distortion: true }, 'Saved. The medical officer will be told.')}>Yes, distorted</button>
-        <button className="y" disabled={busy} onClick={() => save('amsler', { distortion: false }, 'Saved: grid looks clear.')}>No, all straight</button>
+        <button className="n" disabled={busy} onClick={() => save('amsler', { distortion: true }, 'The medical officer will be told.')}>Yes, distorted</button>
+        <button className="y" disabled={busy} onClick={() => save('amsler', { distortion: false }, 'The grid looks clear.')}>No, all straight</button>
       </div>
       <ActionError error={error} />
     </div>
@@ -138,18 +163,38 @@ const VITALS = [
   { k: 'spo2', label: 'Oxygen', unit: '%', min: 50, max: 100, integer: true },
 ] as const
 
-function Vitals({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+const PHOTO_CAP = 580_000 // characters of the data URL; the server refuses more than 600 000
+
+function Vitals() {
+  const submit = useSubmit()
+  const file = useRef<HTMLInputElement>(null)
+  const [photoErr, setPhotoErr] = useState<string | null>(null)
+  const [reading, setReading] = useState(false)
   const form = useForm({
-    initial: { hr: '', bp: '', temp: '', spo2: '' },
+    initial: { hr: '', bp: '', temp: '', spo2: '', photo: '' },
     validate: f => {
       const e: Record<string, string | null> = {}
       for (const { k, label, unit, min, max, ...o } of VITALS) e[k] = v.number(label, { min, max, unit, optional: true, ...o })(f[k])
       if (VITALS.every(({ k }) => !f[k].trim())) e.form = 'Type at least one value'
       return e
     },
-    submit: f => submit('vitals', Object.fromEntries(VITALS.map(({ k }) => [k, f[k].trim() ? v.parseNumber(f[k]) : null])), 'Vital signs saved.'),
+    submit: f => submit('vitals', Object.fromEntries(VITALS.map(({ k }) => [k, f[k].trim() ? v.parseNumber(f[k]) : null])), undefined, f.photo || undefined),
   })
+  const pick = async (f?: File) => {
+    if (!f) return
+    const bad = v.imageFile(f)
+    if (bad) { setPhotoErr(bad); return }
+    setPhotoErr(null); setReading(true)
+    try {
+      // Long edge at most 1024 px; if a busy picture is still big, once more smaller.
+      let url = await fitJpeg(f, 1024, 0.8)
+      if (url.length > PHOTO_CAP) url = await fitJpeg(f, 800, 0.6)
+      if (url.length > PHOTO_CAP) { setPhotoErr('That photo is too detailed to keep. Take it again, closer to the display.'); return }
+      form.set('photo', url)
+    } catch { setPhotoErr('That file could not be read as an image. Pick another photo.') } finally { setReading(false) }
+  }
+  const photo = form.values.photo
+  const err = photoErr ?? form.error('photo')
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
@@ -157,6 +202,19 @@ function Vitals({ onClose }: { onClose: () => void }) {
         {VITALS.map(({ k, label, unit, min, max, ...o }) => (
           <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />
         ))}
+      </div>
+      <div className="field">
+        <span className="lbl">Photo of the display<span className="dim"> (optional)</span></span>
+        <input ref={file} type="file" accept="image/*" capture="environment" hidden aria-label="Add a photo of the display" onChange={e => { pick(e.target.files?.[0]); e.target.value = '' }} />
+        {photo ? (
+          <div className="photo-pick">
+            <img src={photo} alt="The display you photographed" />
+            <button type="button" className="btn sm ghost" onClick={() => { form.set('photo', ''); setPhotoErr(null) }}>Remove</button>
+          </div>
+        ) : (
+          <div><button type="button" className="btn sm" disabled={reading} onClick={() => file.current?.click()}>{reading ? 'Reading…' : 'Add a photo of the display'}</button></div>
+        )}
+        {err ? <span className="err" role="alert">{err}</span> : <span className="hint">The photo is kept as evidence; the numbers you typed are what counts. Only you and the medical team can open it.</span>}
       </div>
       <FormError form={form} />
       <SubmitButton form={form}>Save</SubmitButton>
@@ -170,8 +228,8 @@ const GLYPHS = ['M4 4h16v16H4Z', 'M12 3 21 20H3Z', 'M12 21a9 9 0 1 0 0-18 9 9 0 
 function Glyph({ i, size = 28 }: { i: number; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={GLYPHS[i]} /></svg>
 }
-function Dsst({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Dsst() {
+  const { save, busy, error } = useSave()
   const [phase, setPhase] = useState<'idle' | 'run' | 'done'>('idle')
   const [target, setTarget] = useState(0)
   const [score, setScore] = useState({ correct: 0, errors: 0 })
@@ -218,8 +276,8 @@ function Dsst({ onClose }: { onClose: () => void }) {
 }
 
 /* ---------- working memory: forward digit span ---------- */
-function Span({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Span() {
+  const { save, busy, error } = useSave()
   const [len, setLen] = useState(3)
   const [seq, setSeq] = useState<number[]>([])
   const [shown, setShown] = useState(-1)
@@ -271,8 +329,8 @@ function Span({ onClose }: { onClose: () => void }) {
 /* ---------- sleepiness: Karolinska Sleepiness Scale ---------- */
 const KSS = ['Extremely alert', 'Very alert', 'Alert', 'Rather alert', 'Neither alert nor sleepy', 'Some signs of sleepiness',
   'Sleepy, but no effort to keep awake', 'Sleepy, some effort to keep awake', 'Very sleepy, great effort to keep awake, fighting sleep']
-function Kss({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Kss() {
+  const { save, busy, error } = useSave()
   return (
     <div className="col" style={{ gap: 10 }}>
       <p className="muted">How sleepy are you right now, in the last 10 minutes?</p>
@@ -293,8 +351,8 @@ const TLX: [string, string, string, string][] = [
   ['effort', 'Effort', 'How hard did you have to work for that level of performance?', 'Very low|Very high'],
   ['frustration', 'Frustration', 'How insecure, discouraged, irritated or stressed were you?', 'Very low|Very high'],
 ]
-function Tlx({ onClose }: { onClose: () => void }) {
-  const { save, busy, error } = useSave(onClose)
+function Tlx() {
+  const { save, busy, error } = useSave()
   const [sc, setSc] = useState<Record<string, number>>(Object.fromEntries(TLX.map(([k]) => [k, 50])))
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -320,8 +378,8 @@ function Tlx({ onClose }: { onClose: () => void }) {
 const WB_Q = ['Little interest or pleasure in doing things', 'Feeling down, depressed or hopeless',
   'Feeling nervous, anxious or on edge', 'Not being able to stop or control worrying']
 const WB_A = ['Not at all', 'Several days', 'More than half the days', 'Nearly every day']
-function Wellbeing({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function Wellbeing() {
+  const submit = useSubmit()
   const form = useForm({
     initial: { q0: -1, q1: -1, q2: -1, q3: -1 } as Record<string, number>,
     validate: f => Object.fromEntries(WB_Q.map((q, i) => [`q${i}`, f[`q${i}`] >= 0 ? null : `Answer question ${i + 1}: ${q}`])),
@@ -346,8 +404,8 @@ function Wellbeing({ onClose }: { onClose: () => void }) {
 
 /* ---------- symptoms ---------- */
 const SYMPTOMS = ['Headache', 'Congestion', 'Back pain', 'Nausea', 'Eye discomfort', 'Blurred vision', 'Skin irritation', 'Trouble sleeping', 'Muscle or joint pain', 'Dizziness']
-function Symptoms({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function Symptoms() {
+  const submit = useSubmit()
   const form = useForm({
     initial: { items: [] as string[], sev: 1, note: '' },
     validate: f => ({ note: v.length('Note', { max: 200, optional: true })(f.note) }),
@@ -374,8 +432,8 @@ function Symptoms({ onClose }: { onClose: () => void }) {
 }
 
 /* ---------- logs ---------- */
-function SleepLog({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function SleepLog() {
+  const submit = useSubmit()
   const form = useForm({
     initial: { bed: '23:00', wake: '07:00', q: 0 },
     validate: f => {
@@ -400,8 +458,8 @@ function SleepLog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Reading({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function Reading() {
+  const submit = useSubmit()
   const form = useForm({
     initial: { title: '', minutes: '20', pages: '', enjoy: 0 },
     validate: f => ({
@@ -428,8 +486,8 @@ function Reading({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Journal({ onClose }: { onClose: () => void }) {
-  const submit = useSubmit(onClose)
+function Journal() {
+  const submit = useSubmit()
   const PH = ['Something that happened', 'How it felt', 'Something you are looking forward to']
   const form = useForm({
     initial: { l0: '', l1: '', l2: '' } as Record<string, string>,
@@ -439,7 +497,7 @@ function Journal({ onClose }: { onClose: () => void }) {
       if (!PH.some((_, i) => f[`l${i}`].trim())) e.l0 = 'Write at least one line'
       return e
     },
-    submit: f => submit('journal', { lines: PH.filter((_, i) => f[`l${i}`].trim()).length }, 'Journal done. Your words were not saved.'),
+    submit: f => submit('journal', { lines: PH.filter((_, i) => f[`l${i}`].trim()).length }, 'Your words were not saved: Canary only records that you wrote.'),
   })
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>

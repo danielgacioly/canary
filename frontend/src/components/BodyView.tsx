@@ -254,20 +254,27 @@ function RiskBlock({ r, sys }: { r: Risk; sys: SystemId }) {
   )
 }
 
-/** "How to measure and why", folded. Each text names its source, or says there is none checked yet. */
-export function Guide({ name, g }: { name?: string; g: GuideEntry }) {
+/** The text of one guide entry: how to measure, what space does, what to do in each colour. Each text names its source, or says there is none checked yet. */
+export function GuideBody({ g }: { g: GuideEntry }) {
   const src = (u: string | null | undefined) => (u ? <a className="item" href={u} target="_blank" rel="noreferrer">Source</a> : <span className="dim">No source checked yet</span>)
+  return (
+    <dl>
+      <dt>How</dt><dd>{g.how} {src(g.sources.how)}</dd>
+      <dt>What space does</dt><dd>{g.effect} {src(g.sources.effect)}</dd>
+      <dt>Green</dt><dd>{g.actions.green}</dd>
+      <dt>Amber</dt><dd>{g.actions.amber}</dd>
+      <dt>Red</dt><dd>{g.actions.red} {g.sources.actions.length ? g.sources.actions.map((u, i) => <a key={u} className="item" href={u} target="_blank" rel="noreferrer">Source {i + 1}</a>) : <span className="dim">No source checked yet</span>}</dd>
+      <dt>How often</dt><dd>{g.frequency}</dd>
+    </dl>
+  )
+}
+
+/** "How to measure and why", folded. */
+export function Guide({ name, g }: { name?: string; g: GuideEntry }) {
   return (
     <details className="how">
       <summary>How to measure and why{name ? ` · ${name}` : ''}</summary>
-      <dl>
-        <dt>How</dt><dd>{g.how} {src(g.sources.how)}</dd>
-        <dt>What space does</dt><dd>{g.effect} {src(g.sources.effect)}</dd>
-        <dt>Green</dt><dd>{g.actions.green}</dd>
-        <dt>Amber</dt><dd>{g.actions.amber}</dd>
-        <dt>Red</dt><dd>{g.actions.red} {g.sources.actions.length ? g.sources.actions.map((u, i) => <a key={u} className="item" href={u} target="_blank" rel="noreferrer">Source {i + 1}</a>) : <span className="dim">No source checked yet</span>}</dd>
-        <dt>How often</dt><dd>{g.frequency}</dd>
-      </dl>
+      <GuideBody g={g} />
     </details>
   )
 }
