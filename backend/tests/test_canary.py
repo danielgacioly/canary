@@ -430,7 +430,9 @@ def test_eva_role_and_prior_dose_reach_my_information_and_the_medical_team():
     crew[0].update(eva="microgravity", prior_dose_msv=120.5)
     assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
     r = client.get("/api/crew/h/record", headers=as_("h")).json()
-    assert r["eva"] == "microgravity" and r["prior_dose_msv"] == 120.5
+    assert r["eva"] == "microgravity" and r["prior_dose_msv"] == 120.5 and r["prior_dose"] == {"msv": 120.5, "estimate": False, "source": "personal record"}
+    k = client.get("/api/crew/k/record", headers=as_("k")).json()  # no recorded dose: the estimate from 181 days in space
+    assert k["prior_dose"]["estimate"] and k["prior_dose"]["msv"] == round(181 * catalog.LOCATIONS["iss"]["dose_rate"], 1) and k["eva"] == "none"
     d = client.get("/api/crew/h", headers=as_("h")).json()
     assert d["standard_profile"]["eva"] == "microgravity" and d["dose"]["prior_msv"] == 120.5 and not d["dose"]["prior_estimate"]
 
