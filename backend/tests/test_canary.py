@@ -957,3 +957,146 @@ def test_ticking_an_alert_goal_opens_its_experiment_once():
         assert client.post("/api/goals/h/al_screens", json={"done": True}, headers=h).status_code == 200
     a = client.get("/api/advice/h", headers=h).json()
     assert [(x["goal_id"], x["indicator"], x["check_day"], x["origin"]) for x in a["active"]] == [("al_screens", "sleep", 150, "alert")]
+
+
+# ---------------------------------------------------------------- Prompt 5: critical alerts reach the medical officer, emergencies leave a care window
+def _close(protocol, patient, outcome="stable"):
+    e = client.post("/api/emergencies", json={"responder": "k"}).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient})
+    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}).json()
+
+
+def _med_goals(who):
+    return {g["title"]: g["to_day"] - g["from_day"] for g in db.q("SELECT * FROM medical_goals WHERE who=?", (who,))}
+
+
+def test_every_protocol_with_a_window_has_days_ops_and_an_illustrative_note():
+    from canary.domain import protocols
+    bank = client.get("/api/protocols").json()
+    assert bank["care_note"]["verified"] is False and bank["care_note"]["source"] == "prototype assumption"
+    for pid, p in bank["protocols"].items():
+        assert p["ops"] in ("full", "limited", "rest") and p["window_days"] >= 0
+        assert [i["title"] for i in p["after_items"]] == p["after"] and all(i["days"] >= 0 for i in p["after_items"])
+        assert all(i["days"] <= max(p["window_days"], 7) for i in p["after_items"])
+    sz = protocols.care("seizure")
+    assert sz["window_days"] == 3 and sz["ops"] == "rest"
+    assert {i["title"]: i["days"] for i in sz["after_items"]}["No critical task or spacewalk for 72 h"] == 3
+    assert next(i["days"] for i in protocols.care("rad")["after_items"] if i["title"].startswith("Blood count")) == 7
+    assert protocols.care("triage")["window_days"] == 0
+
+
+def test_closing_a_seizure_gives_follow_ups_their_own_days_and_a_restricted_window():
+    _day(153)
+    assert client.get("/api/crew/t", headers=as_("t")).json()["ops"]["key"] != "rest"
+    _close("seizure", "t")
+    days = _med_goals("t")
+    assert days["Glucose and vital signs every 30 min for 2 h"] == 1 and days["No critical task or spacewalk for 72 h"] == 3
+    assert days["Blood count and a review of current medication"] == 3
+    d = client.get("/api/crew/t", headers=as_("t")).json()
+    assert d["ops"]["key"] == "rest" and d["ops"]["until_day"] == 156 and "Seizure" in d["ops"]["reason"] and "156" in d["ops"]["reason"]
+    ev = d["care_events"][0]
+    assert (ev["protocol"], ev["day"], ev["outcome"], ev["origin"], ev["until_day"]) == ("seizure", 153, "stable", "user", 156)
+    for day, key in ((154, "rest"), (156, "rest"), (157, None)):
+        _day(day)
+        got = client.get("/api/crew/t", headers=as_("t")).json()["ops"]
+        assert (got["key"] == "rest") == (key == "rest") and ("until_day" in got) == (key == "rest")
+    _day(150)  # the clock can go back: the event is not on record yet
+    assert client.get("/api/crew/t", headers=as_("t")).json()["care_events"] == []
+
+
+def test_closing_twice_does_not_repeat_goals_or_the_window():
+    _day(153)
+    e = _close("seizure", "t")
+    n = (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'")))
+    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"})
+    assert (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'"))) == n
+    assert len(db.q("SELECT 1 FROM care_events")) == 1
+
+
+def test_the_report_to_earth_keeps_the_delay_of_the_place():
+    _day(153)
+    _close("seizure", "t")
+    r = next(m for m in db.q("SELECT * FROM messages WHERE kind='report'"))
+    assert r["recipient"] == "earth" and r["deliver_at"] - r["sent_at"] > 5
+
+
+def test_inside_the_window_thresholds_tighten_for_the_patient_only():
+    _day(153)
+    bad = health.indicator("t", "bone", mission.state())["bad"]
+    watch = round(bad * 1.1, 2)  # just above what Tomás has today: level 0 by the normal rule
+    client.put("/api/medical/thresholds", json={"watch": watch, "act": 5}, headers=_med())
+    ms = mission.state()
+    before = {c: health.indicator(c, "bone", ms) for c in "hkat"}
+    assert all(i["level"] == 0 and "sensitive_until" not in i for i in before.values())
+    _close("seizure", "t")
+    after = {c: health.indicator(c, "bone", ms) for c in "hkat"}
+    assert after["t"]["level"] == 1 and after["t"]["sensitive_until"] == 156
+    assert all(after[c]["level"] == before[c]["level"] and "sensitive_until" not in after[c] for c in "hka")
+    _day(157)  # back to normal alone
+    t = health.indicator("t", "bone", mission.state())
+    assert t["level"] == 0 and "sensitive_until" not in t
+    assert client.put("/api/medical/care-sensitivity", json={"factor": 1.0}, headers=_med()).json()["factor"] == 1.0
+    assert client.put("/api/medical/care-sensitivity", json={"factor": 0.2}, headers=_med()).status_code == 422
+    assert client.get("/api/medical/care-sensitivity").status_code == 401
+    assert client.get("/api/medical/care-sensitivity", headers=_med()).json()["verified"] is False
+
+
+def _alert_msgs(kind="alert"):
+    return db.q("SELECT * FROM messages WHERE kind=? ORDER BY id", (kind,))
+
+
+def test_a_critical_alert_reaches_the_medical_officer_once_per_episode():
+    from canary.domain import notify
+    _day(147)
+    to_k = [m for m in _alert_msgs() if m["recipient"] == "k"]
+    assert len(to_k) == 1 and "Helena" in to_k[0]["text"] and "Sleep, mood and focus" in to_k[0]["text"]
+    for _ in range(3):
+        assert notify.sync(mission.state()) == 0
+    _day(148), _day(147), _day(146)
+    client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 3, "stress": 3}}, headers=as_("h"))
+    assert len([m for m in _alert_msgs() if m["recipient"] == "k"]) == 1 and len(db.q("SELECT 1 FROM notices")) == 1
+    earth = _alert_msgs("alert_earth")
+    assert len(earth) == 1 and earth[0]["recipient"] == "earth" and earth[0]["deliver_at"] - earth[0]["sent_at"] > 5
+
+
+def test_a_critical_alert_of_the_medical_officer_goes_to_the_substitute():
+    _day(100)
+    assert _alert_msgs() == []
+    assert _checkin("k", "vitals", {"spo2": 85}).status_code == 200
+    msgs = _alert_msgs()
+    assert [m["recipient"] for m in msgs] == ["h"] and "Kenji" in msgs[0]["text"]
+    assert _checkin("k", "vitals", {"spo2": 84}).status_code == 200  # same episode: no second message
+    assert len(_alert_msgs()) == 1
+    assert [n["to"] for n in client.get("/api/medical/overview", headers=_med()).json()["notices"]] == ["h"]
+
+
+def test_alerts_and_windows_are_private_to_the_medical_team():
+    _day(147)
+    _close("seizure", "t")
+    _checkin("k", "vitals", {"spo2": 85})
+    assert client.get("/api/medical/overview").status_code == 401
+    ov = client.get("/api/medical/overview", headers=_med()).json()
+    assert {n["crew_id"] for n in ov["notices"]} >= {"h", "k"} and all(n["title"] and n["since_day"] <= 147 for n in ov["notices"])
+    assert any(c["id"] == "t" and c["care_events"] and c["ops"]["key"] == "rest" for c in ov["crew"])
+    kinds = lambda hdr: {m["kind"] for m in client.get("/api/messages", headers=hdr).json()}  # noqa: E731
+    assert not kinds({}) & {"alert", "alert_earth", "advice"}
+    assert not kinds(as_("a")) & {"alert", "alert_earth"} and not kinds(as_("t")) & {"alert", "alert_earth"}
+    assert "alert" in kinds(as_("k")) and "alert" in kinds(as_("h"))  # each sees only what is addressed to them
+    assert not any(m["kind"] == "alert" and m["recipient"] != "k" for m in client.get("/api/messages", headers=as_("k")).json())
+    assert "alert_earth" in kinds(_med())
+    o = str(client.get("/api/crew/overview").json())
+    for leak in ("care_events", "until_day", "notices", "Critical alert for", "Guided Response ("):
+        assert leak not in o
+    assert client.get("/api/crew/t", headers=as_("a")).status_code == 403
+
+
+def test_reading_never_writes_the_notice_tables():
+    _day(147)
+    _close("seizure", "t")
+    n = _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+    for path in ("/api/mission", "/api/crew", "/api/crew/overview", "/api/protocols", "/api/emergencies"):
+        client.get(path, headers=_med())
+    for cid in "hkat":
+        client.get(f"/api/crew/{cid}", headers=as_(cid))
+    client.get("/api/medical/overview", headers=_med())
+    assert n == _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
