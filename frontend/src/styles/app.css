@@ -1061,3 +1061,80 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .err { color: var(--act); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .ask-row { align-items: flex-start; }
+
+/* ---------- health tab: one stack, no spacer, numbers in tiles that close their last row ---------- */
+.hero { align-items: start; }
+.hero-side { gap: 26px; }
+.verdict { display: flex; flex-direction: column; gap: 26px; }
+.verdict .why { max-width: 56ch; }
+.areas { margin-top: 0; }
+.attn h3, .eva h3 { font-size: 15px; font-weight: 600; }
+.attn ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; }
+.attn li button { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 8px 0; text-align: left; }
+.attn li button:disabled { cursor: default; }
+.attn li .dot { transform: translateY(-1px); }
+.attn li .t { font-weight: 500; }
+.attn li .letters { margin-left: auto; }
+.attn p.muted { margin-top: 8px; }
+.care-line { margin-top: 10px; }
+.letters { display: inline-flex; gap: 3px; }
+.letters i { font: 500 11px/1 var(--f-mono); font-style: normal; color: var(--dim); min-width: 14px; text-align: center; padding: 3px 0; border-radius: 4px; background: var(--surface-2); }
+.nasa-mark { margin-left: auto; font: 500 10px/1 var(--f-mono); letter-spacing: .04em; color: var(--muted); padding: 3px 5px; border-radius: 4px; background: var(--surface-2); }
+.eva-head { display: flex; align-items: baseline; gap: 12px; }
+.eva .status { color: var(--c); }
+.eva > p { margin-top: 6px; max-width: 60ch; }
+.eva-rows { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: auto 1fr auto auto; column-gap: 10px; row-gap: 8px; align-items: baseline; }
+.eva-rows li { display: contents; }
+.eva-rows .dot { background: var(--c); align-self: center; }
+.eva-rows .n { font-weight: 500; }
+.eva-rows .v { text-align: right; }
+.eva-rows .item, .rad .item, .how .item { font: 500 12px var(--f-mono); color: var(--muted); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+.eva-rows .item:hover, .rad .item:hover, .how .item:hover { color: var(--ink); }
+.eva-rows .eva-note { grid-column: 2 / -1; margin-top: -4px; }
+.how .item { margin-left: 8px; }
+
+.tiles { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+.tiles > .tile:last-child { grid-column: span var(--last-span, 1); }
+.tile .top .dot { background: var(--c); }
+.tile-body { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
+.tile .tile-out { color: var(--watch); }
+@media (max-width: 1000px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles > .tile:last-child { grid-column: auto; }
+  .tiles > .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .tiles { grid-template-columns: minmax(0, 1fr); }
+  .tiles > .tile:last-child:nth-child(odd) { grid-column: auto; }
+}
+
+/* career dose: earlier flights, then this mission, against 600 mSv */
+.rad-bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: 6px 0 4px; }
+.rad-bar i { position: absolute; top: 0; bottom: 0; }
+.rad-bar .prior, .rad-key .prior { background: var(--dim); }
+.rad-bar .now, .rad-key .now { background: var(--c, var(--accent)); }
+.rad:not(.compact) .rad-bar { height: 10px; }
+.rad-key { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rad-key li { display: flex; align-items: baseline; gap: 10px; }
+.rad-key li > i, .rad-key .sp { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.rad-key b { margin-left: auto; font-weight: 500; }
+.rad-key .tag { margin-left: 0; }
+
+/* system panel: risks, then the folded guide */
+.sys-panel .risk { display: flex; flex-direction: column; gap: 6px; }
+.risk-head { display: flex; align-items: center; gap: 10px; }
+.risk-head .dot { background: var(--c); }
+.risk-head .letters { margin-left: auto; }
+.risk-ev { margin: 4px 0 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.guide { display: flex; flex-direction: column; }
+.how { padding: 10px 0; }
+.how summary { cursor: pointer; font-size: 14px; font-weight: 500; color: var(--muted); }
+.how summary:hover { color: var(--ink); }
+.how dl { margin: 10px 0 0; display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; font-size: 13px; }
+.how dt { color: var(--dim); }
+.how dd { margin: 0; color: var(--muted); }
+@media (max-width: 520px) { .how dl { grid-template-columns: 1fr; gap: 0; } .how dd { margin-bottom: 8px; } .eva-rows { grid-template-columns: auto 1fr auto; } .eva-rows .item { grid-column: 2 / -1; } }
+.attn li .t { flex: 1; min-width: 0; }
+.attn li .small { white-space: nowrap; }
+.eva-rows .v .dim { font-family: var(--f-body); font-size: 13px; }
+@media (max-width: 520px) { .eva-rows .n { min-width: 0; } .attn li button { flex-wrap: wrap; row-gap: 0; } .attn li .letters { margin-left: 0; } }
