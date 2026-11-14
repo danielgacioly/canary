@@ -240,8 +240,8 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
   )
 }
 
-function RiskBlock({ r, sys }: { r: Risk; sys: SystemId }) {
-  const lv = r.system_levels?.[sys] ?? r.level
+export function RiskBlock({ r, sys }: { r: Risk; sys?: SystemId }) {
+  const lv = (sys && r.system_levels?.[sys]) ?? r.level
   return (
     <div className={`risk rise s${lv}`}>
       <div className="risk-head"><span className="dot" /><h3>{r.name}</h3><Letters ids={r.hazards} /></div>

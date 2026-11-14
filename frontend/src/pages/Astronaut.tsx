@@ -3,8 +3,9 @@
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
-import BodyView from '../components/BodyView'
+import BodyView, { RiskBlock } from '../components/BodyView'
 import EvaReadiness from '../components/EvaReadiness'
+import RadiationBar from '../components/RadiationBar'
 import { Dot } from '../components/People'
 import { Icon, Loading, Patch, Spark } from '../components/ui'
 import { ActionError } from '../components/Field'
@@ -38,16 +39,14 @@ function Other({ id }: { id: string }) {
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
         <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · {p.goals_week} goals this week · {p.badges_earned} patches</p></div>
-        {d.ops && <div className="right"><span className="small dim" style={{ display: 'block', textAlign: 'right' }}>Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
+        {d.ops && <div className="right ops-right"><span className="small dim">Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
       </div>
-      <div className="privacy-bar rise">
-        <Icon name="med" />
-        <span className="grow muted"><b style={{ color: 'var(--ink)' }}>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</span>
-      </div>
+      <p className="muted rise med-note"><b>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</p>
       <BodyView key={d.crew.id} d={d} self={false} />
       <section className="rise"><EvaReadiness d={d} self={false} /></section>
-      <section className="detail-card rise" style={{ padding: 8 }}>
-        <div className="section-head" style={{ padding: '12px 12px 0' }}><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
+      <RisksAndCare d={d} />
+      <section className="rise">
+        <div className="section-head"><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
         <div className="scroll"><table className="t">
           <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
           <tbody>{Object.values(d.indicators).map(i => (
@@ -70,6 +69,40 @@ function Other({ id }: { id: string }) {
 }
 
 /** Photos of the display kept with recent vitals check-ins: the person and the medical team only. */
+/** The medical view of one person: every risk with its evidence and where the data comes from, the care windows, the career dose. */
+function RisksAndCare({ d }: { d: CrewDetail }) {
+  const raised = d.risks.filter(r => r.level > 0).sort((a, b) => b.level - a.level)
+  const quiet = d.risks.filter(r => r.level === 0)
+  return (
+    <>
+      <section className="rise">
+        <div className="section-head"><h2>Risks</h2><span className="sub">with the evidence behind each one</span></div>
+        {raised.length === 0 && <p className="muted">Nothing is raised.</p>}
+        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} />)}</div>
+        {quiet.length > 0 && <p className="small dim">{raised.length ? 'Not raised' : 'Checked'}: {quiet.map(r => r.name).join(', ')}.</p>}
+      </section>
+      {d.care_events.length > 0 && (
+        <section className="rise">
+          <div className="section-head"><h2>Care after emergencies</h2></div>
+          <ul className="plain care-events">
+            {d.care_events.map(e => (
+              <li key={e.emergency_id}>
+                <b>{e.name}</b>
+                <span className="muted">{e.outcome}, day {e.day}</span>
+                <span className="small num">{e.ops === 'rest' ? 'Rest' : e.ops === 'limited' ? 'Limited duty' : 'Full duty'} until day {e.until_day}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section className="rise">
+        <div className="section-head"><h2>Career radiation dose</h2></div>
+        <RadiationBar d={d} />
+      </section>
+    </>
+  )
+}
+
 function VitalsPhotos({ d }: { d: CrewDetail }) {
   const rows = d.events.filter(e => e.kind === 'vitals' && e.has_photo)
   const [shown, setShown] = useState<{ id: number; url: string } | null>(null)

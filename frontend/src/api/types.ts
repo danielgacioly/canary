@@ -188,7 +188,12 @@ export interface Rad { quietMean: number; quiet: [number, number][]; storm: [num
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
   notices: Notice[]; care_sensitivity: { factor: number; source: string; verified: boolean }
-  crew: { id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
+  crew: {
+    id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[]
+    /** the short form of each risk; evidence and hazard links are in the person view */
+    risks: Pick<Risk, 'id' | 'name' | 'nasa_red' | 'level' | 'trend' | 'since_day' | 'data'>[]
+    dose: Dose; standard_profile?: CrewDetail['standard_profile']
+  }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
 export interface TestResult { id: number; kind: string; day: number; at: number; summary: string; payload: Record<string, unknown>
