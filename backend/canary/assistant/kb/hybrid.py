@@ -32,6 +32,19 @@ those through to too under until up very was we were what when where which while
 would you your yours yourself someone something anyone thing things mean means please tell know get got
 """.split())
 
+# Words too common to be evidence on their own (plan.md W1-3): "best football team" must not retrieve the privacy
+# contract on "team". They still search and still rank; they only never make a lexical match count alone.
+GENERIC = frozenset("""
+team teams crew best better good great bad nice fine day days today tonight tomorrow yesterday week time times
+people person thing way ways lot lots kind sort like want need make made use used work works new old big small
+long little many much well really right left first last next one two three year years life world
+look looks say said think go going come give find help ok okay yes sure maybe also even still feel feeling
+friend friends guy guys stuff recommend favourite favorite worse worst happen happens happened space earth
+""".split())
+# Words that are only specific next to a qualifier: the corpus knows "space weather", not the weather on Earth.
+QUALIFIED = {"weather": frozenset({"space", "solar"})}
+MIN_TERMS = 2       # a lexical match needs this many matched query terms (fewer only if the query has fewer)
+
 _build_lock = threading.Lock()
 
 
@@ -59,12 +72,40 @@ def ensure_index(path: str, embedder: Optional[Embedder] = None) -> bool:
     return True
 
 
-def fts_query(query: str) -> str:
-    words = []
+def query_terms(query: str) -> List[str]:
+    """Meaningful query words: lower-case, no stopwords, no repeats, single letters dropped."""
+    words: List[str] = []
     for w in re.findall(r"[a-z0-9]+", query.lower()):
         if w not in STOPWORDS and w not in words and (len(w) > 1 or w.isdigit()):
             words.append(w)
-    return " OR ".join(f'"{w}"' for w in words)
+    return words
+
+
+def fts_query(query: str) -> str:
+    return " OR ".join(f'"{w}"' for w in query_terms(query))
+
+
+def _matched_terms(conn: sqlite3.Connection, terms: List[str], rowids: List[int]) -> Dict[int, set]:
+    """rowid -> the query terms that chunk matches (same tokenizer and stemming as the index)."""
+    out: Dict[int, set] = {rid: set() for rid in rowids}
+    if not rowids:
+        return out
+    marks = ",".join("?" * len(rowids))
+    for t in terms:
+        for (rid,) in conn.execute(f"SELECT rowid FROM kb_chunks_fts WHERE kb_chunks_fts MATCH ? AND rowid IN ({marks})",
+                                   [f'"{t}"'] + rowids):
+            out[rid].add(t)
+    return out
+
+
+def lexical_evidence(terms: List[str], matched: set) -> bool:
+    """A BM25 hit counts as evidence only when it matches at least MIN_TERMS specific (non-generic) query terms,
+    or every specific term when the query has fewer; generic words never count. So "seizure" or "I feel
+    hopeless" (one specific term) match on that term, "recommend a movie" needs two of its words in one chunk,
+    and "best football team" (specific: football) never matches on "team"."""
+    specific = {t for t in terms if t not in GENERIC and (t not in QUALIFIED or QUALIFIED[t] & set(terms))}
+    hit = matched & specific
+    return bool(hit) and len(hit) >= min(MIN_TERMS, len(specific))
 
 
 def resolve_filters(gravity: Optional[str], place: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -103,7 +144,8 @@ def run(conn: sqlite3.Connection, has_vec: bool, embedder: Embedder, query: str,
     bm25: Dict[int, Tuple[int, float]] = {}     # rowid -> (rank, relevance)
     vec: Dict[int, Tuple[int, float]] = {}
 
-    q = fts_query(query)
+    terms = query_terms(query)
+    q = " OR ".join(f'"{w}"' for w in terms)
     if q:
         sql = (f"SELECT {COLS}, -bm25(kb_chunks_fts, 2.0, 1.0, 1.5) AS s {FROM} "
                f"JOIN kb_chunks_fts f ON f.rowid = c.rowid WHERE kb_chunks_fts MATCH ?{where} "
@@ -111,6 +153,10 @@ def run(conn: sqlite3.Connection, has_vec: bool, embedder: Embedder, query: str,
         for rank, r in enumerate(conn.execute(sql, [q] + args), 1):
             rows[r[0]] = r[:-1]
             bm25[r[0]] = (rank, r[-1])
+        matched = _matched_terms(conn, terms, list(bm25))
+        for rid in list(bm25):
+            if not lexical_evidence(terms, matched[rid]):
+                bm25[rid] = (bm25[rid][0], 0.0)  # still ranks for RRF, never counts as evidence
 
     meta = dict(conn.execute("SELECT key, value FROM kb_meta"))
     if has_vec and embedder.dims and meta.get("embedder") == embedder.name:

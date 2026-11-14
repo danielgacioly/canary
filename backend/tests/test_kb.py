@@ -209,6 +209,51 @@ def test_abstains_without_evidence(use_kb):
     assert kb.search("") == [] and kb.search("   ") == []
 
 
+@pytest.mark.parametrize("query", [
+    "best football team", "what's the weather like on Earth", "recommend a movie", "the best team in the league",
+    "who won the game today", "how is the crew doing", "what is a good time", "what is the weather today",
+])
+def test_off_topic_queries_abstain(use_kb, query):
+    """plan.md W1-3: generic words (team, best, good, day, time...) never make a lexical match on their own."""
+    assert kb.search(query, place="transit") == []
+    assert kb.search(query, place="mars") == []
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("seizure", "kb:PROTO-NEURO-001@1#"), ("Amsler", "kb:"), ("radiation storm", "kb:PROTO-RAD-001@1#"),
+    ("bleeding", "kb:PROTO-TRAUMA-001@1#"), ("space weather", "kb:NASA-DONKI@1#"),
+    ("why is my sleep worse", "kb:"), ("what happens to bones in space", "kb:CARD-SKELETON@1#"),
+])
+def test_short_legit_queries_still_match(use_kb, query, expected):
+    got = top(query, place="transit")
+    assert any(c.startswith(expected) for c in got), got
+
+
+@pytest.mark.parametrize("terms,matched,ok", [
+    (["best", "football", "team"], {"team"}, False),           # generic word alone
+    (["best", "football", "team"], {"best", "team"}, False),   # two generic words are still nothing
+    (["seizure"], {"seizure"}, True),                          # one specific term, matched
+    (["eyes", "blurry"], {"eyes"}, False),                     # two specific terms need both
+    (["eyes", "blurry"], {"eyes", "blurry"}, True),
+    (["weather", "earth"], {"weather", "earth"}, False),      # "weather" needs space/solar; "earth" is generic
+    (["space", "weather"], {"space", "weather"}, True),
+])
+def test_lexical_evidence_rule(terms, matched, ok):
+    assert hybrid.lexical_evidence(terms, matched) is ok
+
+
+def test_off_topic_still_matches_when_the_vector_score_clears_the_floor(tmp_path, monkeypatch):
+    """The lexical rule only removes BM25 evidence; a vector match above MIN_COSINE still counts."""
+    if not _has_vec():
+        pytest.skip("sqlite-vec not available")
+    path = str(tmp_path / "kb.db")
+    emb = FakeEmbedder()
+    B.build(path, emb)
+    assert hybrid.search(path, "best football team", k=3, place="transit", embedder=emb) == []
+    monkeypatch.setattr(hybrid, "MIN_COSINE", -1.0)
+    assert hybrid.search(path, "best football team", k=3, place="transit", embedder=emb)
+
+
 # ---------------------------------------------------------------- gravity and place filter
 @pytest.mark.parametrize("place", list(LOCATIONS))
 def test_place_filter_matches_protocol_resolve(kb_path, place):

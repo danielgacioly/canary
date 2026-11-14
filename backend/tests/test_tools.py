@@ -201,6 +201,44 @@ def test_list_goals_has_no_xp_or_points():
     assert r.sources == ["goals:h:day147"]
 
 
+def add_suggested_goal(cid="h", gid="sg_x1"):
+    day = mission.state()["day"]
+    db.set_setting("suggested_goals", {cid: [{"id": gid, "area": "mental", "title": "Ten minutes of music before bed",
+                                               "from_day": day, "to_day": day + 6}]})
+
+
+def test_astronaut_sees_goals_from_suggestions():
+    add_suggested_goal()
+    r = tools.run_tool(ctx("h"), "list_goals", {})
+    sg = [g for g in r.data if g["id"] == "sg_x1"]
+    assert sg and sg[0]["by"] == "suggestion"
+
+
+def test_medical_viewer_never_sees_goals_from_suggestions():
+    """plan.md W1-2: suggestions are astronaut-only, so the goals made from them are too."""
+    add_suggested_goal()
+    med = ctx("h", viewer="medical", medical=True)
+    r = tools.run_tool(med, "list_goals", {})
+    assert r.ok and r.data and any(g["id"] == "al_light" for g in r.data)
+    assert all(g["by"] != "suggestion" and not g["id"].startswith("sg_") for g in r.data)
+    for name, args in VALID_ARGS.items():  # no other tool result carries one either
+        res = tools.run_tool(med, name, args)
+        assert "sg_x1" not in json.dumps(res.model_dump()), name
+    assert all("sg_" not in json.dumps(c["result"]) for c in tools.route("h", "status and my goals", med))
+
+
+def test_suggestion_goals_are_hidden_wherever_they_sit_in_a_result(monkeypatch):
+    def fake(ctx):
+        return C.ToolResult(data={"plan": [{"id": "sg_a", "by": "suggestion"}, {"id": "water", "by": "routine"},
+                                           {"goal_id": "goal:sg_b"}], "tried": ["day 146: goal sg_a", "day 146: goal al_light"]},
+                            sources=["goals:h:day147"])
+    monkeypatch.setitem(tools.TOOLS["list_goals"], "fn", fake)
+    med = tools.run_tool(ctx("h", viewer="medical", medical=True), "list_goals", {}).data
+    assert med == {"plan": [{"id": "water", "by": "routine"}], "tried": ["day 146: goal al_light"]}
+    own = tools.run_tool(ctx("h"), "list_goals", {}).data
+    assert len(own["plan"]) == 3 and len(own["tried"]) == 2
+
+
 def test_weekly_summary_reuses_briefing_facts():
     from canary.assistant import briefing
     r = tools.run_tool(ctx("h"), "get_weekly_summary", {})

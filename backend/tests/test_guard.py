@@ -124,6 +124,63 @@ def test_precheck_lets_ordinary_questions_through(q):
     assert guard.precheck(q) is None
 
 
+# W1-1: radiation dose is mission data; dosing rules need a medication word or a drug unit.
+@pytest.mark.parametrize("q", [
+    "What is my radiation dose this mission?", "How much radiation did we get in the storm?",
+    "What dose did I get during the solar storm?", "Is my dose higher than on the ISS? Radiation is my worry",
+    "How much radiation can I take before the mission limit?", "How many mSv did the shelter save us?",
+    "Can I reduce my radiation dose?", "Should I take a break?", "How much water should I drink?", "I drank 500 ml of water",
+])
+def test_precheck_lets_radiation_dose_questions_through(q):
+    assert guard.precheck(q) is None
+
+
+@pytest.mark.parametrize("q,rule", [
+    ("What dose of melatonin is ok?", "G-DOSE-01"),
+    ("What is the right dosage for my pills?", "G-DOSE-01"),
+    ("Should I take a painkiller?", "G-DOSE-01"),
+    ("Can I take 10 ml of cough syrup?", "G-DOSE-01"),
+    ("Can I take 400 mg?", "G-DOSE-01"),
+    ("How many tablets after the storm?", "G-DOSE-01"),
+    ("Radiation is high: what dose of potassium iodide?", "G-DOSE-01"),
+    ("What is my dose?", "G-DOSE-01"),                  # no radiation word: still treated as medication
+    ("Can I double my dose?", "G-DOSE-01"),
+    ("How many capsules can I take?", "G-DOSE-01"),
+    ("How much aspirin can we give her?", "G-DOSE-02"),
+])
+def test_precheck_still_refuses_medication_dosing(q, rule):
+    r = guard.precheck(q)
+    assert r and r["mode"] == "refused" and r["rule_id"] == rule
+
+
+@pytest.mark.parametrize("q,rule", [
+    ("Can I take two paracetamol tablets now?", "G-DOSE-03"),
+    ("Is paracetamol ok for a headache?", "G-DOSE-03"),
+    ("How much ibuprofen is ok?", "G-DOSE-03"),
+    ("Can I take two tablets?", "G-DOSE-03"),
+    ("Aspirin, can I?", "G-DOSE-03"),
+    ("Am I clinically depressed?", "G-DIAG-03"),
+    ("Am I depressed?", "G-DIAG-03"),
+    ("Is this burnout?", "G-DIAG-03"),
+    ("Am I bipolar?", "G-DIAG-03"),
+    ("Could I have an anxiety disorder?", "G-DIAG-03"),
+    ("Could this be PTSD?", "G-DIAG-03"),
+])
+def test_precheck_named_drugs_and_mental_health_diagnosis(q, rule):
+    covers(rule)
+    r = guard.precheck(q)
+    assert r and r["mode"] == "refused" and r["rule_id"] == rule
+
+
+@pytest.mark.parametrize("q", [
+    "I feel down", "Why is my mood low?", "I feel anxious", "Why am I so stressed?", "How do I avoid burnout?",
+    "Is my mood getting worse?", "I feel burnt out lately", "What does the anxiety score mean?",
+    "Can I take a nap?", "Can I take a break now?", "How much coffee can I have?", "Can I use the treadmill?",
+])
+def test_precheck_lets_feelings_and_non_drug_questions_through(q):
+    assert guard.precheck(q) is None
+
+
 # ---------------------------------------------------------------- legacy helpers keep working
 
 def test_unknown_numbers_signature_and_behaviour_kept():
@@ -266,6 +323,32 @@ def test_glucose_unit_is_not_a_dose():
     assert not res.hard_fail
 
 
+RAD_BLOB = json.dumps(TOOL_DATA + [{"data": {"dose": {"mission_msv": 42.5, "storm_msv": 3.1, "unit": "mSv"}},
+                                    "sources": ["status:h:day147"]}])
+
+
+@pytest.mark.parametrize("answer", [
+    "Your radiation dose this mission is 42.5 mSv.",
+    "The storm added 3.1 mSv to your dose; staying in the shelter keeps your dose down.",
+    "Stay in the shelter to reduce your dose during the storm.",
+])
+def test_radiation_dose_wording_is_not_a_dosing_answer(answer):
+    res = guard.postcheck(good(answer=answer), ALLOWED | {"status:h:day147"}, RAD_BLOB, ctx=H, goal_ids=GOALS)
+    assert not res.hard_fail and "G-OUT-DOSE-01" not in res.report["rule_ids"]
+
+
+@pytest.mark.parametrize("answer", [
+    "The usual dose of melatonin is small.",
+    "A dose of the cough syrup helps you sleep.",
+    "During the storm you can take a sleeping pill.",
+    "Reduce your dose of the tablets.",
+    "Skip the dose tonight.",
+])
+def test_medication_dose_wording_is_still_a_hard_fail(answer):
+    res = run(good(answer=answer))
+    assert res.hard_fail and "G-OUT-DOSE-01" in res.report["rule_ids"]
+
+
 # ---------------------------------------------------------------- 6. action allow-list
 
 @pytest.mark.parametrize("action,ok", [
@@ -279,6 +362,23 @@ def test_action_allow_list(action, ok):
     assert not res.hard_fail
     assert res.response.recommended_action_id == (action if ok else None)
     assert ("G-ACT-01" in res.report["rule_ids"]) is (not ok)
+
+
+MED_H = ToolContext(crew_id="h", viewer="medical", medical=True)
+
+
+@pytest.mark.parametrize("action,ok", [
+    ("goal:sg_x1", False), ("goal:al_light", True), ("goal:med_3", True), ("contact_cmo", True),
+])
+def test_medical_viewer_may_not_be_sent_to_a_suggestion_goal(action, ok):
+    """plan.md W1-2: goals from accepted suggestions are astronaut-only."""
+    res = guard.postcheck(good(recommended_action_id=action), ALLOWED, BLOB, ctx=MED_H, goal_ids=GOALS)
+    assert not res.hard_fail
+    assert res.response.recommended_action_id == (action if ok else None)
+    assert ("G-ACT-01" in res.report["rule_ids"]) is (not ok)
+    # the astronaut still may
+    if action == "goal:sg_x1":
+        assert run(good(recommended_action_id=action)).response.recommended_action_id == action
 
 
 def test_action_allow_list_accepts_explicit_protocol_ids():

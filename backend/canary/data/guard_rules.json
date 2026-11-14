@@ -58,9 +58,28 @@
       "id": "G-DOSE-01",
       "mode": "refused",
       "answer": "dosing",
-      "description": "No medication or doses: the crew medical officer decides that.",
+      "description": "No medication or doses: the crew medical officer decides that. Radiation dose is mission data and goes through (W1-1).",
       "patterns": [
-        "\\b(\\d+\\s?mg|dose|dosage|how many (pills|tablets)|should i take|which (medication|medicine|drug|pill))\\b"
+        "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu|milligrams?|micrograms?)\\b(?!\\s*/\\s*dl)",
+        "\\bhow (many|much) (mg|mcg|milligrams?|micrograms?|pills|tablets|capsules|drops|puffs)\\b",
+        "\\bwhich (medication|medicine|drug|pill|tablet)s?\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b(should|must) (i|we|he|she|they) take\\b",
+            "\\b\\d+(\\.\\d+)?\\s?(ml|millilit\\w*|units?)\\b",
+            "\\b(doses?|dosage|dosing)\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(dose|dosage|dosing)\\b"
+          ]
+        }
       ]
     },
     {
@@ -69,12 +88,37 @@
       "answer": "dosing",
       "description": "More dosing phrasings: how much can I take, increasing or stopping a medication, painkillers, sleeping pills, named drugs.",
       "patterns": [
-        "\\bhow (much|many)\\b[\\w\\s'-]{0,40}?\\b(can|should|may|could|do) (i|we|he|she|they) (take|have|use|give)\\b",
-        "\\b(increase|raise|double|reduce|lower|change) (my|his|her|the) (dose|dosage|medication|medicine|meds|pills?|tablets?)\\b",
+        "\\b(increase|raise|double|reduce|lower|change) (my|his|her|the) (medication|medicine|meds|pills?|tablets?)\\b",
         "\\b(stop|quit) taking\\b",
         "\\bpain ?killers?\\b",
         "\\bsleeping (pills?|tablets?)\\b",
-        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?)\\b"
+        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\bhow (much|many)\\b[\\w\\s'-]{0,40}?\\b(can|should|may|could|do) (i|we|he|she|they) (take|have|use|give)\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(increase|raise|double|reduce|lower|change) (my|his|her|the) (dose|dosage)\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G-DOSE-03",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "A named drug or a pill with a take / how many / how much / can I / should I / is it ok question, in either order.",
+      "patterns": [
+        "\\b(take|taking|took|have|use|how many|how much|can (i|we|he|she|they)|should (i|we|he|she|they)|may (i|we)|is (it|that) (ok|okay|safe|fine))\\b.{0,60}?\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?|naproxen|diphenhydramine|loratadine|cetirizine|ondansetron|meclizine|tramadol|caffeine pills?)\\b",
+        "\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?|naproxen|diphenhydramine|loratadine|cetirizine|ondansetron|meclizine|tramadol|caffeine pills?)\\b.{0,60}?\\b(ok|okay|safe|allowed|fine|can (i|we|he|she|they)|should (i|we|he|she|they)|how (many|much))\\b",
+        "\\b(take|taking|have|use) (a |an |one |two |three |four |half a |\\d+ |more |another |extra |some )*(pills?|tablets?|capsules?)\\b"
       ]
     },
     {
@@ -99,6 +143,18 @@
         "\\bwhat'?s? (is )?wrong with (me|my)\\b",
         "\\bis (something|anything) wrong with (me|my)\\b"
       ]
+    },
+    {
+      "id": "G-DIAG-03",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "Diagnosis questions about mental-health conditions (depressed, depression, anxiety disorder, PTSD, bipolar, burnout as a condition). Feelings ('I feel down', 'why is my mood low') go through.",
+      "patterns": [
+        "\\b(am i|are you saying i'?m|could i be|might i be|may i be|do you think i'?m|is (he|she)|would i be)\\s+(clinically |really |actually |getting |becoming )?(depressed|bipolar|burn(ed|t)[ -]?out|traumati[sz]ed|psychotic|manic|mentally ill|anorexic)\\b",
+        "\\b(do|could|might|can|may) (i|he|she) (have|be having|be suffering from|suffer from|have got|be getting|be developing)\\s+(an? )?(clinical |major )?(depression|anxiety disorder|an anxiety disorder|ptsd|post-?traumatic stress( disorder)?|bipolar( disorder)?|burn-?out|panic disorder|ocd|adhd|psychosis|eating disorder|mental illness)\\b",
+        "\\b(is|could|might) (this|it|that)( be)? (an? )?(clinical |major |real )?(depression|anxiety disorder|ptsd|bipolar( disorder)?|burn-?out|panic disorder|psychosis|nervous breakdown|breakdown|mental illness)\\b",
+        "\\b(have i got|do i suffer from|am i suffering from|am i showing signs of|signs (that|of) i (have|am))\\b.{0,30}\\b(depress\\w*|anxiety|ptsd|bipolar|burn-?out|disorder)\\b"
+      ]
     }
   ],
   "answers": {
@@ -109,19 +165,53 @@
     "inject": "I can't change how I work. I stay within Canary's safety rules and the approved protocols. Ask me about your own data, or talk to the crew medical officer."
   },
   "postcheck": [
-    {"id": "G-SCHEMA-01", "effect": "hard_fail", "description": "The final answer is valid JSON in the AssistantResponse shape."},
-    {"id": "G-SRC-01", "effect": "drop_claim", "description": "Every source id of a claim was returned by a tool in this turn."},
-    {"id": "G-SRC-02", "effect": "drop_claim", "description": "Observations cite data ids; explanations cite kb: (or legacy card: / protocol:) ids."},
-    {"id": "G-NUM-01", "effect": "drop_claim, hard_fail in the answer", "description": "Every number in the answer and observations appears in this turn's tool data (unit-aware: 6.1 h, 104 bpm)."},
+    {
+      "id": "G-SCHEMA-01",
+      "effect": "hard_fail",
+      "description": "The final answer is valid JSON in the AssistantResponse shape."
+    },
+    {
+      "id": "G-SRC-01",
+      "effect": "drop_claim",
+      "description": "Every source id of a claim was returned by a tool in this turn."
+    },
+    {
+      "id": "G-SRC-02",
+      "effect": "drop_claim",
+      "description": "Observations cite data ids; explanations cite kb: (or legacy card: / protocol:) ids."
+    },
+    {
+      "id": "G-NUM-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "Every number in the answer and observations appears in this turn's tool data (unit-aware: 6.1 h, 104 bpm)."
+    },
     {
       "id": "G-OUT-DOSE-01",
       "effect": "drop_claim, hard_fail in the answer",
-      "description": "No dose or medication instruction in the output.",
+      "description": "No dose or medication instruction in the output. Radiation dose wording (mSv, 'reduce your dose' in a storm) is mission data (W1-1).",
       "patterns": [
-        "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|ml|iu|units?)\\b(?!\\s*/\\s*dl)",
-        "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|doses?|drops?|puffs?)\\b",
-        "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (dose|dosage|medication|medicine|meds)\\b",
-        "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill)\\b"
+        "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)",
+        "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|drops?|puffs?)\\b",
+        "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (medication|medicine|meds)\\b",
+        "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b\\d+(\\.\\d+)?\\s?(ml|units?)\\b",
+            "\\b(doses?|dosage|dosing)\\b",
+            "\\b(you should|you can|you could|it is ok to|it's ok to) take\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (dose|dosage)\\b",
+            "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?doses?\\b"
+          ]
+        }
       ]
     },
     {
@@ -148,8 +238,16 @@
         "\\bnot (dangerous|a concern)\\b"
       ]
     },
-    {"id": "G-ACT-01", "effect": "action set to null", "description": "recommended_action_id is goal: from today's list, protocol: from the bank, contact_cmo, send_briefing or null."},
-    {"id": "G-STATUS-01", "effect": "status downgraded", "description": "supported with no surviving observation becomes insufficient_evidence."},
+    {
+      "id": "G-ACT-01",
+      "effect": "action set to null",
+      "description": "recommended_action_id is goal: from today's list, protocol: from the bank, contact_cmo, send_briefing or null."
+    },
+    {
+      "id": "G-STATUS-01",
+      "effect": "status downgraded",
+      "description": "supported with no surviving observation becomes insufficient_evidence."
+    },
     {
       "id": "G-PRIV-01",
       "effect": "drop_claim or sentence",
@@ -186,5 +284,17 @@
         "\\b(phq-?2|gad-?2|wellbeing)\\b.{0,40}\\b(shows|indicates|confirms|means|proves|diagnos\\w*)\\b.{0,40}\\b(depress\\w*|anxiety|disorder|mental illness)\\b"
       ]
     }
-  ]
+  ],
+  "contexts": {
+    "_about": "Context words for gated patterns. A pattern listed under a rule's `gated` with `when` fires only if the text also matches that context; with `unless` it fires unless the text matches that context, and the `override` context switches it back on. So 'radiation dose' is mission data, while 'dose of melatonin' or a plain 'increase your dose' is still dosing (W1-1).",
+    "medication": [
+      "\\b(medications?|medicines?|meds|drugs?|pills?|tablets?|capsules?|painkillers?|pain ?killers?|sleeping (pills?|tablets?)|injections?|inhalers?|syrups?|drops|puffs?|lozenges?|suppositor\\w*)\\b",
+      "\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
+      "\\b(mg|mcg|ug|milligrams?|micrograms?)\\b(?!\\s*/\\s*dl)",
+      "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)"
+    ],
+    "radiation": [
+      "\\b(radiation|radioactiv\\w*|irradiat\\w*|sieverts?|millisieverts?|msv|mgy|gray|dosimet\\w*|cosmic|solar (storm|flare|particle\\w*|event)|particle (storm|event)|spe|storm|shelter\\w*|exposure)\\b"
+    ]
+  }
 }

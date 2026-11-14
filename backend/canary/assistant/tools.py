@@ -45,6 +45,27 @@ _PERSONAL_PREFIXES = ("telemetry", "status", "goals", "checkin", "summary")
 _MISSION_KEYS = ("day", "location", "learning", "storm")
 
 
+def _is_suggestion_goal(node: Any) -> bool:
+    """A goal the person created from an accepted suggestion: `by == "suggestion"` or an `sg_*` id."""
+    if not isinstance(node, dict):
+        return False
+    gid = node.get("id") or node.get("goal_id")
+    return node.get("by") == "suggestion" or (isinstance(gid, str) and gid.removeprefix("goal:").startswith("sg_"))
+
+
+_SG_REF = re.compile(r"\b(?:goal:)?sg_\w+")
+
+
+def _hide_suggestions(node: Any) -> Any:
+    """For a medical viewer: drop every suggestion goal from a result, wherever it sits (plan.md W1-2)."""
+    if isinstance(node, dict):
+        return {k: _hide_suggestions(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_hide_suggestions(v) for v in node
+                if not _is_suggestion_goal(v) and not (isinstance(v, str) and _SG_REF.search(v))]
+    return node
+
+
 def _ms(ctx: ToolContext) -> dict:
     """Mission state bound at the start of the question, or the live one if the context carries none."""
     m = ctx.mission or {}
@@ -88,9 +109,10 @@ def get_protocol(ctx: ToolContext, pid: str) -> ToolResult:
 
 
 def list_goals(ctx: ToolContext) -> ToolResult:
-    """Today's goals: id, area, title, by and done. No XP, levels or points."""
+    """Today's goals: id, area, title, by and done. No XP, levels or points. A medical viewer does not see
+    goals the person added from Suggestions (astronaut-only, plan.md W1-2)."""
     ms = _ms(ctx)
-    g = goals.personal_today(ctx.crew_id, ms)
+    g = [x for x in goals.personal_today(ctx.crew_id, ms) if not (ctx.medical and _is_suggestion_goal(x))]
     data = [{"id": x["id"], "area": x["area"], "title": x["title"], "by": x["by"], "done": bool(x["done"])} for x in g]
     return ToolResult(data=data, sources=[f"goals:{ctx.crew_id}:day{ms['day']}"])
 
@@ -298,7 +320,10 @@ def run_tool(ctx: ToolContext, name: str, args: Optional[dict] = None) -> ToolRe
         vis = _visibility_error(ctx, res.sources)
         if vis:
             return ToolResult.fail(vis)
-        return ToolResult(data=_strip_settings(res.data), sources=list(dict.fromkeys(res.sources)), error=None)
+        data = _strip_settings(res.data)
+        if ctx.medical:
+            data = _hide_suggestions(data)
+        return ToolResult(data=data, sources=list(dict.fromkeys(res.sources)), error=None)
     except Exception as e:  # noqa: BLE001 - a tool must never raise into the loop
         return ToolResult.fail(f"{name} failed: {type(e).__name__}")
 

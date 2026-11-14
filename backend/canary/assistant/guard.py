@@ -43,9 +43,49 @@ def _compile(patterns: Iterable[str]) -> List[re.Pattern]:
     return [re.compile(p, re.I) for p in patterns]
 
 
-_PRE: List[Tuple[dict, List[re.Pattern]]] = [(r, _compile(r["patterns"])) for r in RULES["precheck"]]
+# Context word lists (medication, radiation) used by gated patterns, so "radiation dose" is mission data while
+# "a dose of melatonin" is dosing (plan.md W1-1).
+_CONTEXTS: Dict[str, List[re.Pattern]] = {k: _compile(v) for k, v in RULES.get("contexts", {}).items()
+                                          if not k.startswith("_")}
+
+
+class _Gated(NamedTuple):
+    patterns: List[re.Pattern]
+    when: Optional[str]       # fire only when this context is present
+    unless: Optional[str]     # fire unless this context is present ...
+    override: Optional[str]   # ... or this one is present as well
+
+
+def _gated(rule: dict) -> List[_Gated]:
+    out = []
+    for g in rule.get("gated", []):
+        for key in ("when", "unless", "override"):
+            if g.get(key) and g[key] not in _CONTEXTS:
+                raise ValueError(f"{rule['id']}: unknown context {g[key]!r}")
+        out.append(_Gated(_compile(g["patterns"]), g.get("when"), g.get("unless"), g.get("override")))
+    return out
+
+
+def _context(name: str, folded: str) -> bool:
+    return any(p.search(folded) for p in _CONTEXTS[name])
+
+
+def _gated_hit(gated: Iterable[_Gated], folded: str) -> bool:
+    for g in gated:
+        if not any(p.search(folded) for p in g.patterns):
+            continue
+        if g.when and not _context(g.when, folded):
+            continue
+        if g.unless and _context(g.unless, folded) and not (g.override and _context(g.override, folded)):
+            continue
+        return True
+    return False
+
+
+_PRE: List[Tuple[dict, List[re.Pattern], List[_Gated]]] = [(r, _compile(r["patterns"]), _gated(r)) for r in RULES["precheck"]]
 _POST: Dict[str, dict] = {r["id"]: r for r in RULES["postcheck"]}
 _POST_RE: Dict[str, List[re.Pattern]] = {rid: _compile(r.get("patterns", [])) for rid, r in _POST.items()}
+_POST_GATED: Dict[str, List[_Gated]] = {rid: _gated(r) for rid, r in _POST.items()}
 _HEALTH_RE = _compile(_POST["G-PRIV-01"]["health_patterns"])
 _CONTACT_RE = _compile(_POST["G-PRIV-01"]["contact_patterns"])
 
@@ -65,8 +105,8 @@ def precheck(question: str) -> Optional[dict]:
     Rules run in file order: emergencies first (a question that also tries to bypass the rules still gets
     Guided Response), then ignore-the-rules attempts, dosing and diagnosis."""
     folded = _fold(question)
-    for rule, pats in _PRE:
-        if any(p.search(folded) for p in pats):
+    for rule, pats, gated in _PRE:
+        if any(p.search(folded) for p in pats) or _gated_hit(gated, folded):
             return {"mode": rule["mode"], "answer": RULES["answers"][rule["answer"]], "rule_id": rule["id"]}
     return None
 
@@ -257,7 +297,7 @@ _WORDING = ("G-OUT-DOSE-01", "G-OUT-DIAG-01", "G-OUT-SAFE-01")
 
 def _wording_rule(text: str) -> Optional[str]:
     for rid in _WORDING:
-        if _matches(_POST_RE[rid], text):
+        if _matches(_POST_RE[rid], text) or _gated_hit(_POST_GATED[rid], _fold(text)):
             return rid
     return None
 
@@ -278,11 +318,13 @@ def _parse(response: Union[AssistantResponse, dict, str]) -> AssistantResponse:
     return AssistantResponse.model_validate(response)
 
 
-def _allowed_actions(goal_ids: Iterable[str], protocol_ids: Optional[Iterable[str]]) -> set:
+def _allowed_actions(goal_ids: Iterable[str], protocol_ids: Optional[Iterable[str]], medical: bool = False) -> set:
     if protocol_ids is None:
         from ..domain import protocols
         protocol_ids = protocols.resolve("earth")["protocols"].keys()
     goals = {g if g.startswith("goal:") else f"goal:{g}" for g in goal_ids}
+    if medical:  # goals from accepted suggestions are astronaut-only (plan.md W1-2)
+        goals = {g for g in goals if not g.startswith("goal:sg_")}
     protos = {p if p.startswith("protocol:") else f"protocol:{p}" for p in protocol_ids}
     return goals | protos | set(FIXED_ACTIONS)
 
@@ -302,7 +344,8 @@ def postcheck(response: Union[AssistantResponse, dict, str],
     - ctx: the turn's ToolContext; ctx.crew_id is the bound person (the only crew member who may be named
       with health wording; a medical viewer is bound to whoever they asked about).
     - goal_ids: ids of today's goals for the bound person (`water`, `al_light`, `med_3`, `sg_x1`; with or
-      without the `goal:` prefix). protocol_ids: defaults to the protocol bank.
+      without the `goal:` prefix); for a medical viewer `goal:sg_*` is never allowed. protocol_ids: defaults
+      to the protocol bank.
 
     Checks, in order: schema (G-SCHEMA-01), sources exist (G-SRC-01), sources fit the claim type (G-SRC-02),
     numbers exist (G-NUM-01), forbidden wording (G-OUT-*), action allow-list (G-ACT-01), other people's
@@ -409,7 +452,7 @@ def postcheck(response: Union[AssistantResponse, dict, str],
 
     # 6. action allow-list
     action = resp.recommended_action_id
-    if action is not None and action not in _allowed_actions(goal_ids, protocol_ids):
+    if action is not None and action not in _allowed_actions(goal_ids, protocol_ids, ctx.medical):
         hit("G-ACT-01")
         action = None
 
