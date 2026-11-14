@@ -68,8 +68,8 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
         <div><span className="lbl">Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
         <div className="right row" style={{ gap: 22 }}>
           <span className="small muted">{mission?.place.reply === 'Live' ? 'Earth sees this live' : `Earth sees this ${mission?.place.reply} later`}</span>
-          <button className={`btn sm ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)}>Voice {voice ? 'on' : 'off'}</button>
-          <button className="btn sm" onClick={onClose}><Icon name="close" size={15} />Close</button>
+          <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)}>Voice {voice ? 'on' : 'off'}</button>
+          <button className="btn er-btn" onClick={onClose}><Icon name="close" size={18} />Close</button>
         </div>
       </div>
 
@@ -78,12 +78,12 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
           {!P && <span className="lbl">Loading protocols…</span>}
           {P && !proto && !done && (
             <>
-              <p className="muted">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and answer yes or no.</p>
+              <p className="er-lead">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and answer yes or no.</p>
               <div className="proto-grid">
                 {P.order.map(id => (
                   <button key={id} className="proto" onClick={() => pick(id)}>
-                    <b style={{ fontSize: 16 }}>{P.protocols[id].name}</b>
-                    <span className="small muted">{P.protocols[id].sign}</span>
+                    <b>{P.protocols[id].name}</b>
+                    <span className="muted">{P.protocols[id].sign}</span>
                   </button>
                 ))}
               </div>
@@ -91,9 +91,9 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
           )}
           {proto && step && !done && (
             <div className="col detail" key={`${pid}-${i}`} style={{ gap: 18 }}>
-              <span className="lbl">Step {i + 1} of {proto.steps.length}</span>
+              <span className="er-step">Step {i + 1} of {proto.steps.length}</span>
               {step.t && <p className="er-big">{step.t}</p>}
-              {step.variant && <div className="er-variant"><span className="lbl">Here, at {mission?.place.name}</span><p style={{ marginTop: 6, fontSize: 16 }}>{step.variant}</p></div>}
+              {step.variant && <div className="er-variant"><span className="lbl">Here, at {mission?.place.name}</span><p style={{ marginTop: 6, fontSize: 20, lineHeight: 1.45 }}>{step.variant}</p></div>}
               {step.metro ? <div><div className="metro" /><p className="small muted" style={{ textAlign: 'center' }}>Push on every pulse: 110 per minute</p></div> : null}
               {step.breath ? <div><div className="breath" /><p className="small muted" style={{ textAlign: 'center' }}>In as it grows, out as it shrinks</p></div> : null}
               {step.timer ? <div className="row"><span className="lbl">Timer</span><b className="timer">{mmss(step.timer - stepElapsed)}</b></div> : null}
@@ -102,17 +102,17 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
                 <div className="yesno"><button className="y" onClick={() => answer(true)}>YES</button><button className="n" onClick={() => answer(false)}>NO</button></div>
               ) : step.end ? (
                 <div className="col">
-                  <p className="muted">Who was the patient?</p>
-                  <div className="row wrap">{catalog?.crew.map(c => <button key={c.id} className={`btn sm ${patient === c.id ? 'pri' : ''}`} onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}</div>
-                  <div className="row wrap" style={{ marginTop: 8 }}>
-                    <button className="btn pri" onClick={() => finish('stable')}>Patient stable: close and report</button>
-                    <button className="btn" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
+                  <p className="er-lead">Who was the patient?</p>
+                  <div className="er-choices">{catalog?.crew.map(c => <button key={c.id} className={`btn er-btn big ${patient === c.id ? 'pri' : ''}`} onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}</div>
+                  <div className="er-choices" style={{ marginTop: 8 }}>
+                    <button className="btn pri er-btn big" onClick={() => finish('stable')}>Patient stable: close and report</button>
+                    <button className="btn er-btn big" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
                   </div>
                 </div>
               ) : (
-                <button className="btn pri" style={{ alignSelf: 'flex-start', padding: '14px 26px', fontSize: 15 }} onClick={() => { log(`Done: step ${i + 1}`); go(undefined) }}>Done, next step<Icon name="chev" size={15} /></button>
+                <button className="btn pri er-next" onClick={() => { log(`Done: step ${i + 1}`); go(undefined) }}>Done, next step<Icon name="chev" size={24} /></button>
               )}
-              <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setPid(null)}>Wrong protocol? Choose again</button>
+              <button className="btn ghost er-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setPid(null)}>Wrong protocol? Choose again</button>
             </div>
           )}
           {done && (
@@ -120,19 +120,19 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
               <h2>Closed and reported.</h2>
               <p className="muted" style={{ marginTop: 8 }}>The log is attached to the report. Follow-up care appears as goals for the patient over the next 3 days.</p>
               {proto && <ul className="steps">{proto.after.map(a => <li key={a}>{a}</li>)}</ul>}
-              <button className="btn pri" style={{ marginTop: 16 }} onClick={onClose}>Back to Canary</button>
+              <button className="btn pri er-next" style={{ marginTop: 16 }} onClick={onClose}>Back to Canary</button>
             </div>
           )}
         </div>
 
         <aside className="col">
           {proto && <div className="card pad-sm"><span className="lbl">Bring</span><ul className="steps">{proto.kit.length ? proto.kit.map(k => <li key={k}>{k}</li>) : <li>Medical kit</li>}</ul></div>}
-          <div className="card pad-sm">
-            <span className="lbl">Log, sent with the report</span>
-            <div className="col" style={{ gap: 6, marginTop: 10, maxHeight: 300, overflow: 'auto' }}>
+          <details className="er-log">
+            <summary>Log · {(em?.log ?? []).length} {(em?.log ?? []).length === 1 ? 'entry' : 'entries'}, sent with the report</summary>
+            <div className="col" style={{ gap: 4, marginTop: 8, maxHeight: 180, overflow: 'auto' }}>
               {(em?.log ?? []).slice().reverse().map(([t, x], k) => <div key={k} className="row small" style={{ alignItems: 'baseline' }}><span className="num dim">{mmss(t)}</span><span>{x}</span></div>)}
             </div>
-          </div>
+          </details>
           <p className="small dim">Protocols are illustrative and not clinically reviewed. They are data the medical team can replace.</p>
         </aside>
       </div>
