@@ -1055,3 +1055,4 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .form-summary li button { color: var(--act); text-align: left; text-decoration: underline; text-underline-offset: 2px; }
 .field input.span-in { font: 500 26px var(--f-mono); letter-spacing: .2em; }
 .field.group > .lbl b { color: var(--ink); font-weight: 600; font-size: 15px; }
+.btn.start { align-self: flex-start; }

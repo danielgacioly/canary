@@ -2,8 +2,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
+import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
+import { useAction } from '../lib/useAction'
+import { useForm } from '../lib/useForm'
+import * as v from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
 const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
@@ -88,6 +92,7 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
   const { data: st } = useApi(() => api.assistantStatus(), [])
   const { bump, toast } = useSession()
   const [b, setB] = useState<Briefing | null>(null)
+  const gen = useAction(), approve = useAction()
   useEffect(() => setB(list?.[0] ?? null), [list])
   return (
     <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
@@ -96,14 +101,16 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
         <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The crew member approves it before it is queued for Earth.</p>
         <div className="slot small">{st ? (st.configured ? `Model: ${st.provider}` : 'No model connected: template text from the same facts.') : '…'}</div>
         <div className="row wrap">{ov.crew.map(c => <button key={c.id} className={`btn sm ${who === c.id ? 'pri' : ''}`} onClick={() => setWho(c.id)}>{c.name.split(' ')[0]}</button>)}</div>
-        <button className="btn pri" onClick={async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) }}>Generate briefing</button>
+        <button className="btn pri" disabled={gen.busy} onClick={() => gen.run(async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) })}>{gen.busy ? 'Generating…' : 'Generate briefing'}</button>
+        <ActionError error={gen.error} />
         <div className="list">{(list ?? []).map(x => <button key={x.id} className={`item s${x.status === 'draft' ? 1 : 0}`} onClick={() => setB(x)}><span className="dot" />Day {x.day} · {x.status}<span className="v">{x.bytes} B</span></button>)}</div>
       </section>
       <section className="card">
         {b ? (
           <>
             <div className="head"><span className="tag">{b.mode === 'ai' ? 'AI prose' : 'template'}</span><span className="tag">{b.bytes} bytes</span><Status level={b.status === 'draft' ? 1 : 0}>{b.status}</Status>
-              {b.status === 'draft' && <button className="btn sm pri right" onClick={async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the crew member and queued for Earth.') }}>Approve and queue</button>}</div>
+              {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the crew member and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
+            <ActionError error={approve.error} />
             <pre style={{ whiteSpace: 'pre-wrap', font: '500 13px/1.7 var(--f-mono)', margin: 0, color: 'var(--ink)' }}>{b.text}</pre>
           </>
         ) : <p className="muted">Generate a briefing to see it here.</p>}
@@ -115,23 +122,36 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
 function Prescribe({ ov }: { ov: MedicalOverview }) {
   const { bump, toast } = useSession()
   const { data: goals, setData } = useApi(() => api.medGoals(), [])
-  const [f, setF] = useState({ who: 'all', area: 'physical', title: '', why: 'Prescribed by the medical team.', days: 7 })
-  const inp = { padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }
+  const remove = useAction()
+  const form = useForm({
+    initial: { who: 'all', area: 'physical', title: '', why: 'Prescribed by the medical team.', days: '7' },
+    validate: f => ({
+      title: v.length('Goal', { min: 3, max: 120 })(f.title),
+      why: v.length('Why', { max: 200, optional: true })(f.why),
+      days: v.number('Days', { min: 1, max: 60, unit: 'days', integer: true })(f.days),
+    }),
+    submit: async f => {
+      setData(await api.addMedGoal({ who: f.who, area: f.area, title: f.title.trim(), why: f.why.trim() || 'Prescribed by the medical team.', days: Number(f.days) }))
+      bump(); toast('Goal prescribed'); form.setValues({ title: '' })
+    },
+  })
   return (
     <div className="grid g2">
-      <form className="card col" onSubmit={async e => { e.preventDefault(); setData(await api.addMedGoal(f)); bump(); toast('Goal prescribed'); setF({ ...f, title: '' }) }}>
+      <form className="card col" noValidate onSubmit={form.submit}>
         <h2>Prescribe a goal</h2>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">For</span><select style={inp} value={f.who} onChange={e => setF({ ...f, who: e.target.value })}><option value="all">Whole crew</option>{ov.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Area</span><select style={inp} value={f.area} onChange={e => setF({ ...f, area: e.target.value })}><option value="physical">Physical</option><option value="mental">Mental</option></select></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Goal</span><input style={inp} required minLength={3} value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="e.g. Measure pressure lying and standing, morning and night" /></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Why (the crew sees this)</span><input style={inp} value={f.why} onChange={e => setF({ ...f, why: e.target.value })} /></label>
-        <label className="col" style={{ gap: 4 }}><span className="lbl">Days</span><input style={inp} type="number" min={1} max={60} value={f.days} onChange={e => setF({ ...f, days: +e.target.value })} /></label>
-        <button className="btn pri">Prescribe</button>
+        <Field form={form} name="who" label="For" as="select"><option value="all">Whole crew</option>{ov.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Field>
+        <Field form={form} name="area" label="Area" as="select"><option value="physical">Physical</option><option value="mental">Mental</option></Field>
+        <Field form={form} name="title" label="Goal" placeholder="e.g. Measure pressure lying and standing, morning and night" hint="3 to 120 characters" maxLength={120} />
+        <Field form={form} name="why" label="Why (the crew sees this)" hint="Up to 200 characters" maxLength={200} />
+        <Field form={form} name="days" label="Days" hint={v.range(1, 60, 'days')} inputMode="numeric" />
+        <FormError form={form} />
+        <SubmitButton form={form}>Prescribe</SubmitButton>
       </form>
       <section className="card"><div className="head"><h2>Active prescriptions</h2></div>
         <div className="col" style={{ gap: 8 }}>{(goals ?? []).map((g: MedGoal) => (
           <div key={g.id} className="goal"><div className="grow"><b>{g.title}</b><div className="small dim">{g.who === 'all' ? 'Whole crew' : ov.crew.find(c => c.id === g.who)?.name} · day {g.from_day} to {g.to_day} · {g.area}</div></div>
-            <button className="btn sm" onClick={async () => { setData(await api.delMedGoal(g.id)); bump() }}>Remove</button></div>))}
+            <button className="btn sm" disabled={remove.busy} onClick={() => remove.run(async () => { setData(await api.delMedGoal(g.id)); bump() })}>Remove</button></div>))}
+          <ActionError error={remove.error} />
           {!goals?.length && <p className="muted">None. Guided Response adds follow-up care here automatically.</p>}</div>
       </section>
     </div>
@@ -140,16 +160,23 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
 
 function Rules({ ov }: { ov: MedicalOverview }) {
   const { bump, toast } = useSession()
-  const [w, setW] = useState(ov.thresholds.watch), [a, setA] = useState(ov.thresholds.act)
+  const form = useForm({
+    initial: { watch: ov.thresholds.watch, act: ov.thresholds.act },
+    validate: f => ({ act: f.act > f.watch ? null : `Act (${f.act.toFixed(1)} σ) must be above watch (${f.watch.toFixed(1)} σ). Raise act or lower watch.` }),
+    submit: async f => { await api.setThresholds(f.watch, f.act); bump(); toast('Alert rules updated for the whole crew') },
+  })
+  const sliders = [['watch', 'Watch from', 0.5, 4, 'var(--watch)'], ['act', 'Act from', 1, 5, 'var(--act)']] as const
   return (
-    <section className="card col" style={{ maxWidth: 720 }}>
+    <form className="card col" style={{ maxWidth: 720 }} noValidate onSubmit={form.submit}>
       <h2>When Canary speaks up</h2>
       <p className="muted">Each indicator is compared with that person's own pre-flight normal. The distance is measured in their personal spread (σ). Lower thresholds mean earlier, more frequent alerts.</p>
-      {([['Watch from', w, setW, 'var(--watch)'], ['Act from', a, setA, 'var(--act)']] as const).map(([l, v, set, c]) => (
-        <label key={l} className="col" style={{ gap: 6 }}><span className="row"><span className="lbl">{l}</span><b className="num right" style={{ color: c }}>{v.toFixed(1)} σ</b></span>
-          <input type="range" min={0.5} max={4.5} step={0.1} value={v} onChange={e => set(+e.target.value)} /></label>
+      {sliders.map(([k, l, min, max, c]) => (
+        <FieldGroup key={k} form={form} name={k} label={<span className="row"><span>{l}</span><b className="num right" style={{ color: c }}>{form.values[k].toFixed(1)} σ</b></span>} hint={`${min}–${max} σ`}>
+          <input type="range" min={min} max={max} step={0.1} value={form.values[k]} aria-label={l} onChange={e => { form.set(k, +e.target.value); form.touch('act') }} />
+        </FieldGroup>
       ))}
-      <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={a <= w} onClick={async () => { await api.setThresholds(w, a); bump(); toast('Alert rules updated for the whole crew') }}>Apply to crew</button>
+      <FormError form={form} />
+      <SubmitButton form={form} className="btn pri start">Apply to crew</SubmitButton>
       <div className="hr" />
       <span className="lbl">Cross-signal rules (always on)</span>
       <ul className="steps">
@@ -159,24 +186,29 @@ function Rules({ ov }: { ov: MedicalOverview }) {
         <li>Wavy Amsler grid → eye alert (SANS screen)</li>
         <li>Solar particle event → everyone to shelter, radiation protocol</li>
       </ul>
-    </section>
+    </form>
   )
 }
 
 function Messages() {
   const { me, catalog, bump } = useSession()
   const { data } = useApi(() => api.messages(), [])
-  const [to, setTo] = useState('crew'), [text, setText] = useState('')
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
+  const form = useForm({
+    initial: { to: 'crew', text: '' },
+    validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
+    submit: async f => { await api.send(f.to === 'mission-control' ? 'ship medical team' : 'flight surgeon', f.to, f.text.trim()); form.reset({ to: f.to, text: '' }); bump() },
+  })
   return (
     <div className="grid g2">
-      <form className="card col" onSubmit={async e => { e.preventDefault(); await api.send(to === 'mission-control' ? 'ship medical team' : 'flight surgeon', to, text); setText(''); bump() }}>
+      <form className="card col" noValidate onSubmit={form.submit}>
         <h2>Messages</h2><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
-        <select value={to} onChange={e => setTo(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }}>
-          <option value="mission-control">Mission Control (Earth)</option><option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        <textarea required rows={4} value={text} onChange={e => setText(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }} />
-        <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={!text.trim()}><Icon name="send" size={15} />Send</button>
+        <Field form={form} name="to" label="To" as="select">
+          <option value="mission-control">Mission Control (Earth)</option><option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Field>
+        <Field form={form} name="text" label="Message" as="textarea" rows={4} hint={`${String(form.values.text).length} of 1000 characters`} />
+        <FormError form={form} />
+        <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
         <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
       </form>
       <section className="card"><div className="head"><h2>Link log</h2></div>
