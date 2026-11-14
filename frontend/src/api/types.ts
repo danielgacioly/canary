@@ -75,12 +75,19 @@ export interface Person {
   shared: boolean; today: { done: number; total: number; streak: number }
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
+export interface Ridge { id: 'R' | 'I' | 'D' | 'G' | 'E'; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[] }
+export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[] }
+export interface LegConditions extends Leg { days: number; gravity_key: string; ridge: Ridge[]; dose_leg_msv: number }
+export interface PlanConditions {
+  name: string; legs: LegConditions[]; today: number; leg_index: number
+  dose: { series: [number, number][]; now_msv: number; end_msv: number; limit_msv: number; simulated: boolean }
+}
 export interface ContractRow { info: string; self: string; doctor: string; crew: string; earth: string }
 export interface CrewOverview {
   mission: Mission; people: Person[]; eva_open: boolean; hazards: Hazard[]
   team: TeamGoal[]; crew_streak: number; team_done: number; team_total: number; dose: Dose
   space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
-  contract: ContractRow[]
+  contract: ContractRow[]; ridge: Ridge[]; warnings: Warning[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
 export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_xp_week: number; team_done: number; team_total: number }

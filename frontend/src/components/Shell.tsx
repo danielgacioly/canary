@@ -9,8 +9,7 @@ import { CanaryMark, Icon } from './ui'
 
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your space".
 const NAV: { group: string; items: [string, string, string][] }[] = [
-  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/ranking', 'rank', 'Ranking']] },
-  { group: 'Mission', items: [['/plan', 'plan', 'Mission plan'], ['/space-weather', 'weather', 'Space weather'], ['/link', 'link', 'Link to Earth']] },
+  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/plan', 'plan', 'Mission plan'], ['/ranking', 'rank', 'Ranking']] },
   { group: 'Your space', items: [['/today', 'today', 'My health'], ['/goals', 'goals', 'My goals']] },
 ]
 
@@ -41,6 +40,7 @@ export default function Shell() {
         <button className="nav" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
         <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
         <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
+        <ThemeToggle />
         <div className="foot">
           {mine ? (
             <button className="me-chip" onClick={() => { setMe(null); nav('/crew') }} title="Lock your space">
@@ -65,9 +65,8 @@ export default function Shell() {
                 <span>Where you are</span><b>{mission.place.name} ▾</b>
               </button>
               <div className="fact"><span>Mission time</span><b className="num">{mission.day_label}</b></div>
-              <div className="fact opt"><span>Gravity</span><b>{mission.place.gravity}</b></div>
               <div className="fact opt"><span>Earth replies</span><b>{mission.place.reply}</b></div>
-              {crew && <div className={`fact opt s${crew.space_weather.active ? 2 : 0}`}><span>Space weather</span><b className={crew.space_weather.active ? 'c' : ''}>{crew.space_weather.active ? 'Storm' : 'Calm'}</b></div>}
+              {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
             </>
           )}
           <div className="right row" style={{ gap: 18 }}>{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
@@ -151,5 +150,21 @@ export function PlaceGrid({ onPick, current }: { onPick: (k: string, name: strin
         </button>
       ))}
     </div>
+  )
+}
+
+/** Dark is the default on board; light for bright rooms. Remembered on this device. */
+function ThemeToggle() {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
+  const flip = () => {
+    const next = theme === 'light' ? 'dark' : 'light'
+    document.documentElement.dataset.theme = next
+    try { localStorage.setItem('canary.theme', next) } catch { /* storage blocked */ }
+    setTheme(next)
+  }
+  return (
+    <button className="nav theme-toggle" onClick={flip} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+      <Icon name={theme === 'light' ? 'moon' : 'sun'} /><span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span>
+    </button>
   )
 }

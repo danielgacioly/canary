@@ -11,7 +11,7 @@
 from typing import Optional
 
 from .. import db
-from .catalog import CREW_BY_ID, LOCATIONS
+from .catalog import CREW_BY_ID, LOCATIONS, SYSTEMS
 
 MEDICAL_OFFICER = "k"
 SUBSTITUTE = "h"
@@ -91,4 +91,52 @@ def hazards(ms: dict, env_alerts: list) -> list:
     if place["delay_s"] > 60:
         out.append({"title": f"Earth replies in {place['reply']}", "level": 0,
                     "what": "The crew handles emergencies on its own.", "sources": []})
+    return out
+
+
+# ---------------------------------------------------------------- NASA's five hazards of spaceflight (RIDGE)
+# Simplified from the public pages of the NASA Human Research Program. Levels per place are a
+# prototype judgement; a solar storm raises radiation to high wherever there is no magnetic shield.
+RIDGE = [
+    {"id": "R", "name": "Radiation", "what": "Particles from the Sun and deep space damage cells and DNA.",
+     "systems": ["skin", "immune"]},
+    {"id": "I", "name": "Isolation & confinement", "what": "Months in a small space with the same few people.",
+     "systems": ["brain"]},
+    {"id": "D", "name": "Distance from Earth", "what": "Help, supplies and replies take longer the farther you go.",
+     "systems": ["gut"]},
+    {"id": "G", "name": "Gravity", "what": "0 g on the way, 1/6 g on the Moon, 3/8 g on Mars. The body adapts in ways that hurt.",
+     "systems": ["skeleton", "muscles", "heart", "eyes", "kidneys"]},
+    {"id": "E", "name": "Hostile, closed environment", "what": "Recycled air, noise, shared surfaces and no way to step outside.",
+     "systems": ["lungs"]},
+]
+RIDGE_LEVEL = {
+    "earth": {"R": 0, "I": 0, "D": 0, "G": 0, "E": 0},
+    "rocket": {"R": 1, "I": 1, "D": 0, "G": 2, "E": 1},
+    "iss": {"R": 1, "I": 1, "D": 0, "G": 2, "E": 1},
+    "moon": {"R": 2, "I": 1, "D": 1, "G": 1, "E": 2},
+    "transit": {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1},
+    "mars": {"R": 1, "I": 2, "D": 2, "G": 1, "E": 2},
+}
+LEVEL_LABEL = ["Low", "Moderate", "High"]
+
+
+def _here(hid: str, location: str) -> str:
+    p = LOCATIONS[location]
+    return {
+        "R": f"{p['dose_rate']} mSv a day here",
+        "I": "Training with family nearby" if location == "earth" else "Four people, no leave",
+        "D": f"Earth replies {'live' if p['reply'] == 'Live' else 'in ' + p['reply']} · hospital: {p['hospital'].lower()}",
+        "G": f"{p['gravity']} here",
+        "E": "Open air" if location == "earth" else "Recycled air and constant noise",
+    }[hid]
+
+
+def ridge(location: str, storm: Optional[str] = None) -> list:
+    out = []
+    for h in RIDGE:
+        lv = RIDGE_LEVEL[location][h["id"]]
+        if h["id"] == "R" and storm and location != "earth":
+            lv = 2
+        out.append({**h, "level": lv, "label": LEVEL_LABEL[lv], "here": _here(h["id"], location),
+                    "system_names": [SYSTEMS[s]["name"] for s in h["systems"]]})
     return out

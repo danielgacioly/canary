@@ -286,3 +286,18 @@ def test_setup_saves_the_plan_and_marks_it_done():
     client.post("/api/demo/reset")
     ms = client.get("/api/mission").json()
     assert ms["setup_done"] is True and ms["plan_name"] == "Mars reference mission"  # reset restores the demo mission
+
+
+def test_ridge_hazards_follow_place_and_storm():
+    o = client.get("/api/crew/overview").json()  # pre-flight, on Earth
+    assert [h["id"] for h in o["ridge"]] == ["R", "I", "D", "G", "E"] and all(h["level"] == 0 for h in o["ridge"])
+    o = client.get("/api/crew/overview").json() if at(3) else None  # the replayed May 2024 storm, in transit
+    r = {h["id"]: h for h in o["ridge"]}
+    assert r["R"]["level"] == 2 and r["G"]["label"] == "High" and o["warnings"][0]["id"] == "storm"
+
+
+def test_plan_conditions_project_the_dose():
+    c = client.get("/api/plan/conditions").json()
+    assert len(c["legs"]) == 4 and c["legs"][2]["location"] == "transit"
+    doses = [v for _, v in c["dose"]["series"]]
+    assert doses == sorted(doses) and c["dose"]["end_msv"] > c["dose"]["limit_msv"] * 0.5

@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import type { Plan } from '../api/types'
 import BodyHologram from '../hologram/BodyHologram'
 import Stars from '../components/Stars'
+import Timeline from '../components/Timeline'
 import { CanaryMark, Icon } from '../components/ui'
 import { useSession } from '../state/session'
 
@@ -71,22 +72,14 @@ export default function Intro() {
 /** The last beat: the mission as configured, drawn in. Nothing to fill in here. */
 function MissionReady({ plan, crew, places }: { plan: Plan | null; crew: { id: string; name: string; initials: string; role: string }[]; places?: Record<string, { name: string; reply: string; gravity: string }> }) {
   if (!plan || !places) return <div className="intro-copy" />
-  const lo = plan.legs[0].start, hi = plan.legs[plan.legs.length - 1].end
-  const flight = hi + 1
+  const flight = plan.legs[plan.legs.length - 1].end + 1
   const dest = [...plan.legs].reverse().find(l => l.location !== 'earth' && l.location !== 'rocket') ?? plan.legs[plan.legs.length - 1]
   const where = places[dest.location]
   return (
     <div className="intro-copy ready" key="ready">
       <h1 className="reveal">{plan.name}. Four crew, {flight} days.</h1>
       <p className="lead reveal d1">Itinerary and crew are set by mission control. Destination: {where.name}, {where.gravity} gravity, Earth replies in {where.reply.toLowerCase()}. Canary adapts to every leg on its own.</p>
-      <div className="ready-line reveal d2" aria-label="Itinerary">
-        {plan.legs.map((l, k) => (
-          <span key={k} className={`seg p-${l.location}`} style={{ flex: l.end - l.start + 1, ['--k' as string]: k }}>
-            <b>{places[l.location].name}</b><small className="num">{l.end - l.start + 1} d</small>
-          </span>
-        ))}
-        <i className="launch-mark" style={{ left: `${(100 * (0 - lo)) / (hi - lo + 1)}%` }} />
-      </div>
+      <div className="reveal d2"><Timeline legs={plan.legs} places={places} now={0} nowLabel="Launch" compact /></div>
       <div className="ready-crew">
         {crew.map((c, k) => (
           <div key={c.id} className="reveal" style={{ animationDelay: `${700 + k * 90}ms` }}>

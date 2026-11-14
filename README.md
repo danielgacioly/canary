@@ -55,7 +55,7 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | 36 backend tests (alerts, story, mission plan and setup, goals, privacy, PINs and sessions, assistant guard, API) and the frontend type check |
+| `make test` | 38 backend tests (alerts, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, assistant guard, API) and the frontend type check |
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
@@ -77,19 +77,17 @@ Other commands:
 
 ## What it does
 
-A sidebar with seven pages in three groups, **crew first**: the system always opens on the whole crew, and your own data sits behind your private space. Each page reads top to bottom like a dashboard: the most important thing first, details further down.
+A sidebar with six pages in three groups (Crew, Your space, Support), **crew first**: the system always opens on the whole crew, and your own data sits behind your private space. Each page reads top to bottom like a dashboard: the most important thing first, details further down.
 
 | Page | What you see |
 | --- | --- |
 | **Intro** | Four beats of the canary story over a starfield while the body assembles, then **Your mission**: the configured itinerary draws itself in and the crew is introduced. Nothing to fill in |
 | **Admin setup preview** (`/setup`) | Not part of the crew flow; a preview of the future mission-admin flow. | Full-screen, four steps: pick the destination (space station, Moon, Mars with gravity, Earth reply delay and radiation), set the length of every part with a live timeline that re-proportions as you type, meet the crew, review and launch (a 3-2-1 over the timeline). The defaults reproduce the three presets exactly; Mars can add a return trip. "Use the demo story" takes the Mars preset |
-| **Crew** (home) | The four astronauts as neutral dots (no status colour), today's routine and shared streak, outside-activity status for the place, hazards for everyone, crew missions and the **Who sees what** table. No status, no scores, no vitals, no averages. A dot opens that person's public card |
-| **My health** (private) | Behind a gate: tap your name and enter your 4-digit PIN, Lock to leave (closing the tab also locks). A privacy bar says what the crew sees of you (only goal participation), your own medical status, who receives your alerts, and has the **Share data with the crew** switch and **Change PIN**. Then, top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals and the current mission leg. Click any part of the body or any tile and the top area becomes that system. |
+| **Crew** (home) | The four astronauts as neutral dots with today's routine. **Hazards here today**: NASA's five hazards of spaceflight (radiation, isolation, distance, gravity, closed environment) rated low, moderate or high for the current place, a solar storm warning on top when one hits; tap a hazard to see which body systems it acts on. **Crew missions** in their own full-width section with the crew streak. **Who sees what** folded at the bottom. No status, no scores, no vitals, no averages |
+| **My health** (private) | Behind a gate: tap your name and enter your 4-digit PIN, Lock to leave (closing the tab also locks). A privacy bar says what the crew sees of you (only goal participation), your own medical status, who receives your alerts, and has the **Share data with the crew** switch and **Change PIN**. Then, top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. Below: physical systems and mental facets as tiles (value, your normal, 14-day trend, status colour), then today's goals. Click any part of the body or any tile and the top area becomes that system. |
 | **My goals** (private) | Level, XP, streak and 7-day completion; physical and mental goals side by side; crew missions; patches |
-| **Ranking** | Podium and weekly table by effort |
-| **Mission plan** | The itinerary as a timeline, a day slider, what Canary changes at the selected place, the leg editor and a link to the admin setup preview |
-| **Space weather** | NASA DONKI storm (Kp) and Curiosity RAD dose on Mars |
-| **Link to Earth** | Messages, briefings and reports with the real delay |
+| **Ranking** | One headline (who leads, by how much), how points are earned, then one row per person: medal, XP this week as a bar, the gap to the person ahead, level with progress, streak and patches |
+| **Mission plan** | The registered itinerary read for health: a timeline with every leg listed underneath (pick one), the leg's gravity, radiation, Earth delay and hospital distance, its five hazards, what the body faces, what Canary changes, and the projected mission dose against the career limit. Editing the plan belongs to the admin flow |
 
 Always reachable: the **crew dots** and **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** (4-digit PIN) and **About & data**; the **demo bar** at the bottom drives the story.
 
@@ -117,7 +115,7 @@ How the API enforces it:
 
 ### Mission plan
 
-A plan is a list of legs: place, first day, last day and what happens (day 0 is launch; negative days are pre-flight). Three presets ship with it: **Mars reference mission**, **Six months on the ISS** and **Lunar surface mission**, and any leg can be added, removed or edited.
+A plan is a list of legs: place, first day, last day and what happens (day 0 is launch; negative days are pre-flight). Mission control registers it (the future admin flow; `PUT /api/plan` and three presets today: **Mars reference mission**, **Six months on the ISS**, **Lunar surface mission**). The crew only reads it.
 
 Every rule that depends on where the crew is asks the plan (`backend/canary/domain/plan.py`), so saving a plan re-adapts the whole system:
 
@@ -131,7 +129,7 @@ Every rule that depends on where the crew is asks the plan (`backend/canary/doma
 | Guided Response | step variants for 0 g, partial gravity or Earth, and place-specific shelters |
 | Day label | L-30 before launch, Sol N on Mars counted from landing, Day N otherwise |
 
-The slider jumps to any day; every screen follows. The demo story bar returns to the scripted scenes.
+The demo story bar moves the mission clock; **Where you are** in the top bar simulates any place.
 
 ### Design rules
 
@@ -144,6 +142,8 @@ Informed by the Impeccable (Operate mode: quieter, distill, craft floor), Emil K
 - Facts sit in a single strip with hairline dividers, not a row of big-number cards.
 - Motion has a job: the intro is the one authored moment; pages fade in once in under 300 ms with a strong ease-out; buttons press to 97%.
 - Browser surfaces are themed too: selection, caret, focus ring, scrollbars, tabular numerals.
+- **Light mode** from the sidebar (remembered on the device). The hologram, the intro and Guided Response stay dark on purpose.
+- Labels never sit inside narrow bars: the itinerary is a thin bar with every leg listed underneath.
 
 ### The three ideas behind it
 
@@ -312,7 +312,7 @@ frontend/
     hologram/            scene, shaders, procedural anatomy, React wrapper
     components/          shell, People (neutral crew dots, PIN gate), PinPad, Stars, BodyView (body + observations), goals, charts, patches
     features/            Guided Response, Ask Canary, self-checks
-    pages/               Intro, Setup, Crew (home), Astronaut (public card or shared view), Me (My health, private), Goals (private), Ranking, MissionPlan, Mission (space weather, link), Medical, About
+    pages/               Intro, Setup, Crew (home), Astronaut (public card or shared view), Me (My health, private), Goals (private), Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
   public/models/         body.glb, joints.json
 data/prepare_nasa_data.py
@@ -340,7 +340,8 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/checkins` | Mood, reaction test, Amsler grid, vital signs |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
 | `GET/POST /api/messages` | Messages with communication delay |
-| `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data |
+| `GET /api/plan/conditions` | Each leg's five hazards and dose, plus the projected mission dose against the career limit |
+| `GET /api/space-weather` · `GET /api/nasa/rad` | NASA data (used by alerts and the story; no page of their own) |
 | `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
 

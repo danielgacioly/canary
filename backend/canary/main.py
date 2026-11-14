@@ -22,7 +22,7 @@ from . import __version__, auth, db
 from .assistant import briefing, chat, providers, tools
 from .config import settings
 from .domain import goals, health, mission, nasa, plan, privacy, protocols, telemetry
-from .domain.catalog import CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain.catalog import CAREER_LIMIT_MSV, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -175,6 +175,25 @@ def get_plan():
     return {**plan.get(), "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
 
 
+@app.get("/api/plan/conditions", tags=["mission"])
+def plan_conditions():
+    """Health conditions along the registered plan: hazards per leg and the projected mission dose."""
+    p, ms = plan.get(), mission.state()
+    legs = []
+    for l in p["legs"]:
+        place = LOCATIONS[l["location"]]
+        legs.append({**l, "days": l["end"] - l["start"] + 1, "gravity_key": place["gravity_key"],
+                     "ridge": privacy.ridge(l["location"]),
+                     "dose_leg_msv": round(place["dose_rate"] * max(0, l["end"] - max(l["start"], 0) + 1), 1)})
+    end = p["legs"][-1]["end"]
+    step = max(1, (end + 1) // 60)
+    days = sorted(set(list(range(0, end + 1, step)) + [end] + [max(0, l["start"]) for l in p["legs"]]))
+    series = [[d, telemetry.cumulative_dose(d, plan.location_at(d), None)] for d in days]
+    return {"name": p["name"], "legs": legs, "today": ms["day"], "leg_index": ms["leg"]["index"],
+            "dose": {"series": series, "now_msv": health.dose(ms)["mission_msv"], "end_msv": series[-1][1],
+                     "limit_msv": CAREER_LIMIT_MSV, "simulated": True}}
+
+
 class LegIn(BaseModel):
     location: str
     start: int = Field(ge=-365, le=2000)
@@ -257,7 +276,9 @@ def crew_overview():
     sw = nasa.space_weather(ms["storm"])
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
-            "hazards": privacy.hazards(ms, env), "team": board["team"], "crew_streak": board["crew_streak"],
+            "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"]),
+            "warnings": [{k: a[k] for k in ("id", "level", "title", "why", "todo", "sources")} for a in env],
+            "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
             "space_weather": {k: v for k, v in sw.items() if k in ("headline", "active", "kp_max", "sep_events")},
             "contract": privacy.CONTRACT}

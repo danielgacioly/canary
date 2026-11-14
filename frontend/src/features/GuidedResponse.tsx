@@ -1,5 +1,5 @@
 // Guided Response: deterministic, step-by-step first response. No AI on this path.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Emergency, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
@@ -18,7 +18,6 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const [stepAt, setStepAt] = useState(Date.now())
   const [voice, setVoice] = useState(false)
   const [done, setDone] = useState(false)
-  const started = useRef(Date.now())
 
   useEffect(() => {
     api.protocols().then(setP)
@@ -30,8 +29,6 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm) }
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
-  const delay = mission?.place.delay_s ?? 0
-  const earthIn = Math.max(0, delay / 20 - (now - started.current) / 1000)
 
   useEffect(() => {
     if (!voice || !step) return
@@ -63,7 +60,6 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
     toast(patient ? 'Follow-up goals added for the patient. Report queued for Earth.' : 'Report queued for Earth.')
   }
 
-  const elapsed = (now - started.current) / 1000
   const stepElapsed = (now - stepAt) / 1000
   return (
     <div className="er" role="dialog" aria-label="Guided Response">
@@ -71,8 +67,7 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
         <i className="dot s2" style={{ background: 'var(--nasa-red)' }} />
         <div><span className="lbl">Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
         <div className="right row" style={{ gap: 22 }}>
-          <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}><span className="lbl">Elapsed</span><b className="num" style={{ fontSize: 22 }}>{mmss(elapsed)}</b></div>
-          <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}><span className="lbl">Earth sees this in</span><b className="num" style={{ fontSize: 22, color: earthIn ? 'var(--watch)' : 'var(--ok)' }}>{earthIn ? mmss(earthIn) : 'Live'}</b></div>
+          <span className="small muted">{mission?.place.reply === 'Live' ? 'Earth sees this live' : `Earth sees this ${mission?.place.reply} later`}</span>
           <button className={`btn sm ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)}>Voice {voice ? 'on' : 'off'}</button>
           <button className="btn sm" onClick={onClose}><Icon name="close" size={15} />Close</button>
         </div>

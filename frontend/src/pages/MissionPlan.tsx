@@ -1,120 +1,92 @@
-// Mission plan: the itinerary. Every place change re-adapts goals, alerts, radiation,
-// communication delay and Guided Response automatically, because the backend asks the
-// plan where the crew is on each day.
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+// Mission plan: the itinerary mission control registered, read for health. Pick a leg to see
+// what the body faces there and what Canary changes. Editing the plan belongs to the admin flow.
+import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import type { Leg, Plan } from '../api/types'
-import { Icon, Loading } from '../components/ui'
-import { useSession } from '../state/session'
+import type { PlanConditions } from '../api/types'
+import Hazards from '../components/Hazards'
+import Timeline from '../components/Timeline'
+import { LineChart, Loading } from '../components/ui'
+import { useApi, useSession } from '../state/session'
 
-const ADAPT: Record<string, string[]> = {
-  g0: ['Exercise goal: 2 hours a day (resistance + treadmill or bike)', 'Bone loss model at full rate', 'Guided Response uses 0 g steps: restraints, tethers, floating fluids', 'Space-sickness rule active in the first 72 hours'],
-  gp: ['Exercise goal: 1 hour of resistance, suited walks', 'Re-adaptation alert in the first 30 days after 0 g', 'Bone loss at about 40% of the 0 g rate', 'Outside activity depends on space weather; partial-gravity steps'],
-  g1: ['Training and recovery goals', 'Bone slowly recovers', 'Guided Response uses Earth steps', 'Before launch: baseline only, no alerts'],
+const BODY: Record<string, string[]> = {
+  g0: ['Bone loss at the full 0 g rate, about 1% a month without exercise', 'Fluids shift toward the head: watch the eyes', 'Space sickness is common in the first 72 hours'],
+  gp: ['Re-adaptation to weight in the first 30 days after 0 g: dizziness when standing', 'Bone loss slows to about 40% of the 0 g rate', 'Fine, sharp dust outside'],
+  g1: ['Bone slowly recovers', 'Baseline training: Canary learns each person\'s normal'],
+}
+const CANARY: Record<string, string[]> = {
+  g0: ['Exercise goal: 2 hours a day, resistance plus treadmill or bike', 'Space-sickness rule active in the first 72 hours of a launch leg', 'Guided Response uses 0 g steps: restraints, tethers, floating fluids'],
+  gp: ['Exercise goal: 1 hour of resistance and suited walks', 'Re-adaptation alert in the first 30 days', 'Outside activity follows space weather; partial-gravity steps in Guided Response'],
+  g1: ['Training and recovery goals', 'No alerts before launch, only baselines', 'Guided Response uses Earth steps'],
 }
 
 export default function MissionPlan() {
-  const { mission, catalog, bump, toast, setStep } = useSession()
-  const [plan, setPlan] = useState<Plan | null>(null)
-  const [legs, setLegs] = useState<Leg[]>([])
-  const [name, setName] = useState('')
-  const [err, setErr] = useState('')
-  const [day, setDay] = useState<number | null>(null)
-  useEffect(() => { api.plan().then(p => { setPlan(p); setLegs(p.legs); setName(p.name) }) }, [])
-  useEffect(() => { if (mission) setDay(mission.day) }, [mission])
-  const dirty = useMemo(() => plan && (JSON.stringify(legs) !== JSON.stringify(plan.legs) || name !== plan.name), [plan, legs, name])
-  if (!plan || !mission || !catalog || day === null) return <Loading what="mission plan" />
+  const { mission, catalog } = useSession()
+  const { data: c } = useApi<PlanConditions>(() => api.conditions(), [])
+  const [sel, setSel] = useState<number | null>(null)
+  useEffect(() => { if (c) setSel(s => (s === null ? Math.max(0, c.leg_index) : s)) }, [c])
+  if (!c || !mission || !catalog || sel === null) return <Loading what="mission plan" />
 
-  const lo = plan.legs[0].start, hi = plan.legs[plan.legs.length - 1].end
-  const span = hi - lo + 1
-  const pct = (d: number) => `${(100 * (Math.min(hi, Math.max(lo, d)) - lo + 0.5)) / span}%`
-  const goTo = async (d: number) => { await api.setDay(d); bump() }
-  const place = catalog.locations[mission.location]
-  const set = (i: number, k: keyof Leg, v: string) => setLegs(ls => ls.map((l, j) => j === i ? { ...l, [k]: k === 'start' || k === 'end' ? Number(v) : v } : l))
-  const save = async () => {
-    try { const p = await api.savePlan(name, legs); setPlan(p); setLegs(p.legs); setErr(''); bump(); toast('Mission plan saved. Everything re-adapted.') }
-    catch (e) { setErr((e as Error).message) }
-  }
-  const preset = async (k: string) => { const p = await api.usePreset(k); setPlan(p); setLegs(p.legs); setName(p.name); setErr(''); bump(); toast(`Plan: ${p.name}`) }
+  const leg = c.legs[sel]
+  const place = catalog.locations[leg.location]
+  const last = c.legs[c.legs.length - 1].end
+  const when = c.today > leg.end ? 'done' : c.today >= leg.start ? `now, day ${c.today - leg.start + 1} of ${leg.days}` : `starts in ${leg.start - c.today} days`
+  const d = c.dose
+  const crosses = d.series.find(([, v]) => v >= d.limit_msv)
 
   return (
     <div className="page">
       <div className="head rise">
-        <div><h1>{plan.name}</h1>
-          <p className="sub">Day {lo} to {hi} · {plan.legs.length} legs. Canary adapts to wherever the plan puts the crew.</p></div>
-        <div className="row right wrap">
-          <span className="small muted">Start from</span>
-          {Object.entries(plan.presets).map(([k, n]) => <button key={k} className={`btn sm ${plan.preset === k ? '' : 'ghost'}`} onClick={() => preset(k)}>{n}</button>)}
-          <Link to="/setup" className="btn sm ghost" title="Preview of the future mission-admin flow">Admin setup (preview)</Link>
+        <div>
+          <h1>{c.name}</h1>
+          <p className="sub">{mission.day_label} · {mission.place.name}. Registered by mission control; Canary adapts the crew's health care to every leg.</p>
         </div>
       </div>
 
-      <section className="detail-card rise" style={{ ['--d' as string]: 1 }}>
-        <div className="timeline" style={{ marginTop: 22 }}>
-          {plan.legs.map((l, i) => (
-            <button key={i} className={`seg p-${l.location}`} style={{ flex: l.end - l.start + 1 }} onClick={() => goTo(l.start)} title={`Go to day ${l.start}`}>
-              <b>{catalog.locations[l.location].name}</b><span>{l.label || ''} · {l.end - l.start + 1} d</span>
-            </button>
-          ))}
-          <i className="now" style={{ left: pct(day) }} data-l={`Day ${day}`} />
+      <section className="rise" style={{ ['--d' as string]: 1 }}>
+        <Timeline legs={c.legs} places={catalog.locations} now={c.today} nowLabel={mission.day_label} selected={sel} onSelect={setSel} />
+      </section>
+
+      <section className={`rise p-${leg.location}`} style={{ ['--d' as string]: 2 }} key={sel}>
+        <div className="section-head">
+          <span className="pc-dot" />
+          <h2>{leg.label || place.name}</h2>
+          <span className="sub">{place.name} · day {leg.start} to {leg.end} · {when}</span>
         </div>
-        <div className="row" style={{ marginTop: 18, gap: 16 }}>
-          <span className="small muted num">Day {lo}</span>
-          <input type="range" min={lo} max={hi} value={day} onChange={e => setDay(Number(e.target.value))} onPointerUp={() => goTo(day)} onKeyUp={() => goTo(day)} aria-label="Mission day" />
-          <span className="small muted num">Day {hi}</span>
+        <div className="stats">
+          <div className="stat"><div className="k">Gravity</div><b>{place.gravity}</b></div>
+          <div className="stat"><div className="k">Radiation</div><b className="num">{place.dose_rate}<small>mSv/day</small></b></div>
+          <div className="stat"><div className="k">Earth replies</div><b>{place.reply}</b></div>
+          <div className="stat"><div className="k">Nearest hospital</div><b>{place.hospital}</b></div>
         </div>
-        <div className="row wrap" style={{ marginTop: 10 }}>
-          <span className="small dim">Drag to any day, or click a leg. Every screen follows.</span>
-          {mission.custom_day && <button className="btn sm right" onClick={() => setStep(mission.step)}>Back to the demo story</button>}
+        <h3 className="sub-h">Hazards on this leg</h3>
+        <Hazards items={leg.ridge} compact />
+        <div className="two-lists">
+          <div>
+            <h3 className="sub-h">What the body faces</h3>
+            <ul className="plain">{BODY[leg.gravity_key].map(t => <li key={t}>{t}</li>)}</ul>
+          </div>
+          <div>
+            <h3 className="sub-h">What Canary changes</h3>
+            <ul className="plain">
+              {CANARY[leg.gravity_key].map(t => <li key={t}>{t}</li>)}
+              <li>{place.reply === 'Live' ? 'Messages and reports reach Earth live' : `Messages, briefings and reports wait ${place.reply} each way`}</li>
+            </ul>
+          </div>
         </div>
       </section>
 
-      <section className="grid g2">
-        <div className={`detail-card rise p-${mission.location}`}>
-          <h2 className="row" style={{ gap: 10 }}><span className="pc-dot" />{place.name}: {mission.leg.label}</h2>
-          <p className="meta">{mission.day_label}{mission.location_override ? ' · simulated place' : ''}</p>
-          <dl className="adapt" style={{ marginTop: 16 }}>
-            <dt>Gravity</dt><dd>{place.gravity}</dd>
-            <dt>Earth replies</dt><dd>{place.reply}</dd>
-            <dt>Radiation</dt><dd>{place.dose_rate} mSv/day</dd>
-            <dt>Hospital</dt><dd>{place.hospital}</dd>
-            <dt>This leg</dt><dd>Day {mission.leg.day_in_leg} of {mission.leg.length}{mission.leg.next ? `, next: ${mission.leg.next.label || catalog.locations[mission.leg.next.location].name} in ${mission.leg.days_to_next} days` : ''}</dd>
-          </dl>
+      <section className="rise" style={{ ['--d' as string]: 3 }}>
+        <div className="section-head">
+          <h2>Radiation over the mission</h2>
+          <span className="sub">Estimate from the daily dose of each place · NASA career limit {d.limit_msv} mSv</span>
         </div>
-        <div className="detail-card rise" style={{ ['--d' as string]: 3 }}>
-          <h2>What Canary changes here</h2>
-          <ul className="steps" style={{ marginTop: 16 }}>
-            {ADAPT[place.gravity_key].map(t => <li key={t}>{t}</li>)}
-            <li>{place.reply === 'Live' ? 'Messages and reports reach Earth live' : `Messages, briefings and reports wait ${place.reply} each way`}</li>
-          </ul>
-        </div>
-      </section>
-
-      <section className="detail-card rise" style={{ ['--d' as string]: 4 }}>
-        <div className="section-head"><h2>Itinerary</h2><span className="sub">Day 0 is launch. Negative days are pre-flight.</span></div>
-        <label className="field" style={{ maxWidth: 420, marginBottom: 16 }}><span className="lbl">Plan name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
-        <div className="legs">
-          <span className="h">Place</span><span className="h">From day</span><span className="h">To day</span><span className="h">What happens</span><span />
-          {legs.map((l, i) => (
-            <div key={i} style={{ display: 'contents' }}>
-              <select className="in" value={l.location} onChange={e => set(i, 'location', e.target.value)}>
-                {Object.entries(catalog.locations).map(([k, p]) => <option key={k} value={k}>{p.name}</option>)}
-              </select>
-              <input className="in num" type="number" value={l.start} onChange={e => set(i, 'start', e.target.value)} aria-label="From day" />
-              <input className="in num" type="number" value={l.end} onChange={e => set(i, 'end', e.target.value)} aria-label="To day" />
-              <input className="in" value={l.label} onChange={e => set(i, 'label', e.target.value)} placeholder="e.g. Cruise to Mars" aria-label="What happens" />
-              <button className="btn sm ghost" onClick={() => setLegs(ls => ls.filter((_, j) => j !== i))} disabled={legs.length < 2} aria-label="Remove leg"><Icon name="close" /></button>
-            </div>
-          ))}
-        </div>
-        <div className="row wrap" style={{ marginTop: 16 }}>
-          <button className="btn" onClick={() => { const last = legs[legs.length - 1]; setLegs([...legs, { location: 'earth', start: last.end + 1, end: last.end + 30, label: '' }]) }}><Icon name="plus" />Add leg</button>
-          <span className="grow" />
-          {err && <span className="small" style={{ color: 'var(--act)' }}>{err}</span>}
-          <button className="btn ghost" disabled={!dirty} onClick={() => { setLegs(plan.legs); setName(plan.name); setErr('') }}>Discard</button>
-          <button className="btn pri" disabled={!dirty} onClick={save}>Save plan</button>
-        </div>
+        <p className="lead-line">
+          So far <b className="num">{d.now_msv} mSv</b>, {Math.round((100 * d.now_msv) / d.limit_msv)}% of the limit.
+          By the end of the plan about <b className="num">{Math.round(d.end_msv)} mSv</b>
+          {crosses ? <>, past the limit from <b>day {crosses[0]}</b>.</> : '.'}
+        </p>
+        <div className="chart-wide"><LineChart series={[{ pts: d.series, color: 'var(--accent)' }]} refY={d.limit_msv} refLabel={`Career limit ${d.limit_msv} mSv`}
+          xLabels={['Launch', `Day ${Math.round(last / 2)}`, `Day ${last}`]} w={1100} h={280} /></div>
       </section>
     </div>
   )

@@ -174,26 +174,13 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
 function TodayBottom({ d, onCheck }: { d: CrewDetail; onCheck?: (k: CheckKind) => void }) {
   const open = d.goals.filter(g => !g.done)
   const done = d.goals.length - open.length
-  const leg = d.mission.leg
   return (
-    <section className="grid g2">
+    <section>
       <div className="detail-card rise">
         <div className="section-head"><h2>Today's goals</h2><span className="sub">{done} of {d.goals.length} done</span><Link to="/goals" className="link right">All goals</Link></div>
         <div className="bar-track" style={{ marginBottom: 10, ['--pc' as string]: 'var(--ok)' }}><i style={{ width: `${(100 * done) / d.goals.length}%` }} /></div>
-        {open.slice(0, 4).map(g => <GoalRow key={g.id} g={g} crewId={d.crew.id} onCheck={onCheck} compact />)}
+        <div className="goal-cols">{open.slice(0, 6).map(g => <GoalRow key={g.id} g={g} crewId={d.crew.id} onCheck={onCheck} compact />)}</div>
         {!open.length && <p className="muted">Everything done. Rest is a goal too.</p>}
-      </div>
-      <div className={`detail-card rise p-${d.mission.location}`}>
-        <div className="section-head"><span className="pc-dot" /><h2>{d.mission.place.name}</h2><span className="sub">{leg.label}</span><Link to="/plan" className="link right">Mission plan</Link></div>
-        <dl className="adapt">
-          <dt>This leg</dt><dd>Day {leg.day_in_leg} of {leg.length}</dd>
-          <dt>Next</dt><dd>{leg.next ? `${leg.next.label || leg.next.location} in ${leg.days_to_next} days` : 'End of plan'}</dd>
-          <dt>Gravity</dt><dd>{d.mission.place.gravity}</dd>
-          <dt>Earth replies</dt><dd>{d.mission.place.reply}</dd>
-          <dt>Radiation</dt><dd>{d.mission.place.dose_rate} mSv/day · mission total {d.dose.mission_msv} mSv</dd>
-          <dt>Hospital</dt><dd>{d.mission.place.hospital}</dd>
-        </dl>
-        <p className="small muted" style={{ marginTop: 14 }}>{d.mission.place.what}</p>
       </div>
     </section>
   )

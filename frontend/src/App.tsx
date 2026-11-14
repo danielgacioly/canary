@@ -7,7 +7,6 @@ import Goals from './pages/Goals'
 import Intro from './pages/Intro'
 import Me from './pages/Me'
 import Medical from './pages/Medical'
-import { LinkToEarth, SpaceWeather } from './pages/Mission'
 import MissionPlan from './pages/MissionPlan'
 import Ranking from './pages/Ranking'
 import Setup from './pages/Setup'
@@ -29,8 +28,8 @@ export default function App() {
         <Route path="/crew/:id" element={<Astronaut />} />
         <Route path="/goals" element={<Goals />} />
         <Route path="/plan" element={<MissionPlan />} />
-        <Route path="/space-weather" element={<SpaceWeather />} />
-        <Route path="/link" element={<LinkToEarth />} />
+        <Route path="/space-weather" element={<Navigate to="/crew" replace />} />
+        <Route path="/link" element={<Navigate to="/crew" replace />} />
         <Route path="/mission" element={<Navigate to="/plan" replace />} />
         <Route path="/medical" element={<Medical />} />
         <Route path="/about" element={<About />} />
