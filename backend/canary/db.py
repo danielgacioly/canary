@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS assistant_log (
 
 _lock = threading.RLock()
 _conn: Optional[sqlite3.Connection] = None
+# Read cache. A health snapshot asks the same few questions (settings, the person's check-ins) tens of thousands of
+# times while it walks back through the days of a risk; the answers only change when something is written. Every
+# write goes through x(), reset() or a new connection, and each of them empties the cache, so a read never returns
+# data older than the last write. Rows are copied out, so a caller that edits a row cannot change the cache.
+_cache: dict = {}
+_CACHE_MAX = 50_000
+
+
+def _forget() -> None:
+    _cache.clear()
 
 
 def connect(path: Optional[str] = None) -> sqlite3.Connection:
@@ -60,12 +70,24 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
             _conn.commit()
+            _forget()
         return _conn
 
 
 def q(sql: str, args: tuple = ()) -> list:
     with _lock:
-        return [dict(r) for r in connect().execute(sql, args).fetchall()]
+        try:
+            key = (sql, tuple(args))
+            hit = _cache.get(key)
+        except TypeError:  # an argument that cannot be a key: read without the cache
+            key, hit = None, None
+        if hit is None:
+            hit = [dict(r) for r in connect().execute(sql, args).fetchall()]
+            if key is not None:
+                if len(_cache) >= _CACHE_MAX:
+                    _forget()
+                _cache[key] = hit
+        return [dict(r) for r in hit]
 
 
 def x(sql: str, args: tuple = ()) -> int:
@@ -73,6 +95,7 @@ def x(sql: str, args: tuple = ()) -> int:
         c = connect()
         cur = c.execute(sql, args)
         c.commit()
+        _forget()
         return cur.lastrowid
 
 
@@ -91,3 +114,4 @@ def reset() -> None:
         for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "advice", "care_events", "notices"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
+        _forget()

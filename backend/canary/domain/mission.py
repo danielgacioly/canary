@@ -28,7 +28,7 @@ def state() -> dict:
         "steps": len(STORY),
         "story": step,
         "day": day,
-        "day_label": day_label(day, loc, leg["start"] if loc == leg["location"] else 0),
+        "day_label": day_label(day, loc, plan.landing_day(day, LOCATIONS[loc].get("body")) if loc == leg["location"] else 0),
         "location": loc,
         "place": {"id": loc, **LOCATIONS[loc]},
         "storm": step["storm"] if day == step["day"] else None,

@@ -396,6 +396,31 @@
       "verified": false,
       "assumption": "Fictional baseline and spread from catalog.py; -3 kg that fades over the 30 days after arriving in partial gravity. Daily, not weekly, for the same reason: a weekly reading changes the day-222 alerts."
     },
+    "vo2": {
+      "unit": "mL/kg/min",
+      "method": "test",
+      "decimals": 1,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "drift": {
+        "per_day": {
+          "g0": -0.015,
+          "gp": 0.005,
+          "g1": 0.03
+        },
+        "cap": -10
+      },
+      "frequency": {
+        "every": 7,
+        "label": "weekly (cycle ergometer test)"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Aerobic capacity (VO2max). Fictional baselines from catalog.py; a slow loss in 0 g of 0.015 mL/kg/min a day, a slower gain in partial gravity and a recovery on Earth, never more than 10 below the baseline. NASA-STD-3001 notes that aerobic capacity can be about 10% to 30% lower after flight (rationale of V1 4004); the daily rate here is a prototype choice."
+    },
     "bone": {
       "unit": "%",
       "method": "test",
@@ -639,7 +664,7 @@
       "assumption": ""
     },
     "hgb": {
-      "unit": "percent",
+      "unit": "g/dL",
       "method": "blood",
       "decimals": 1,
       "panel": "blood",
@@ -724,15 +749,11 @@
       "decimals": 2,
       "panel": "blood",
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 0.85,
-          "k": 1.0,
-          "a": 0.8,
-          "t": 1.05
-        }
+        "kind": "real_preflight"
       },
-      "sd": 0.07,
+      "sd": {
+        "kind": "real_preflight"
+      },
       "states": {
         "hydration": -0.12
       },
@@ -741,9 +762,53 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "prototype assumption",
-      "verified": false,
-      "assumption": "Baselines, spread and hydration effect (-0.12 mg/dL per unit) are prototype choices. Open real data exists (Inspiration4 metabolic panel) and can replace these rows through data/real/."
+      "source": "nasa:osd575",
+      "verified": true,
+      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread. The hydration effect (-0.12 mg/dL per unit) is a prototype choice."
+    },
+    "potassium": {
+      "unit": "mmol/L",
+      "method": "blood",
+      "decimals": 1,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "source": "nasa:osd575",
+      "verified": true,
+      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread."
+    },
+    "crp": {
+      "unit": "mg/L",
+      "method": "blood",
+      "decimals": 2,
+      "panel": "blood",
+      "baseline": {
+        "kind": "real_preflight"
+      },
+      "sd": {
+        "kind": "real_preflight"
+      },
+      "frequency": {
+        "every": 30,
+        "label": "every 30 days (blood panel)"
+      },
+      "gaps": 0.03,
+      "clamp": [
+        0.05,
+        200
+      ],
+      "source": "nasa:osd575",
+      "verified": true,
+      "assumption": "C-reactive protein, real Inspiration4 values (OSD-575 cardiovascular multiplex, pg/mL converted to mg/L); between collections, simulated rows around the person's real pre-flight mean and spread, never below 0.05 mg/L."
     },
     "calcium": {
       "unit": "mg/dL",
@@ -751,23 +816,19 @@
       "decimals": 2,
       "panel": "blood",
       "baseline": {
-        "kind": "crew",
-        "values": {
-          "h": 9.4,
-          "k": 9.5,
-          "a": 9.3,
-          "t": 9.6
-        }
+        "kind": "real_preflight"
       },
-      "sd": 0.25,
+      "sd": {
+        "kind": "real_preflight"
+      },
       "frequency": {
         "every": 30,
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "prototype assumption",
-      "verified": false,
-      "assumption": "Serum calcium. Baselines and spread are prototype choices; it stays flat on purpose, because the body keeps it stable while bone and urine change."
+      "source": "nasa:osd575",
+      "verified": true,
+      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread, flat on purpose because the body keeps serum calcium stable while bone and urine change."
     },
     "cortisol": {
       "unit": "ug/dL",

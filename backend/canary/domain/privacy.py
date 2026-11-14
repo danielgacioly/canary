@@ -131,7 +131,7 @@ RIDGE = [
 ]
 # The environment (E) is the one hazard still set per place: recycled air, noise and shared surfaces are not in the plan.
 # Prototype assumption.
-E_LEVEL = {"earth": 0, "rocket": 1, "iss": 1, "moon": 2, "transit": 1, "mars": 2}
+E_LEVEL = {"earth": 0, "rocket": 1, "iss": 1, "moon": 2, "transit": 1, "mars": 2, "moon_rover": 2, "mars_rover": 2}
 # Cuts that turn the plan into a level (0 low, 1 moderate, 2 high). Prototype assumptions: no published rule maps these
 # numbers to a level. They keep the old fixed table's levels for the reference mission and let time and place move them.
 RIDGE_CUTS = {
@@ -140,7 +140,8 @@ RIDGE_CUTS = {
     "I": {"moderate_until_day": 90, "large_crew": 6},                       # days since launch; a crew above `large_crew` is one level lower
     "D": {"high_delay_s": 60, "moderate_hospital_days": 2},                 # one-way delay; days to a hospital
     "G": {"readapt_days": 30},                                              # days after a change of gravity
-    "hospital_days": {"earth": 0, "rocket": 0, "iss": 1, "moon": 3, "transit": 9999, "mars": 500},  # read from the `hospital` text of each place
+    "hospital_days": {"earth": 0, "rocket": 0, "iss": 1, "moon": 3, "transit": 9999, "mars": 500,
+                      "moon_rover": 3, "mars_rover": 500},  # read from the `hospital` text of each place
 }
 LEVEL_LABEL = ["Low", "Moderate", "High"]
 

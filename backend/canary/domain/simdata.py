@@ -135,25 +135,47 @@ def _num(v: float) -> str:
     return str(int(v)) if float(v) == int(v) else repr(float(v))
 
 
-def osd569_rows(snapshot: dict, recipes: dict) -> List[Row]:
-    """The real Inspiration4 blood counts (OSD-569) in the observation format. Built from the snapshot, not typed.
+def lab_range(snapshot: dict, ind: str, sex: str) -> Optional[Tuple[Optional[float], Optional[float]]]:
+    """(min, max) of a real laboratory analyte for one sex, from the blood count (OSD-569) or the metabolic panel
+    (OSD-575) of the snapshot; None when the analyte has no reference range there (C-reactive protein)."""
+    for section in ("cbc", "cmp"):
+        a = snapshot.get(section, {}).get("an", {}).get(ind)
+        if a is not None:
+            r = a.get(sex)
+            return (r["min"], r["max"]) if r else None
+    return None
+
+
+def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str) -> List[Row]:
+    """Real Inspiration4 lab values in the observation format. Built from the snapshot, not typed.
 
     Collection labels (L-92 ... R+194) are relative to launch; day 0 is launch, so L-N is day -N
     and R+N is day N + 3 (the flight lasted 3 days). The original label stays in `note`.
+    Each seat reads the Inspiration4 subject of the same sex (`cbc_subject`).
     """
-    cbc = snapshot["cbc"]
+    lab = snapshot[section]
     out: List[Row] = []
     for c in CREW:
         subject = c["cbc_subject"]
-        for ind, series in cbc["crew"][subject].items():
+        for ind, series in lab["crew"][subject].items():
             rec = recipes["indicators"][ind]
-            for label, v in zip(cbc["tp"], series):
+            for label, v in zip(lab["tp"], series):
                 if v is None:
                     continue
                 day = -int(label[2:]) if label.startswith("L-") else int(label[2:]) + 3
-                out.append((c["id"], day, ind, _num(v), rec["unit"], "real", "blood", "nasa:osd569",
+                out.append((c["id"], day, ind, _num(v), rec["unit"], "real", "blood", source,
                             f"{label} Inspiration4 {subject}"))
     return sorted(out, key=lambda r: (r[0], r[1], r[2]))
+
+
+def osd569_rows(snapshot: dict, recipes: dict) -> List[Row]:
+    """The real Inspiration4 blood counts (OSD-569)."""
+    return _lab_rows(snapshot, recipes, "cbc", "nasa:osd569")
+
+
+def osd575_rows(snapshot: dict, recipes: dict) -> List[Row]:
+    """The real Inspiration4 metabolic panel and C-reactive protein (OSD-575): creatinine, potassium, calcium, crp."""
+    return _lab_rows(snapshot, recipes, "cmp", "nasa:osd575")
 
 
 # ---------------------------------------------------------------- generator
@@ -214,12 +236,21 @@ class Generator:
         key = (crew, ind)
         if key not in self._pre:
             vals = [float(r[3]) for (c, d, i), r in sorted(self.real.items()) if c == crew and i == ind and d < 0]
+            if not vals:  # no real file for it (another real_dir): the pre-flight collections of the snapshot itself
+                subject = CREW_BY_ID[crew]["cbc_subject"]
+                for section in ("cbc", "cmp"):
+                    lab = self.snap.get(section, {})
+                    series = lab.get("crew", {}).get(subject, {}).get(ind)
+                    if series:
+                        vals = [float(v) for label, v in zip(lab["tp"], series) if label.startswith("L-") and v is not None]
             self._pre[key] = (statistics.mean(vals), statistics.stdev(vals) if len(vals) > 1 else None) if vals else None
         return self._pre[key]
 
-    def _range(self, ind: str) -> Tuple[float, float]:
-        a = self.snap["cbc"]["an"][ind]
-        return a["min"], a["max"]
+    def _range(self, crew: str, ind: str) -> Tuple[float, float]:
+        r = lab_range(self.snap, ind, CREW_BY_ID[crew]["sex"])
+        if r is None or None in r:
+            raise KeyError(f"{ind}: no reference range to seed a simulated value without real pre-flight data")
+        return r
 
     def baseline(self, crew: str, ind: str, day: int) -> float:
         b = self.r["indicators"][ind]["baseline"]
@@ -228,12 +259,13 @@ class Generator:
             return CREW_BY_ID[crew]["base"][ind]
         if kind == "crew":
             return b["values"][crew]
-        if kind == "location":
-            return b["values"][location_at(self.legs, day)]
+        if kind == "location":  # a place without its own value (a rover) takes the value of its planet
+            loc = location_at(self.legs, day)
+            return b["values"][loc] if loc in b["values"] else b["values"][LOCATIONS[loc]["body"]]
         pre = self._preflight(crew, ind)  # real_preflight
         if pre:
             return pre[0]
-        lo, hi = self._range(ind)  # no real data yet: middle of the reference range of the source dataset
+        lo, hi = self._range(crew, ind)  # no real data yet: middle of the reference range of the source dataset
         return (lo + hi) / 2
 
     def sd(self, crew: str, ind: str) -> float:
@@ -245,7 +277,7 @@ class Generator:
         pre = self._preflight(crew, ind)  # real_preflight
         if pre and pre[1]:
             return max(pre[1], abs(pre[0]) * 0.01)
-        lo, hi = self._range(ind)  # one eighth of the reference range
+        lo, hi = self._range(crew, ind)  # one eighth of the reference range
         return (hi - lo) / 8
 
     # --- one value
@@ -374,8 +406,11 @@ def report(rows: Sequence[Sequence], recipes: dict, plan_name: str = "Mars refer
         if not e["verified"]:
             L.append(f"- event `{e['id']}`: {e['assumption']} (source: {e['source']})")
     L += ["", "## What is real today", "",
-          "- Complete blood count (`wbc, lym, neu, hgb, hct, plt, rbc`): real Inspiration4 data from NASA OSDR OSD-569, 4 crew and 7 collections, converted from `backend/canary/data/nasa_snapshot.json` into `data/real/osd569_cbc.csv`. Collections keep their original label in `note` (L-92, L-44, L-3, R+1, R+45, R+82, R+194). The pre-flight ones set each person's baseline and spread for the simulated rows. The dataset labels haemoglobin and haematocrit as `percent`; the unit is kept as given.",
-          "- Open real data also exists for the metabolic panel (glucose, creatinine), cytokines and dose by place. Not imported yet; see below.",
+          "- Complete blood count (`wbc, lym, neu, hgb, hct, plt, rbc`): real Inspiration4 data from NASA OSDR OSD-569, 4 crew and 7 collections, converted from `backend/canary/data/nasa_snapshot.json` into `data/real/osd569_cbc.csv`. Collections keep their original label in `note` (L-92, L-44, L-3, R+1, R+45, R+82, R+194). The pre-flight ones set each person's baseline and spread for the simulated rows.",
+          "- Metabolic panel and inflammation (`creatinine, potassium, calcium, crp`): real Inspiration4 data from NASA OSDR OSD-575, same crew and collections, in `data/real/osd575_cmp.csv`. C-reactive protein comes from the cardiovascular multiplex panel, converted from pg/mL to mg/L; it has no reference range there, so it is read only against the person's own pre-flight values.",
+          "- Each seat reads the Inspiration4 subject of the same sex (`cbc_subject` in the catalog), and every range is the one of that sex. `data/prepare_blood.py` rebuilds both sections from the OSDR files and documents three corrections: C003's L-92 blood count sat one row down from MCH on (realigned and checked by arithmetic), C003's pre-flight rows carry male ranges (each sex takes the range most of its rows carry), and haemoglobin is labelled `percent` in OSD-569 (it is g/dL).",
+          "- Glucose from the metabolic panel is not imported: three of four crew read 36 to 44 mg/dL on the same day (R+45) with every other collection normal, the pattern of a sample processed late. The ship's `gluc` stays the fingerstick indicator.",
+          "- Open real data also exists for more cytokines and for dose by place. Not imported yet; see below.",
           "- Everything else (vital signs, sleep, cognition, weight, vision, bone, hormones, urine, cabin air) is simulated.", "",
           "## Replacing simulated data with real data", "",
           "1. Put a CSV with the same columns in `data/real/` (only `crew_id, day, indicator, value` are required; `unit` and `method` default to the recipe's).",

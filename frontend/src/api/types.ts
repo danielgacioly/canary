@@ -5,6 +5,17 @@ export type Area = 'physical' | 'mental'
 export interface Place {
   id: string; name: string; sub: string; gravity_key: string; gravity: string
   delay_s: number; reply: string; hospital: string; dose_rate: number; what: string
+  /** the planet a place belongs to (a rover uses its planet's sols and protocols) and the EVA done there */
+  body?: 'earth' | 'space' | 'moon' | 'mars'; eva?: 'none' | 'microgravity' | 'surface'
+}
+/** A NASA-STD-3001 Volume 1 check of one indicator (domain/standards.py). */
+export interface Standard {
+  level: Level; status: 'in' | 'near' | 'limit'; text: string; item: string; source: string; url: string; verified: boolean
+}
+export interface StandardsSummary {
+  document: { id: string; name: string; url: string; checked: string }
+  checked: Record<string, { items: string[]; text: string; verified: boolean } & Record<string, unknown>>
+  not_checked: { items: string[]; why: string }[]
 }
 export interface StoryStep { loc: string; day: number; me: string; storm: string | null; when: string; text: string }
 export interface Leg { location: string; start: number; end: number; label: string }
@@ -23,7 +34,7 @@ export interface Source { id: string; name: string; org: string; url: string; us
 export interface Catalog {
   locations: Record<string, Omit<Place, 'id'>>; indicators: Record<string, IndicatorDef>
   systems: Record<string, SystemDef>; region_system: Record<string, string>
-  crew: CrewInfo[]; story: StoryStep[]; sources: Source[]
+  crew: CrewInfo[]; story: StoryStep[]; sources: Source[]; standards?: StandardsSummary
 }
 export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number
@@ -33,6 +44,8 @@ export interface Indicator {
   sensitive_until?: number
   spread: number; baseline_from: 'preflight' | 'catalog'; baseline_n: number
   population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical'; source: string; verified: boolean }
+  /** NASA-STD-3001 limit for this indicator today, in flight only; null when the standard sets none Canary can check */
+  standard?: Standard | null
 }
 export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null; risks?: string[] }
 export interface AlertGoal { id: string; area: Area; title: string }
@@ -60,7 +73,12 @@ export interface Risk {
   note?: string; dose?: { now_msv: number; limit_msv: number; pct: number; cross_day: number | null; same_for_everyone: boolean; note: string }
 }
 export interface AreaState { score: number; level: Level; status: string }
-export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean }
+export interface Dose {
+  mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean
+  limit_source?: string
+  /** for one crew member: dose from earlier flights (record or estimate) and the career total NASA's limit counts */
+  prior_msv?: number; prior_estimate?: boolean; prior_source?: string; career_msv?: number; career_pct_of_limit?: number
+}
 export interface Goal {
   id: string; area: Area; title: string; why: string; sys?: string | null
   action?: string | null; by: 'routine' | 'alert' | 'medical' | 'suggestion'; done: boolean
@@ -96,12 +114,17 @@ export interface CrewList {
   mission: Mission; crew: CrewSummary[]; team: TeamGoal[]; dose: Dose
   space_weather: { headline: string; active: boolean; kp_max: number; sep_events: number }
 }
-export interface Analyte { unit: string; range: { min: number; max: number }; values: (number | null)[]; status: ('in' | 'out' | null)[] }
+/** range is the laboratory's for the person's sex; null for C-reactive protein, whose panel gives none */
+export interface Analyte {
+  unit: string; range: { min: number; max: number } | null; values: (number | null)[]; status: ('in' | 'out' | null)[]
+  panel?: 'cbc' | 'cmp'; source?: string
+}
 export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' }
 export interface CrewDetail {
   crew: CrewInfo; mission: Mission; indicators: Record<string, Indicator>; systems: Record<string, SystemState>
   alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
+  standard_profile?: { eva: 'none' | 'microgravity' | 'surface'; prior_dose: { msv: number; estimate: boolean; source: string }; sex: string }
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
   ops: Ops; care_by: string; access: 'self' | 'medical'; care_events: CareEvent[]

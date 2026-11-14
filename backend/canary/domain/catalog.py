@@ -25,16 +25,33 @@ LOCATIONS: Dict[str, dict] = {
     "mars": {"name": "Mars", "sub": "Gale crater", "gravity_key": "gp", "gravity": "3/8 g",
              "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
              "what": "Your body is relearning weight after months in 0 g. Stand up slowly."},
+    "moon_rover": {"name": "Lunar rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "1/6 g",
+                   "delay_s": 1.3, "reply": "3 seconds", "hospital": "About 3 days", "dose_rate": 1.37,
+                   "what": "Days away from the base in a small cabin. Every walk outside is a surface EVA."},
+    "mars_rover": {"name": "Mars rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "3/8 g",
+                   "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
+                   "what": "Far from the habitat's gym and medical bay. Canary guides first; the base is hours away."},
 }
-DOSE_SOURCE = "Typical daily dose by place from published ISS, Apollo, MSL cruise and Curiosity RAD figures; to be verified."
-CAREER_LIMIT_MSV = 600  # NASA career limit, NASA-STD-3001 (2022). To be verified before quoting.
+# The body a place belongs to (a rover counts sols and uses the protocols of its planet) and the kind of EVA done there,
+# which sets the aerobic-capacity limit of NASA-STD-3001 (V1 4001 microgravity, V1 4002 surface).
+for _k, _body, _eva in (("earth", "earth", "none"), ("rocket", "space", "none"), ("iss", "space", "microgravity"),
+                        ("transit", "space", "microgravity"), ("moon", "moon", "surface"), ("mars", "mars", "surface"),
+                        ("moon_rover", "moon", "surface"), ("mars_rover", "mars", "surface")):
+    LOCATIONS[_k].update(body=_body, eva=_eva)
+DOSE_SOURCE = ("Typical daily dose by place from published ISS, Apollo, MSL cruise and Curiosity RAD figures; to be verified. "
+               "A pressurized rover is given the dose of its planet's surface (prototype assumption: no rover shielding figure used).")
+# NASA-STD-3001 Volume 1 Rev. C (2023), checked against the document on 2026-11-14:
+# [V1 4030] career effective dose below 600 mSv, the same for all ages and sexes; [V1 4031] the design solar particle
+# event below 250 mSv effective dose. https://www.nasa.gov/wp-content/uploads/2023/11/nasa-std-3001-vol-1-rev-c-with-signature.pdf
+CAREER_LIMIT_MSV = 600
+SPE_LIMIT_MSV = 250
 
 
 def day_label(day: int, location: str, leg_start: int = 0) -> str:
-    """L-30 before launch, Sol N on Mars (counted from landing), Day N otherwise."""
+    """L-30 before launch, Sol N on Mars (counted from landing, rover traverses included), Day N otherwise."""
     if day < 0:
         return f"L{day}"
-    if location == "mars":
+    if LOCATIONS.get(location, {}).get("body") == "mars":
         return f"Sol {day - leg_start}"
     return f"Day {day}"
 
@@ -42,21 +59,21 @@ def day_label(day: int, location: str, leg_start: int = 0) -> str:
 # ---------------------------------------------------------------- crew (fictional)
 CREW: List[dict] = [
     {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
-     "cbc_subject": "C001", "age": 46, "sex": "F",
+     "cbc_subject": "C002", "age": 46, "sex": "F",
      "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
-              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40}},
+              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40, "vo2": 38.5}},
     {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
-     "cbc_subject": "C002", "age": 41, "sex": "M",
+     "cbc_subject": "C001", "age": 41, "sex": "M",
      "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
-              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45}},
+              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45, "vo2": 41.0}},
     {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
      "cbc_subject": "C003", "age": 38, "sex": "F",
      "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
-              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38}},
+              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38, "vo2": 44.0}},
     {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
      "cbc_subject": "C004", "age": 44, "sex": "M",
      "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
-              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48}},
+              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48, "vo2": 39.5}},
 ]
 CREW_BY_ID = {c["id"]: c for c in CREW}
 
@@ -70,25 +87,25 @@ RECORDS: Dict[str, dict] = {
           "height_cm": 168, "weight_kg": 61.5, "blood_type": "O−", "skin_type": "III", "handedness": "Right",
           "vision": "No correction", "allergies": ["Penicillin"], "medications": [], "conditions": [],
           "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
+          "eva": "surface", "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
     "k": {"dob": "1993-11-02", "sex": "Male", "nationality": "Japanese", "languages": ["Japanese", "English"],
           "agency": "Japan Aerospace Exploration Agency (JAXA)", "flights": 1, "days_in_space": 181,
           "height_cm": 174, "weight_kg": 70.2, "blood_type": "A+", "skin_type": "III", "handedness": "Left",
           "vision": "Glasses for reading", "allergies": [], "medications": [], "conditions": [],
           "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
+          "eva": "none", "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
     "a": {"dob": "1997-02-20", "sex": "Female", "nationality": "Nigerian", "languages": ["English", "Yoruba", "French"],
           "agency": "European Space Agency (ESA)", "flights": 0, "days_in_space": 0,
           "height_cm": 171, "weight_kg": 64.0, "blood_type": "B+", "skin_type": "VI", "handedness": "Right",
           "vision": "No correction", "allergies": ["Peanuts"], "medications": [], "conditions": [],
           "diet": "No peanuts", "vaccinations": "Up to date (checked L-90)",
-          "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
+          "eva": "surface", "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
     "t": {"dob": "1990-12-05", "sex": "Male", "nationality": "Chilean", "languages": ["Spanish", "English"],
           "agency": "NASA (international partner seat)", "flights": 1, "days_in_space": 12,
           "height_cm": 182, "weight_kg": 81.4, "blood_type": "O+", "skin_type": "IV", "handedness": "Right",
           "vision": "Contact lenses", "allergies": [], "medications": ["Antihistamine as needed (seasonal)"], "conditions": ["Seasonal allergic rhinitis"],
           "diet": "Vegetarian", "vaccinations": "Up to date (checked L-90)",
-          "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
+          "eva": "surface", "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
 }
 
 # ---------------------------------------------------------------- indicators
@@ -112,6 +129,7 @@ INDICATORS: Dict[str, dict] = {
     "exer": {"name": "Exercise", "unit": "min", "area": "physical", "dir": "low", "sd": 12, "dp": 0},
     "grip": {"name": "Grip strength", "unit": "kg", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
     "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
+    "vo2": {"name": "Aerobic capacity (VO2max)", "unit": "mL/kg/min", "area": "physical", "dir": "low", "sd": 3.0, "dp": 1},
 }
 
 # Where each cognitive or self-report indicator comes from. None of the numbers is a published value.
@@ -134,7 +152,7 @@ SYSTEMS: Dict[str, dict] = {
     "eyes": {"name": "Eyes & vision", "area": "physical", "indicators": [],
              "space": "Fluids shift toward the head in 0 g. After months, some astronauts develop swelling at the back of the eye (SANS). A weekly Amsler grid is a quick screen.",
              "hazard": "Altered gravity"},
-    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "bp"],
+    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "bp", "vo2"],
               "space": "Without gravity the heart works less and blood volume drops. Back under gravity, standing up can make you faint.",
               "hazard": "Altered gravity"},
     "lungs": {"name": "Lungs & breathing", "area": "physical", "indicators": ["spo2"],
@@ -169,6 +187,8 @@ EXERCISE_BY_PLACE = {
     "transit": ("2 h of exercise: resistance and bike", 120),
     "moon": ("1 h of resistance exercise", 60),
     "mars": ("1 h of resistance and a suited walk", 60),
+    "moon_rover": ("30 min of resistance bands in the rover cabin", 30),
+    "mars_rover": ("30 min of resistance bands in the rover cabin", 30),
 }
 WINDOW_BY_PLACE = {
     "earth": "Walk outside for 15 min",
@@ -177,6 +197,8 @@ WINDOW_BY_PLACE = {
     "transit": "5 min at the porthole: find the blue dot",
     "moon": "Watch Earth in the lunar sky for 5 min",
     "mars": "Watch the blue Martian sunset",
+    "moon_rover": "5 min at the rover window, watching Earth over the horizon",
+    "mars_rover": "5 min at the rover window, watching the horizon",
 }
 
 # sys links the goal to a body system.
@@ -287,6 +309,11 @@ _link("bone", "D", "nutrition (vitamin D)", _H)
 _link("bone", "G", "no load", _H)
 _link("urine_calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones)")
 _link("creatinine", "G", "hydration, muscle", _H)
+_link("vo2", "G", "deconditioning without load", f"{_H}; NASA-STD-3001 V1 4001-4004")
+_link("calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones); real data OSD-575")
+_link("potassium", "D", "limited diet, hydration", f"{_P} (nutrition); real data OSD-575")
+_link("crp", "I", "stress", f"{_P}; {_H}; real data OSD-575")
+_link("crp", "E", "microbes", f"{_P}; {_H}; real data OSD-575")
 _link("vitamin_d", "E", "no sunlight", _H)
 _link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "R", "drops first after a dose", f"{_P}; {_H}; real data OSD-569")
 _link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "I", "stress", f"{_P}; {_H}; real data OSD-569")

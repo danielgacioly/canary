@@ -21,7 +21,7 @@ DEMO_RECORDS = copy.deepcopy(catalog.RECORDS)
 DEMO_MISSION = {"callsign": "Odyssey 1", "name": "Mars reference mission", "launch_date": "2035-06-01", "preset": "mars"}
 RECORD_FIELDS = ["dob", "sex", "nationality", "languages", "agency", "flights", "days_in_space", "height_cm", "weight_kg",
                  "blood_type", "skin_type", "handedness", "vision", "allergies", "medications", "conditions", "diet",
-                 "vaccinations", "emergency_contact"]
+                 "vaccinations", "emergency_contact", "eva", "prior_dose_msv"]
 
 
 def stored() -> Optional[dict]:

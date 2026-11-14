@@ -22,13 +22,29 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, telemetry
+from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+
+def _warm_story() -> None:
+    """Compute every crew member's health on the days of the demo story once, in the background, so the first click
+    on each scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
+    from .domain import risk
+    try:
+        for step in STORY:
+            ms = {**risk._day_ms(step["day"]), "storm": step["storm"]}
+            for c in list(CREW):
+                health.snapshot(c["id"], ms)
+    except Exception:  # a warm-up must never take the API down; the next request computes it anyway
+        pass
+
 
 @asynccontextmanager
 async def lifespan(_app):
     db.connect()
     registry.load()
+    if settings.warm_cache:
+        import threading
+        threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
     yield
 
 
@@ -133,7 +149,7 @@ def ping():
 def catalog():
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
             "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": STORY, "sources": nasa.SOURCES}
+            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary()}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -310,7 +326,7 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
             "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
-            "blood": nasa.blood(c["cbc_subject"]), "events": events,
+            "blood": nasa.blood(c["cbc_subject"], c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
             "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access,
             "care_events": care.events(crew_id, ms["day"])}

@@ -9,7 +9,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from .. import db
-from . import care, plan, reference, risk, telemetry
+from . import care, plan, reference, risk, standards, telemetry
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -90,6 +90,11 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
         level = 2
     elif pop["status"] == "out" and not ms["learning"]:
         level = max(level, 1)
+    # NASA-STD-3001: an in-flight limit (strength, bone, aerobic capacity for EVA). It only raises the level, and only
+    # in flight: on Earth before launch there is no in-mission limit to break.
+    std = None if ms["learning"] else standards.check(ind, crew_id, ms["location"], v, B["mean"])
+    if std:
+        level = max(level, std["level"])
     return {"id": ind, "name": I["name"], "unit": I["unit"], "area": I["area"], "facet": I.get("facet"),
             "dp": I["dp"], "value": round(v, 2), "baseline": round(base, 3), "delta": round(v - base, 2),
             "z": round(z, 2), "bad": round(bad, 2), "level": level,
@@ -97,6 +102,7 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
             "origin": obs["origin"], "last_measured_day": last.get(ind),
             "age_days": day - last[ind] if ind in last else None,
             "spread": round(sd, 3), "baseline_from": B["from"], "baseline_n": B["n"], "population": pop,
+            "standard": std,
             **({"sensitive_until": window["sensitive_until"]} if window else {})}
 
 
@@ -114,11 +120,19 @@ def latest_checkin(crew_id: str, kind: str, day: int, window: int = 7) -> Option
     return {**json.loads(rows[0]["payload"]), "day": rows[0]["day"]} if rows else None
 
 
-def dose(ms: dict) -> dict:
+def dose(ms: dict, crew_id: Optional[str] = None) -> dict:
+    """Mission dose, the same for everyone on board. With a crew member, also their career dose: NASA's 600 mSv limit
+    counts every earlier flight (NASA-STD-3001 V1 4030)."""
     total = telemetry.cumulative_dose(ms["day"], ms["location"], ms["storm"])
-    return {"mission_msv": total, "rate_msv_day": LOCATIONS[ms["location"]]["dose_rate"],
-            "career_limit_msv": CAREER_LIMIT_MSV, "pct_of_limit": round(100 * total / CAREER_LIMIT_MSV, 1),
-            "simulated": True}
+    out = {"mission_msv": total, "rate_msv_day": LOCATIONS[ms["location"]]["dose_rate"],
+           "career_limit_msv": CAREER_LIMIT_MSV, "pct_of_limit": round(100 * total / CAREER_LIMIT_MSV, 1),
+           "simulated": True, "limit_source": "NASA-STD-3001 V1 4030"}
+    if crew_id is not None:
+        prior = standards.prior_dose(crew_id)
+        career = round(prior["msv"] + total, 1)
+        out.update(prior_msv=prior["msv"], prior_estimate=prior["estimate"], prior_source=prior["source"],
+                   career_msv=career, career_pct_of_limit=round(100 * career / CAREER_LIMIT_MSV, 1))
+    return out
 
 
 def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> Dict[str, dict]:
@@ -128,7 +142,8 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
     out = {}
     for sid, S in SYSTEMS.items():
         worst = max([inds[i]["level"] for i in S["indicators"]] or [0])
-        critical = any(inds[i]["population"]["status"] == "critical" for i in S["indicators"])
+        critical = any(inds[i]["population"]["status"] == "critical" or (inds[i].get("standard") or {}).get("level") == 2
+                       for i in S["indicators"])
         lv = 2 if critical else max(risk.level_for(risks, sid), min(1, worst))
         note = None
         if sid == "eyes":
@@ -138,11 +153,13 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
             elif a:
                 note = "Last Amsler grid was clear."
         if sid == "skin":
-            d = dose(ms)
+            d = dose(ms, crew_id)
             if ms["storm"]:
                 lv, note = 2, "Radiation storm in progress."
-            elif d["pct_of_limit"] >= 50:
-                lv, note = 1, f"{d['pct_of_limit']}% of the career limit used."
+            elif d["career_pct_of_limit"] >= 100:
+                lv, note = 2, f"Career dose {d['career_msv']:g} mSv, past NASA's 600 mSv limit."
+            elif d["career_pct_of_limit"] >= 50:
+                lv, note = max(lv, 1), f"{d['career_pct_of_limit']}% of the career limit used, earlier flights included."
         if sid == "immune" and not ms["learning"] and 152 <= ms["day"] <= 165:
             lv, note = max(lv, 1), "Blood count due after the radiation storm."
         if ms["learning"]:  # nothing to watch yet, except a safety limit
@@ -168,17 +185,26 @@ def _indicator_alert(i: str, d: dict) -> dict:
     """Alert for one indicator on its own: outside the personal normal, or past the population safety limit."""
     sysid = next((k for k, s in SYSTEMS.items() if i in s["indicators"]), None)
     p = d["population"]
+    std = d.get("standard") or {}
     critical = p["status"] == "critical"
     why = f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}."
     if p["status"] != "in" and (p["low"] is not None or p["high"] is not None):
         lo = "no lower limit" if p["low"] is None else f"from {p['low']:g}"
         hi = "no upper limit" if p["high"] is None else f"up to {p['high']:g}"
         why += f" The usual adult range is {lo} {hi} {d['unit']}."
-    return {"id": f"ind_{i}", "level": d["level"], "sys": sysid,
-            "title": f"{d['name']} is past the safety limit." if critical else f"{d['name']} is outside your normal.",
-            "why": why,
-            "todo": TODO_BY_INDICATOR.get(i, ["Measure again in 1 hour", "If it stays, tell the medical officer"]),
-            "sources": [d["source"]], "goals": []}
+    sources = [d["source"]]
+    if std.get("level"):
+        why += f" {std['text']} (NASA-STD-3001 {std['item']})."
+        sources.append(f"nasa:std3001v1:{std['item'].replace(' ', '')}")
+    title = (f"{d['name']} is past the safety limit." if critical else
+             f"{d['name']} is past NASA's limit." if std.get("level") == 2 else
+             f"{d['name']} is close to NASA's limit." if std.get("level") == 1 and d["bad"] < DEFAULT_THRESHOLDS["watch"] else
+             f"{d['name']} is outside your normal.")
+    todo = TODO_BY_INDICATOR.get(i, ["Measure again in 1 hour", "If it stays, tell the medical officer"])
+    if i == "vo2" and std.get("level"):
+        todo = ["No EVA until a new aerobic test meets the limit", "Add interval sessions on the bike or treadmill", "The medical officer reviews the test"]
+    return {"id": f"ind_{i}", "level": d["level"], "sys": sysid, "title": title, "why": why, "todo": todo,
+            "sources": sources, "goals": [], **({"standard": std} if std.get("level") else {})}
 
 
 # What each alert goal is meant to move, and after how many days it is checked (see domain/advice.py).
@@ -343,7 +369,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                   "sources": [f"goal:{crew_id}:mood:day{day}"], "goals": []})
 
     for i, d in inds.items():
-        if d["level"] and (i not in used or d["population"]["status"] == "critical"):
+        if d["level"] and (i not in used or d["population"]["status"] == "critical" or (d.get("standard") or {}).get("level") == 2):
             A.append(_indicator_alert(i, d))
     return sorted(A, key=lambda a: -a["level"])
 
@@ -360,4 +386,4 @@ def snapshot(crew_id: str, ms: dict) -> dict:
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
     top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
     return {"crew_id": crew_id, "day": ms["day"], "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
-            "level": top, "status": STATUS[top], "dose": dose(ms)}
+            "level": top, "status": STATUS[top], "dose": dose(ms, crew_id)}

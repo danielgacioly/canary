@@ -202,26 +202,25 @@ SPECS: Dict[str, dict] = {
     "nutrition": {"name": "Food and nutrition", "nasa_red": True, "systems": ["gut"], "clock_days": 7, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
                   "reads": ["weight", "gluc"]},
     "renal": {"name": "Kidneys and hydration", "nasa_red": False, "systems": ["kidneys"], "clock_days": 15, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
-              "reads": ["water", "bone", "creatinine", "urine_volume"]},
+              "reads": ["water", "bone", "creatinine", "calcium", "urine_volume"]},
     "immune": {"name": "Blood and immunity", "nasa_red": False, "systems": ["immune"], "clock_days": 30, "cuts": {1: 1.0, 2: 3.0}, "min2": 2,
-               "reads": ["temp", "wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"]},
+               "reads": ["temp", "wbc", "lym", "neu", "hgb", "hct", "plt", "rbc", "crp"]},
     "cardio": {"name": "Heart and circulation", "nasa_red": False, "systems": ["heart", "lungs"], "clock_days": 1, "cuts": {1: 1.0, 2: 4.0}, "min2": 3,
-               "reads": ["hr", "bp", "spo2"]},
+               "reads": ["hr", "bp", "spo2", "vo2", "potassium"]},
     "bone_muscle": {"name": "Bones and muscles", "nasa_red": False, "systems": ["skeleton", "muscles"], "clock_days": 30, "cuts": {1: 1.0, 2: 4.0}, "min2": 3,
                     "reads": ["bone", "grip", "exer"]},
 }
 SOURCE = {"source": "prototype assumption", "verified": False}
 PANELS = {  # how often each kind of exam is due, in days. DATASET.md: blood analyser about every 30 days, urine every 15
-    "blood": {"every_days": 30, "indicators": ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc", "creatinine"]},
+    "blood": {"every_days": 30, "indicators": ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc", "creatinine", "potassium", "calcium", "crp"]},
     "urine": {"every_days": 15, "indicators": ["urine_volume"]},
 }
 PANEL_OF = {i: k for k, P in PANELS.items() for i in P["indicators"]}
 BLOOD_COUNT = ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"]
-# Reference ranges for exams the catalog has no indicator for. Not verified: well-known laboratory references quoted
-# from memory (creatinine), and a prototype choice (urine volume).
+# Reference ranges for exams with no laboratory range in the NASA files. Blood counts (OSD-569) and creatinine,
+# potassium and calcium (OSD-575) take the range of the laboratory that ran them, by sex (see simdata.lab_range).
+# Urine volume is a prototype choice.
 EXTRA_RANGES = {
-    "creatinine": {"low": {"F": 0.5, "M": 0.7}, "high": {"F": 1.1, "M": 1.3}, "unit": "mg/dL",
-                   "source": "usual adult laboratory reference range for serum creatinine; to verify", "verified": False},
     "urine_volume": {"low": 1500, "high": None, "unit": "mL/24h",
                      "source": "prototype assumption: a low 24 h urine volume is a kidney-stone factor", "verified": False},
 }
@@ -229,14 +228,15 @@ RULES = {  # thresholds of the evidence functions (all prototype assumptions)
     "radiation": {"watch_pct_of_limit": 50, "lym_points": 1.0},
     "nutrition": {"loss_pct": {1: 5.0, 2: 10.0}},         # weight below the person's pre-flight mean
     "renal": {"bone_loss_pct_30d": 1.0, "points": 1.0},   # the catalog says bone loses about 1% a month without countermeasures
-    "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_window": (152, 165), "storm_points": 1.0},
+    "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_window": (152, 165), "storm_points": 1.0,
+               "crp_rise_pct": 50.0, "crp_points": 0.5},  # CRP has no range in its panel: read against the person's own pre-flight
     "cardio": {"regravity_points": 0.5},
     "sans": {"amsler_points": 2.0, "vision_symptom_points": 1.0, "window_days": 7,
              "weak": "The Amsler grid is a weak indicator of SANS: a clear grid does not rule it out."},
 }
 VISION_ITEMS = ("Eye discomfort", "Blurred vision")
 STORM_DAYS = {}  # the days of the story with a storm, for the history of radiation (past days know no ms["storm"])
-INDICATOR_RISK = {**{i: "fatigue" for i in FATIGUE["weights"]}, "hr": "cardio", "bp": "cardio", "spo2": "cardio",
+INDICATOR_RISK = {**{i: "fatigue" for i in FATIGUE["weights"]}, "hr": "cardio", "bp": "cardio", "spo2": "cardio", "vo2": "cardio",
                   "bone": "bone_muscle", "grip": "bone_muscle", "exer": "bone_muscle", "gluc": "nutrition",
                   "water": "renal", "temp": "immune"}
 
@@ -269,9 +269,13 @@ def _ind_ev(inds: dict, ind: str, weight: float = 1.0) -> Optional[dict]:
     if not d["level"]:
         return None
     word = "above" if d["delta"] > 0 else "below"
-    return {"key": ind, "indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"],
-            "points": round(weight * d["level"], 2),
-            "text": f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal"}
+    ev = {"key": ind, "indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"],
+          "points": round(weight * d["level"], 2),
+          "text": f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal"}
+    std = d.get("standard") or {}
+    if std.get("level"):  # past (2) or close to (1) a NASA-STD-3001 limit: the risk is at least that level
+        ev.update(floor=std["level"], standard=std, text=f"{std['text']} (NASA-STD-3001 {std['item']})")
+    return ev
 
 
 def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
@@ -293,9 +297,14 @@ def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
         lo = R["low"].get(sex) if isinstance(R["low"], dict) else R["low"]
         hi = R["high"].get(sex) if isinstance(R["high"], dict) else R["high"]
         unit = R["unit"]
-    else:
-        R = nasa.snapshot()["cbc"]["an"][ind]
-        lo, hi, unit = R["min"], R["max"], R["unit"]
+    else:  # the laboratory's own range for this sex (OSD-569 blood count, OSD-575 metabolic panel)
+        from .simdata import lab_range
+        snap = nasa.snapshot()
+        rng = lab_range(snap, ind, sex)
+        if rng is None:
+            return None  # no range for this exam (C-reactive protein): read elsewhere against the person's own pre-flight
+        lo, hi = rng
+        unit = next(snap[s]["an"][ind]["unit"] for s in ("cbc", "cmp") if ind in snap.get(s, {}).get("an", {}))
     out = lambda v: (lo is not None and v < lo) or (hi is not None and v > hi)  # noqa: E731
     if not out(o["value"]):
         return None
@@ -327,33 +336,41 @@ def dose_curve() -> List[float]:
     return _dose_cache["curve"]  # type: ignore[return-value]
 
 
-def dose_projection(day: int) -> dict:
-    """Dose today and the first day of the plan on which it passes the career limit (None when it never does)."""
+def dose_projection(day: int, prior_msv: float = 0.0) -> dict:
+    """Career dose today (dose before this mission + mission dose) and the first day of the plan on which it passes the
+    career limit (None when it never does). NASA-STD-3001 V1 4030 counts every earlier flight."""
     from .catalog import CAREER_LIMIT_MSV
     c = dose_curve()
-    now = c[day] if 0 <= day < len(c) else (c[-1] if day >= len(c) else 0.0)
-    cross = next((d for d in range(max(day, 0), len(c)) if c[d] > CAREER_LIMIT_MSV), None)
-    return {"now_msv": now, "limit_msv": CAREER_LIMIT_MSV, "pct": round(100 * now / CAREER_LIMIT_MSV, 1), "cross_day": cross}
+    mission = c[day] if 0 <= day < len(c) else (c[-1] if day >= len(c) else 0.0)
+    now = round(prior_msv + mission, 1)
+    cross = next((d for d in range(max(day, 0), len(c)) if prior_msv + c[d] > CAREER_LIMIT_MSV), None)
+    return {"now_msv": now, "mission_msv": mission, "prior_msv": prior_msv, "limit_msv": CAREER_LIMIT_MSV,
+            "pct": round(100 * now / CAREER_LIMIT_MSV, 1), "cross_day": cross}
 
 
 def _g_radiation(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
-    from . import health
-    from .catalog import CREW_BY_ID
+    from . import health, standards
+    from .catalog import CREW_BY_ID, SPE_LIMIT_MSV
     day = ms["day"]
     R = RULES["radiation"]
     ev: List[dict] = []
     if ms.get("storm"):
         ev.append({"key": "dose", "origin": "real", "points": 2.0, "floor": 2, "source": "nasa:donki" if ms["storm"] == "sep" else "nasa:rad",
-                   "text": "A radiation storm is in progress (NASA's records of May 2024, replayed)"})
-    p = dose_projection(day)
+                   "text": f"A radiation storm is in progress (NASA's records of May 2024, replayed). NASA protects crews to keep a "
+                           f"solar particle event below {SPE_LIMIT_MSV} mSv (NASA-STD-3001 V1 4031): stay in the shelter"})
+    prior = standards.prior_dose(crew_id)
+    p = dose_projection(day, prior["msv"])
     ds = {"key": "dose", "origin": "simulated", "value": p["now_msv"], "baseline": None, "z": None, "source": f"dose:day{day}"}
+    earlier = (f" ({p['prior_msv']:g} mSv from earlier flights{', estimated' if prior['estimate'] else ''})"
+               if p["prior_msv"] else "")
     if p["now_msv"] >= p["limit_msv"]:
-        ev.append({**ds, "points": 2.0, "floor": 2, "text": f"The mission dose, {p['now_msv']:g} mSv, is past the {p['limit_msv']} mSv career limit"})
+        ev.append({**ds, "points": 2.0, "floor": 2,
+                   "text": f"Career dose {p['now_msv']:g} mSv{earlier} is past NASA's {p['limit_msv']} mSv limit (V1 4030)"})
     elif p["pct"] >= R["watch_pct_of_limit"] and p["cross_day"] is not None:
         ev.append({**ds, "points": 1.0, "floor": 1,
-                   "text": f"Mission dose {p['now_msv']:g} mSv ({p['pct']:g}% of the career limit), projected to pass the career limit on day {p['cross_day']}"})
+                   "text": f"Career dose {p['now_msv']:g} mSv{earlier}, {p['pct']:g}% of NASA's limit, projected to pass it on day {p['cross_day']}"})
     elif p["pct"] >= R["watch_pct_of_limit"]:
-        ev.append({**ds, "points": 0.0, "text": f"Mission dose {p['now_msv']:g} mSv ({p['pct']:g}% of the career limit); the plan ends below it"})
+        ev.append({**ds, "points": 0.0, "text": f"Career dose {p['now_msv']:g} mSv{earlier}, {p['pct']:g}% of NASA's limit; the plan ends below it"})
     lym = _panel_ev(crew_id, "lym", day, CREW_BY_ID[crew_id]["sex"])
     if lym:
         low = lym["range"]["low"] if "range" in lym else None
@@ -420,7 +437,7 @@ def _g_renal(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
         ev.append({"key": "bone", "indicator": "bone", "value": round(rate, 2), "baseline": None, "z": None, "origin": d["origin"], "source": d["source"],
                    "points": R["points"], "text": f"Bone density fell {rate:.1f}% in the last 30 days (the model's rate, about 1% a month without countermeasures)"})
     sex = CREW_BY_ID[crew_id]["sex"]
-    ev += [e for e in (_panel_ev(crew_id, i, day, sex) for i in ("creatinine", "urine_volume")) if e]
+    ev += [e for e in (_panel_ev(crew_id, i, day, sex) for i in ("creatinine", "calcium", "urine_volume")) if e]
     return ev
 
 
@@ -440,6 +457,9 @@ def _g_immune(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
         e["points"] = min(e["points"], max(0.0, cap - tot))
         tot += e["points"]
     ev += fresh + [e for e in blood if e.get("stale")][:1]
+    crp = _crp_ev(crew_id, day)
+    if crp:
+        ev.append(crp)
     lo, hi = R["storm_window"]
     if lo <= day <= hi:
         ev.append({"key": "dose", "origin": "real", "value": None, "baseline": None, "z": None, "points": R["storm_points"],
@@ -447,10 +467,33 @@ def _g_immune(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     return ev
 
 
+def _crp_ev(crew_id: str, day: int) -> Optional[dict]:
+    """C-reactive protein against the person's own pre-flight mean (its panel gives no range). None when it is not
+    raised, too old, or never measured; a stale exam is left to the blood count's own stale evidence."""
+    import statistics
+    from . import telemetry
+    R = RULES["immune"]
+    o = telemetry.last_observation(crew_id, "crp", day)
+    pre = list(telemetry.preflight_values(crew_id, "crp").values())
+    if o is None or not pre or o["age"] > PANELS["blood"]["every_days"] or day < 0:
+        return None
+    base = statistics.mean(pre)
+    rise = 100 * (o["value"] - base) / base if base else 0.0
+    if rise < R["crp_rise_pct"]:
+        return None
+    return {"key": "crp", "indicator": "crp", "value": o["value"], "baseline": round(base, 2), "z": None, "origin": o["origin"],
+            "source": o["source"], "age_days": o["age"], "points": R["crp_points"],
+            "text": f"C-reactive protein {o['value']:g} mg/L, {rise:.0f}% above your pre-flight mean (inflammation)"}
+
+
 def _g_cardio(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     from .catalog import LOCATIONS
+    from .catalog import CREW_BY_ID
     inds = _inds(crew_id, ms["day"], tok)
-    ev = [e for e in (_ind_ev(inds, i) for i in ("hr", "bp", "spo2")) if e]
+    ev = [e for e in (_ind_ev(inds, i) for i in ("hr", "bp", "spo2", "vo2")) if e]
+    k = _panel_ev(crew_id, "potassium", ms["day"], CREW_BY_ID[crew_id]["sex"])
+    if k:  # potassium out of its range can disturb the heart rhythm
+        ev.append(k)
     if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and inds["bp"]["level"] and inds["hr"]["level"]:
         ev.append({"key": "regravity", "origin": inds["bp"]["origin"], "value": None, "baseline": None, "z": None,
                    "points": RULES["cardio"]["regravity_points"], "source": inds["bp"]["source"],
@@ -567,7 +610,7 @@ def _read_origins(rid: str, crew_id: str, ms: dict, tok: tuple) -> set:
 # Which body system an evidence is about, when the catalog's indicator lists do not say.
 EVIDENCE_SYSTEM = {"dose": "skin", "lym": "immune", "wbc": "immune", "neu": "immune", "hgb": "immune", "hct": "immune", "plt": "immune",
                    "rbc": "immune", "amsler": "eyes", "symptoms": "eyes", "weight": "gut", "regravity": "heart", "creatinine": "kidneys",
-                   "urine_volume": "kidneys"}
+                   "urine_volume": "kidneys", "calcium": "kidneys", "potassium": "heart", "crp": "immune", "vo2": "heart"}
 
 
 def _system_levels(r: dict) -> Dict[str, int]:
@@ -602,8 +645,12 @@ def _generic_risk(rid: str):
         if rid == "sans":
             r["note"] = RULES["sans"]["weak"]
         if rid == "radiation":
-            r["dose"] = {**dose_projection(day), "same_for_everyone": True,
-                         "note": "The mission dose is the same for everyone on board: Canary does not invent a dose per person."}
+            from . import standards
+            prior = standards.prior_dose(crew_id)
+            r["dose"] = {**dose_projection(day, prior["msv"]), "same_for_everyone": True, "prior_estimate": prior["estimate"],
+                         "prior_source": prior["source"], "limit_source": "NASA-STD-3001 V1 4030",
+                         "note": "The mission dose is the same for everyone on board: Canary does not invent a dose per person. "
+                                 "The career dose adds each person's earlier flights, as NASA's limit does."}
         return _finish(r, ms, _origins(e["evidence"]) or _read_origins(rid, crew_id, ms, tok))
     return fn
 

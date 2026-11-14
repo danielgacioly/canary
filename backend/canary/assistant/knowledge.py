@@ -17,13 +17,13 @@ def protocol_cards(location: str) -> List[dict]:
 
 RISK_CARDS = {
     "fatigue": "Adds up sleep, reaction time, mood, stress, time with the crew, the cognition tests and the wellbeing answers against the person's own normal. Level 2 needs several signals together.",
-    "radiation": "Mission dose against the 600 mSv career limit (the same dose for everyone on board, simulated), the day the plan is projected to pass it, a storm in progress and a low lymphocyte count.",
+    "radiation": "Career dose against NASA's 600 mSv limit (NASA-STD-3001 V1 4030): the mission dose, the same for everyone on board and simulated, plus the person's earlier flights. Also the day the plan is projected to pass the limit, a storm in progress (NASA keeps a solar event below 250 mSv) and a low lymphocyte count.",
     "sans": "Wavy lines on the Amsler grid and vision symptoms. The Amsler grid is a weak indicator: a clear grid does not rule out eye changes.",
     "nutrition": "Weight against the person's pre-flight weight, and fasting glucose against their normal.",
-    "renal": "Water intake, the model's bone-loss rate, and creatinine and urine volume when an exam exists.",
-    "immune": "Blood count outside its reference range (not counted when it was already outside before launch), temperature and the days after a storm.",
-    "cardio": "Pulse, blood pressure and oxygen against the person's normal, including the re-adaptation pattern after the change to partial gravity.",
-    "bone_muscle": "Bone density estimate, grip strength and exercise minutes against the person's normal.",
+    "renal": "Water intake, the model's bone-loss rate, and creatinine, calcium (real Inspiration4 values) and urine volume when an exam exists, against the laboratory range for the person's sex.",
+    "immune": "Blood count outside the laboratory range for the person's sex (not counted when it was already outside before launch), C-reactive protein well above the person's pre-flight values, temperature and the days after a storm.",
+    "cardio": "Pulse, blood pressure, oxygen and aerobic capacity against the person's normal, NASA's aerobic minimum for the EVAs done where the crew is (32.9 mL/kg/min in 0 g, 36.5 on a surface), potassium against its range, and the re-adaptation pattern after the change to partial gravity.",
+    "bone_muscle": "Bone density estimate, grip strength and exercise minutes against the person's normal, with NASA's limits as a floor: bone at 95% and strength at 80% of the pre-flight values.",
 }
 
 

@@ -309,7 +309,7 @@ def test_ridge_hazards_follow_place_and_storm():
 
 def test_plan_conditions_project_the_dose():
     c = client.get("/api/plan/conditions").json()
-    assert len(c["legs"]) == 4 and c["legs"][2]["location"] == "transit"
+    assert [l["location"] for l in c["legs"]] == ["earth", "rocket", "transit", "mars", "mars_rover", "mars"]
     doses = [v for _, v in c["dose"]["series"]]
     assert doses == sorted(doses) and c["dose"]["end_msv"] > c["dose"]["limit_msv"] * 0.5
 
@@ -438,7 +438,7 @@ def _rows_of(crew, ind):
 def test_every_recipe_has_a_source_and_unsourced_ones_are_listed():
     from canary.domain import simdata
     rec = simdata.load_recipes()
-    md = simdata.REPORT_FILE.read_text()
+    md = simdata.REPORT_FILE.read_text(encoding="utf-8")
     for name, r in rec["indicators"].items():
         assert r["source"], name
         if not r["verified"]:
@@ -452,18 +452,21 @@ def test_the_committed_file_is_what_the_generator_writes_and_is_small():
     from canary.domain import plan as plan_mod, simdata
     rec = simdata.load_recipes()
     rows = simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations()
-    assert simdata.OBS_FILE.read_text() == simdata.csv_text(rows), "run: python data/generate_dataset.py"
-    assert simdata.REPORT_FILE.read_text() == simdata.report(rows, rec, plan_mod.PRESETS["mars"]["name"])
+    assert simdata.OBS_FILE.read_text(encoding="utf-8") == simdata.csv_text(rows), "run: python data/generate_dataset.py"
+    assert simdata.REPORT_FILE.read_text(encoding="utf-8") == simdata.report(rows, rec, plan_mod.PRESETS["mars"]["name"])
     assert simdata.OBS_FILE.stat().st_size < 10_000_000
     assert simdata.csv_text(rows) == simdata.csv_text(simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations())
 
 
 def test_osd569_rows_are_real_and_keep_the_original_label():
     from canary.domain import nasa, simdata
-    rows = [r for r in simdata.read_csv(simdata.OBS_FILE) if r["origin"] == "real"]
-    assert len(rows) == 4 * 7 * 7 and {r["source"] for r in rows} == {"nasa:osd569"}
+    real = [r for r in simdata.read_csv(simdata.OBS_FILE) if r["origin"] == "real"]
+    assert {r["source"] for r in real} == {"nasa:osd569", "nasa:osd575"}
+    assert len([r for r in real if r["source"] == "nasa:osd575"]) == 4 * 4 * 7  # creatinine, potassium, calcium, crp
+    rows = [r for r in real if r["source"] == "nasa:osd569"]
+    assert len(rows) == 4 * 7 * 7
     h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
-    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C001")["lymphocytes"]
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C002", "F")["lymphocytes"]
     assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
     # pre-flight collections set the baseline of the simulated rows
     pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
@@ -590,10 +593,10 @@ def selftests_limits_are_not_clinical():
 # ---------------------------------------------------------------- Prompt 2: two references (population safety limit + personal baseline)
 STORY_ALERTS = {  # scene step -> crew -> (alert id, level), as before the population ranges and the computed baseline
     1: {"t": [("sickness", 1)]},
-    2: {"h": [("behaviour", 2), ("missing_mood", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1)]},
+    2: {"h": [("behaviour", 2), ("missing_mood", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
     3: {"h": [("storm", 2), ("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("storm", 2), ("ind_bone", 1)],
-        "a": [("storm", 2)], "t": [("storm", 2), ("ind_bone", 1)]},
-    4: {"h": [("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1)]},
+        "a": [("storm", 2)], "t": [("storm", 2), ("ind_bone", 1), ("ind_vo2", 1)]},
+    4: {"h": [("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
     5: {"h": [("storm", 2), ("regravity", 1), ("ind_bone", 1)], "k": [("storm", 2), ("regravity", 1), ("ind_grip", 1), ("ind_bone", 1)],
         "a": [("storm", 2), ("ind_hr", 2), ("ind_grip", 1), ("ind_bone", 1)], "t": [("storm", 2), ("ind_hr", 1), ("ind_bone", 1)]},
 }
@@ -613,7 +616,7 @@ def test_a_critical_reading_is_level_two_even_while_learning():
     assert _checkin("a", "vitals", {"spo2": 85}).status_code == 200
     s = health.snapshot("a", ms)
     i = s["indicators"]["spo2"]
-    assert i["level"] == 2 and i["population"]["status"] == "critical" and i["population"]["verified"] is False
+    assert i["level"] == 2 and i["population"]["status"] == "critical" and i["population"]["verified"] is True
     assert [(a["id"], a["level"]) for a in s["alerts"]] == [("ind_spo2", 2)]
     assert s["systems"]["lungs"]["level"] == 2
     assert health.snapshot("k", ms)["alerts"] == []  # nobody else is affected
@@ -690,9 +693,10 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
     import pathlib
     for ind, P in reference.POPULATION.items():
         assert ind in catalog.INDICATORS and P["source"], ind
-        assert P["verified"] is False  # the team checks them before the pitch
+        assert all("https://" in c for c in P["checked"]), ind  # each checked number names the page it was read on
+        assert P["verified"] is False or P["checked"], ind  # verified only when its numbers were read on the guideline
     assert all(reference.POPULATION[i]["source"].find("assumption") >= 0 for i in ("react", "dsst", "span"))
-    readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text()
+    readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
     assert reference.table_md() in readme
     assert reference.check("grip", "F", 15)["status"] == "out" and reference.check("grip", "M", 30)["status"] == "in"
     assert reference.check("mood", "F", 1)["status"] == "in"
@@ -700,11 +704,15 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
 
 def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
     from canary.domain import nasa
-    b = nasa.blood("C001")
-    assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"}
-    for a in b["analytes"].values():
+    b = nasa.blood("C001", "M")
+    assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
+                                                            "creatinine", "potassium", "calcium", "crp"}
+    for k, a in b["analytes"].items():
         assert len(a["status"]) == len(b["timepoints"]) == len(a["values"]) and set(a["status"]) <= {"in", "out", None}
-        assert a["range"]["min"] < a["range"]["max"]
+        if k == "crp":  # no range in its panel
+            assert a["range"] is None and set(a["status"]) == {None}
+        else:
+            assert a["range"]["min"] < a["range"]["max"]
     assert b["lymphocytes"] == b["analytes"]["lym"]["values"]
 
 
@@ -1176,26 +1184,31 @@ def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_p
     assert all(abs(curve[d] - telemetry.cumulative_dose(d, catalog.LOCATIONS and mission.plan.location_at(d), None)) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))
     assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
     _day(100)
-    assert _risk("h", "radiation")["level"] == 0
+    assert _risk("a", "radiation")["level"] == 0
     _day(156)
-    assert _risk("h", "radiation")["level"] == 0
+    assert _risk("a", "radiation")["level"] == 0
     _day(157)
-    r = _risk("h", "radiation")
-    assert r["level"] == 1 and any("projected to pass the career limit on day 516" in e["text"] for e in r["evidence"])
+    r = _risk("a", "radiation")
+    assert r["level"] == 1 and any("projected to pass it on day 516" in e["text"] for e in r["evidence"])
     assert r["dose"]["same_for_everyone"] and r["dose"]["cross_day"] == 516 and r["data"] == "simulated"
-    assert {_risk(c, "radiation")["dose"]["now_msv"] for c in "hkat"} == {r["dose"]["now_msv"]}  # one dose for the whole crew
+    assert r["dose"]["prior_msv"] == 0 and r["dose"]["now_msv"] == r["dose"]["mission_msv"]
+    assert {_risk(c, "radiation")["dose"]["mission_msv"] for c in "hkat"} == {r["dose"]["mission_msv"]}  # one mission dose for the crew
     _day(516)
-    assert _risk("h", "radiation")["level"] == 2 and "past the 600 mSv" in _risk("h", "radiation")["evidence"][0]["text"]
+    assert _risk("a", "radiation")["level"] == 2 and "past NASA's 600 mSv limit" in _risk("a", "radiation")["evidence"][0]["text"]
 
 
 def test_radiation_is_level_two_in_both_storm_scenes_and_the_storm_alert_carries_it():
+    from canary.domain import standards
     for step in (3, 5):
         ms = at(step)
         assert ms["storm"]
         for c in "hkat":
             r = _risk(c, "radiation", ms=ms)
             assert r["level"] == 2 and r["nasa_red"] and r["hazards"] == ["R"]
-            assert r["data"] == ("real" if step == 3 else "partial")  # the storm is NASA's record; from the second one on the dose adds a simulated number
+            # the storm is NASA's record; the dose adds a simulated number once the career dose passes half the limit
+            # (from the second storm on, or earlier for those who have flown before)
+            assert r["data"] == ("partial" if r["dose"]["pct"] >= 50 else "real"), (step, c, r["data"])
+            assert r["dose"]["prior_msv"] == standards.prior_dose(c)["msv"]
         storm = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "storm")
         assert storm["risk"] == "radiation" and storm["hazards"] == ["R"]
 
@@ -1378,3 +1391,91 @@ def test_the_assistant_exposes_the_risks_with_hazards_and_cards():
     assert "card:risk:radiation" in cards and "card:hazard:G" in cards and "never a proven cause" in cards["card:hazard:I"]["text"]
     a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "What is my fatigue risk and why?"}, headers=as_("h")).json()
     assert any("Possible factors here" in c["text"] for c in a["claims"])
+
+
+# ---------------------------------------------------------------- NASA standards, blood corrections, rover, read cache
+def test_the_blood_files_are_corrected_and_each_seat_reads_a_subject_of_its_own_sex():
+    from canary.domain import nasa, simdata
+    snap = nasa.snapshot()
+    c3 = snap["cbc"]["crew"]["C003"]
+    assert (c3["lym"][0], c3["neu"][0], c3["plt"][0]) == (1997, 6826, 330)  # realigned from MCH on (was 6826, 10.1, 12.9)
+    assert snap["cbc"]["an"]["hgb"]["unit"] == "grams_per_deciliter"
+    assert snap["cbc"]["an"]["hgb"]["F"] == {"min": 11.7, "max": 15.5} and snap["cbc"]["an"]["hgb"]["M"] == {"min": 13.2, "max": 17.1}
+    i4_sex = {"C001": "M", "C002": "F", "C003": "F", "C004": "M"}  # OSD-569 sample metadata
+    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in catalog.CREW)
+    assert simdata.lab_range(snap, "creatinine", "F") == (0.5, 1.05) and simdata.lab_range(snap, "crp", "F") is None
+    assert "glucose" not in snap["cmp"]["an"]  # left out on purpose (R+45 samples processed late)
+
+
+def test_real_metabolic_panel_rows_feed_the_kidney_heart_and_immune_risks(exam):
+    from canary.domain import telemetry
+    o = telemetry.last_observation("h", "creatinine", -3)
+    assert o["origin"] == "real" and o["source"] == "nasa:osd575"
+    _day(100)
+    exam("t", "potassium", 6.2)  # above the laboratory range (3.5 to 5.3)
+    assert any(e["key"] == "potassium" and e["points"] for e in _risk("t", "cardio")["evidence"])
+    exam("a", "calcium", 11.0)  # above 8.6 to 10.4 (female range)
+    assert any(e["key"] == "calcium" and e["points"] for e in _risk("a", "renal")["evidence"])
+    pre = list(telemetry.preflight_values("k", "crp").values())
+    exam("k", "crp", 3 * sum(pre) / len(pre))  # three times the pre-flight mean: inflammation
+    assert any(e["key"] == "crp" and "above your pre-flight mean" in e["text"] for e in _risk("k", "immune")["evidence"])
+
+
+def test_the_aerobic_limit_depends_on_the_place_and_on_the_persons_eva_role():
+    from canary.domain import standards
+    assert standards.check("vo2", "t", "transit", 34.0, None)["level"] == 1    # enough for 0 g EVAs, not for Mars ahead
+    assert standards.check("vo2", "t", "mars", 34.0, None)["level"] == 2       # below 36.5 where EVAs are on the surface
+    assert standards.check("vo2", "t", "mars_rover", 37.0, None)["level"] == 0
+    assert standards.check("vo2", "t", "iss", 32.0, None)["item"] == "V1 4001"  # below 32.9 even for 0 g
+    assert standards.check("vo2", "k", "mars", 30.0, None) is None             # Kenji does no EVA
+    assert standards.check("vo2", "t", "rocket", 30.0, None) is None           # no EVA during launch
+
+
+def test_strength_and_bone_have_nasa_floors_and_the_risk_and_system_follow_them():
+    from canary.domain import standards
+    assert standards.check("grip", "h", "mars", 26.0, 34.0)["level"] == 2 and standards.check("grip", "h", "mars", 30.0, 34.0)["level"] == 1
+    assert standards.check("bone", "h", "transit", -5.2, 0)["level"] == 2 and standards.check("bone", "h", "transit", -3.5, 0)["verified"] is False
+    assert standards.check("bone", "h", "transit", -1.0, 0)["level"] == 0
+    assert standards.check("sleep", "h", "transit", 5.0, 7.4) is None  # V1 6001 plans a sleep period, it is not a measured limit
+
+
+def test_the_career_dose_counts_earlier_flights():
+    from canary.domain import standards
+    h, a = standards.prior_dose("h"), standards.prior_dose("a")
+    assert h["estimate"] and h["msv"] == 107.0 and a["msv"] == 0.0  # 214 days in space x 0.5 mSv/day
+    _day(120)
+    rh, ra = _risk("h", "radiation"), _risk("a", "radiation")
+    assert rh["dose"]["mission_msv"] == ra["dose"]["mission_msv"] and rh["dose"]["now_msv"] == ra["dose"]["now_msv"] + 107.0
+    assert rh["level"] == 1 and ra["level"] == 0 and rh["dose"]["cross_day"] < ra["dose"]["cross_day"]
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    assert d["dose"]["career_msv"] == round(d["dose"]["mission_msv"] + 107.0, 1) and d["standard_profile"]["eva"] == "surface"
+
+
+def test_a_rover_traverse_is_a_place_of_its_own_on_the_mars_plan():
+    from canary.domain import goals as goals_mod, privacy, protocols
+    ms = _day(305)
+    assert ms["location"] == "mars_rover" and ms["day_label"] == "Sol 95"  # the sol count keeps running from landing
+    assert ms["place"]["eva"] == "surface" and ms["place"]["body"] == "mars"
+    assert goals_mod._title({"id": "exercise"}, "mars_rover").startswith("30 min")
+    assert {h["id"] for h in privacy.ridge("mars_rover", None, 305)} == {"R", "I", "D", "G", "E"}
+    res = protocols.resolve("mars_rover")["protocols"]
+    mars = protocols.resolve("mars")["protocols"]
+    assert any(s["variant"] for p in res.values() for s in p["steps"])
+    assert [s["variant"] for s in res["rad"]["steps"]] == [s["variant"] for s in mars["rad"]["steps"]]
+    assert client.get("/api/crew/overview").status_code == 200
+
+
+def test_the_read_cache_never_outlives_a_write():
+    db.set_setting("cache_probe", 1)
+    assert db.get_setting("cache_probe") == 1
+    db.set_setting("cache_probe", 2)
+    assert db.get_setting("cache_probe") == 2
+    rows = db.q("SELECT value FROM settings WHERE key=?", ("cache_probe",))
+    rows[0]["value"] = "tampered"  # a caller editing its rows cannot change what the next caller reads
+    assert db.get_setting("cache_probe") == 2
+
+
+def test_the_standard_is_described_with_what_it_does_not_check():
+    s = client.get("/api/catalog").json()["standards"]
+    assert s["document"]["url"].startswith("https://www.nasa.gov/") and {"vo2", "grip", "bone", "radiation", "sleep"} <= set(s["checked"])
+    assert {i for n in s["not_checked"] for i in n["items"]} >= {"V1 4020", "Table 4.8-1"}

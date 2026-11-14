@@ -5,6 +5,7 @@
 
 Writes (all deterministic, standard library only, no network):
   data/real/osd569_cbc.csv                 real Inspiration4 blood counts, converted from nasa_snapshot.json
+  data/real/osd575_cmp.csv                 real Inspiration4 creatinine, potassium, calcium and CRP, same source
   backend/canary/data/observations.csv     one row per measurement, with its origin
   data/DATASET.md                          what is in the file, where it came from, how it would be collected
 
@@ -24,6 +25,7 @@ def main() -> None:
     snapshot = simdata.load_snapshot()
     simdata.REAL_DIR.mkdir(parents=True, exist_ok=True)
     simdata.write_csv(simdata.osd569_rows(snapshot, recipes), simdata.REAL_DIR / "osd569_cbc.csv")
+    simdata.write_csv(simdata.osd575_rows(snapshot, recipes), simdata.REAL_DIR / "osd575_cmp.csv")
 
     legs = plan.PRESETS[plan.DEFAULT]["legs"]
     rows = simdata.Generator(legs, recipes, simdata.REAL_DIR, snapshot).observations()
@@ -34,7 +36,7 @@ def main() -> None:
     size = simdata.OBS_FILE.stat().st_size
     print(text)
     print(f"Wrote {simdata.OBS_FILE.relative_to(ROOT)} ({len(rows):,} rows, {size / 1e6:.2f} MB), "
-          f"{simdata.REPORT_FILE.relative_to(ROOT)} and data/real/osd569_cbc.csv")
+          f"{simdata.REPORT_FILE.relative_to(ROOT)}, data/real/osd569_cbc.csv and data/real/osd575_cmp.csv")
 
 
 if __name__ == "__main__":

@@ -152,7 +152,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
   const groups: [string, string[]][] = [
     ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
-    ['Physical', ['hr', 'bp', 'spo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
+    ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
   ]
   return (
     <>
@@ -167,6 +167,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
                 <figure key={k} className={`chart-card s${i.level}`}>
                   <figcaption><span className="dot" /><b>{i.name}</b><span className="num muted">{i.value.toFixed(i.dp)} {i.unit}</span></figcaption>
                   <LineChart series={[{ pts: d.trends[k], color: name === 'Mental' ? 'var(--mental)' : 'var(--physical)' }]} refY={i.baseline} refLabel="your normal" w={360} h={150} />
+                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text} · NASA-STD-3001 {i.standard.item}</p>}
                 </figure>
               )
             })}

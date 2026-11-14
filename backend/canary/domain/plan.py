@@ -16,7 +16,9 @@ PRESETS = {
         {"location": "earth", "start": -60, "end": -1, "label": "Pre-flight training and baseline"},
         {"location": "rocket", "start": 0, "end": 3, "label": "Launch and first 72 hours"},
         {"location": "transit", "start": 4, "end": 209, "label": "Cruise to Mars"},
-        {"location": "mars", "start": 210, "end": 720, "label": "Surface stay, Gale crater"},
+        {"location": "mars", "start": 210, "end": 299, "label": "Surface stay, Gale crater"},
+        {"location": "mars_rover", "start": 300, "end": 313, "label": "Pressurized rover traverse to Mount Sharp"},
+        {"location": "mars", "start": 314, "end": 720, "label": "Surface stay, Gale crater"},
     ]},
     "iss": {"name": "Six months on the ISS", "legs": [
         {"location": "earth", "start": -60, "end": -1, "label": "Pre-flight training and baseline"},
@@ -28,7 +30,9 @@ PRESETS = {
     "moon": {"name": "Lunar surface mission", "legs": [
         {"location": "earth", "start": -60, "end": -1, "label": "Pre-flight training and baseline"},
         {"location": "rocket", "start": 0, "end": 4, "label": "Launch and lunar transit"},
-        {"location": "moon", "start": 5, "end": 34, "label": "Surface stay, south pole"},
+        {"location": "moon", "start": 5, "end": 19, "label": "Surface stay, south pole"},
+        {"location": "moon_rover", "start": 20, "end": 24, "label": "Pressurized rover traverse"},
+        {"location": "moon", "start": 25, "end": 34, "label": "Surface stay, south pole"},
         {"location": "rocket", "start": 35, "end": 39, "label": "Return to Earth"},
         {"location": "earth", "start": 40, "end": 120, "label": "Recovery"},
     ]},
@@ -104,6 +108,15 @@ def leg_at(day: int) -> dict:
     nxt = legs[i + 1] if i + 1 < len(legs) else None
     return {**l, "index": i, "day_in_leg": day - l["start"] + 1, "length": l["end"] - l["start"] + 1,
             "next": nxt, "days_to_next": (nxt["start"] - day) if nxt else None}
+
+
+def landing_day(day: int, body: Optional[str]) -> int:
+    """First day of the unbroken run of legs on the same body (a rover traverse does not restart the sol count)."""
+    legs = get()["legs"]
+    i = leg_index(day)
+    while i > 0 and body and LOCATIONS[legs[i - 1]["location"]].get("body") == body:
+        i -= 1
+    return legs[i]["start"]
 
 
 def days_since_gravity_change(day: int) -> Optional[int]:

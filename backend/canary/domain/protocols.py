@@ -13,7 +13,7 @@ import pathlib
 
 from .catalog import LOCATIONS
 
-_BANK = json.loads((pathlib.Path(__file__).resolve().parents[1] / "data" / "protocols.json").read_text())
+_BANK = json.loads((pathlib.Path(__file__).resolve().parents[1] / "data" / "protocols.json").read_text(encoding="utf-8"))
 
 
 def order() -> list:
@@ -38,13 +38,14 @@ def care(pid: str) -> dict:
 
 def resolve(location: str) -> dict:
     gk = LOCATIONS[location]["gravity_key"]
+    body = LOCATIONS[location].get("body")  # a rover uses the variants of its planet (moon, mars) before the gravity ones
     out = {}
     for pid, p in _BANK["protocols"].items():
         steps = []
         for i, st in enumerate(p["steps"]):
             v = st.get("v") or {}
             steps.append({k: st[k] for k in ("t", "q", "yes", "no", "timer", "metro", "breath", "end") if k in st}
-                         | {"i": i, "variant": v.get(location) or v.get(gk)})
+                         | {"i": i, "variant": v.get(location) or v.get(body) or v.get(gk)})
         out[pid] = {"id": pid, "name": p["n"], "sign": p["s"], "kit": p["kit"], "after": p["after"], "steps": steps,
                     "source": f"protocol:{pid}", **care(pid)}
     return {"order": order(), "protocols": out, "reviewed": False, "care_note": _BANK.get("care_note")}
