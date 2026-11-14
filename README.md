@@ -39,7 +39,7 @@ make dev       # API on :8000 and web app on :5173
 
 Open <http://localhost:5173>. The intro plays once and ends on the mission as mission control configured it (itinerary drawn in, crew introduced), then Canary opens on the **crew**: goals, hazards and crew missions, never anyone's health or status. To see your own health, open **My space**: choose your profile and type your **4-digit PIN**. Mission setup and astronaut registration belong to a future **mission-admin flow**; a preview of setup lives at `/setup` (not linked from the crew screens). The **Demo story** bar at the bottom walks through the six scenes and offers "Enter as …", which opens the PIN pad for the person each scene follows (it never skips the PIN).
 
-Demo PINs (public, for the demo only): Helena `1001`, Kenji `1002`, Amara `1003`, Tomás `1004`; medical console `1961`.
+Demo PINs (public, for the demo only): Helena `1001`, Kenji `1002`, Amara `1003`, Tomás `1004`; medical console `1961`; Mission Control (Canary Control) `4242`.
 
 Without `make`:
 
@@ -60,6 +60,7 @@ Other commands:
 | `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
+| Mission Control PIN | `4242` for Canary Control (demo only, set `CANARY_CONTROL_PIN`) |
 
 ### Settings (environment variables)
 
@@ -67,6 +68,7 @@ Other commands:
 | --- | --- | --- |
 | `CANARY_DB` | `backend/canary.db` | SQLite file (created on start) |
 | `CANARY_MEDICAL_PIN` | `1961` | PIN of the medical console (4 digits) |
+| `CANARY_CONTROL_PIN` | `4242` | PIN of Canary Control, the Mission Control mode (4 digits) |
 | `CANARY_CREW_PINS` | `h:1001,k:1002,a:1003,t:1004` | default 4-digit PIN of each crew member's private space. A PIN changed in the app is stored salted and hashed (PBKDF2-SHA256) in the `settings` table and wins over this default until the demo is reset |
 | `CANARY_TOKEN_SECRET` | random per start | signs medical and crew session tokens (set it to keep sessions across restarts) |
 | `CANARY_DELAY_SPEEDUP` | `20` | communication delay runs this many times faster in the demo |
