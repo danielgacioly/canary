@@ -9,7 +9,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from .. import db
-from . import plan, reference, telemetry
+from . import plan, reference, risk, telemetry
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -116,10 +116,15 @@ def dose(ms: dict) -> dict:
             "simulated": True}
 
 
-def systems(crew_id: str, ms: dict, inds: Dict[str, dict]) -> Dict[str, dict]:
+def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> Dict[str, dict]:
+    """Colour of each body system: the highest level among the risks that act on it. One indicator outside your
+    normal, with no risk behind it, is a watch (level 1) at most, unless it is past the population safety limit."""
+    risks = risks or []
     out = {}
     for sid, S in SYSTEMS.items():
-        lv = max([inds[i]["level"] for i in S["indicators"]] or [0])
+        worst = max([inds[i]["level"] for i in S["indicators"]] or [0])
+        critical = any(inds[i]["population"]["status"] == "critical" for i in S["indicators"])
+        lv = 2 if critical else max(risk.level_for(risks, sid), min(1, worst))
         note = None
         if sid == "eyes":
             a = latest_checkin(crew_id, "amsler", ms["day"])
@@ -138,11 +143,15 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict]) -> Dict[str, dict]:
         if ms["learning"]:  # nothing to watch yet, except a safety limit
             lv = 2 if any(inds[i]["population"]["status"] == "critical" for i in S["indicators"]) else 0
         out[sid] = {"id": sid, "name": S["name"], "area": S["area"], "level": lv, "status": STATUS[lv],
-                    "indicators": S["indicators"], "note": note}
+                    "indicators": S["indicators"], "note": note,
+                    "risks": [r["id"] for r in risks if sid in r["systems"] and r["level"]]}
     return out
 
 
 def score(inds: Dict[str, dict], area: str, syss: Dict[str, dict]) -> int:
+    """Readiness 0 to 100. Prototype assumption: each indicator loses 18 points for every spread beyond 0.6 of its
+    own normal, the area is their mean, and physical loses 6 points per level of eyes, skin and immune (no
+    indicators of their own). The formula is a design choice, not a published score."""
     vals = [max(0.0, min(100.0, 100 - 18 * max(0.0, i["bad"] - 0.6))) for i in inds.values() if i["area"] == area]
     s = sum(vals) / len(vals)
     if area == "physical":
@@ -167,10 +176,11 @@ def _indicator_alert(i: str, d: dict) -> dict:
             "sources": [d["source"]], "goals": []}
 
 
-def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
+def alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> List[dict]:
     """Cross-signal rules first, then single indicators that are left. Each alert says what to do."""
     if ms["learning"]:  # no early warnings while Canary learns the baseline; a safety limit still speaks
         return [_indicator_alert(i, d) for i, d in inds.items() if d["population"]["status"] == "critical"]
+    risks = risk.evaluate(crew_id, ms) if risks is None else risks
     A, used = [], set()
     lv = lambda i: inds[i]["level"]  # noqa: E731
     c = CREW_BY_ID[crew_id]
@@ -185,14 +195,20 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "todo": ["Go to the shelter and stay until the alert ends", "No activity outside today", "Write down your dosimeter reading"],
                   "sources": ["nasa:rad:2024-05-20" if mars else "nasa:donki:sep:2024-05"], "goals": []})
 
-    if lv("sleep") and lv("mood") and lv("react"):
+    fat = risk.get(risks, "fatigue")
+    if fat and fat["level"] == 2:  # the fatigue risk decides; this alert is its voice
         used.update(["sleep", "mood", "react", "stress", "social", "dsst", "span", "kss", "tlx"])
-        A.append({"id": "behaviour", "level": 2, "sys": "brain", "test": "pvt",
+        ev = fat["evidence"]
+        classic = all(inds[i]["level"] for i in ("sleep", "mood", "react"))  # the familiar text, when its three signals are all up
+        why = (f"For two weeks you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
+               f"you react {inds['react']['value'] - inds['react']['baseline']:.0f} ms slower and spend less time with the crew."
+               if classic else
+               "Several signals are away from your normal at once: " + "; ".join(e["text"].lower() for e in ev[:2]) + ".")
+        A.append({"id": "behaviour", "level": 2, "sys": "brain", "test": "pvt", "risk": "fatigue",
                   "title": "Sleep, mood and focus are dropping together.",
-                  "why": (f"For two weeks you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
-                          f"you react {inds['react']['value'] - inds['react']['baseline']:.0f} ms slower and spend less time with the crew."),
+                  "why": why,
                   "todo": ["Hand over any critical task today", "Retake the reaction test before any decision", "Follow the 3-night sleep plan"],
-                  "sources": [inds[i]["source"] for i in ("sleep", "mood", "react")],
+                  "sources": [inds[i]["source"] for i in ("sleep", "mood", "react")] if classic else [e["source"] for e in ev[:3]],
                   "goals": [{"id": "al_light", "area": "mental", "title": "Bright light on waking, amber light 2 h before bed"},
                             {"id": "al_screens", "area": "mental", "title": "No screens after 21:00 for 3 nights"},
                             {"id": "al_psy", "area": "mental", "title": "Record a private message for the mission psychologist"}]})
@@ -266,12 +282,13 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
 def snapshot(crew_id: str, ms: dict) -> dict:
     """Everything health-related for one person at the current mission time."""
     inds = indicators(crew_id, ms)
-    syss = systems(crew_id, ms, inds)
-    al = alerts(crew_id, ms, inds)
+    risks = risk.evaluate(crew_id, ms)
+    syss = systems(crew_id, ms, inds, risks)
+    al = alerts(crew_id, ms, inds, risks)
     areas = {}
     for area in ("physical", "mental"):
         lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area])
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
     top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
-    return {"crew_id": crew_id, "indicators": inds, "systems": syss, "alerts": al, "areas": areas,
+    return {"crew_id": crew_id, "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
             "level": top, "status": STATUS[top], "dose": dose(ms)}
