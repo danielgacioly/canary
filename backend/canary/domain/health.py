@@ -5,10 +5,11 @@ population average:  z = (recent value - baseline) / personal spread.
 Levels: 0 on track, 1 watch, 2 act. Thresholds are set by the medical team.
 """
 import json
+import statistics
 from typing import Dict, List, Optional
 
 from .. import db
-from . import telemetry
+from . import plan, reference, telemetry
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -27,33 +28,79 @@ def thresholds() -> dict:
     return db.get_setting("thresholds", DEFAULT_THRESHOLDS)
 
 
+MIN_PREFLIGHT = 5  # measurements needed before the pre-flight mean is trusted over the catalog seed
+_baselines: Dict[tuple, Dict[str, dict]] = {}
+
+
+def baselines(crew_id: str) -> Dict[str, dict]:
+    """Personal baseline per indicator, computed from the plan's pre-flight days.
+
+    mean and spread of every measurement on those days (file rows plus the person's own check-ins). The spread never
+    goes below the catalog's `sd`, so a quiet pre-flight cannot turn ordinary noise into alerts. The mean is shown with
+    the precision the app displays (`dp`), so the "normal 55" on screen is the number the alert used. With too few
+    pre-flight measurements (or no pre-flight leg in the plan) it falls back to the catalog seed. Cached per
+    crew member, plan version and number of pre-flight check-ins.
+    """
+    key = (crew_id, plan.version(), telemetry.preflight_checkins(crew_id))
+    hit = _baselines.get(key)
+    if hit is None:
+        if len(_baselines) > 64:
+            _baselines.clear()
+        hit = {}
+        for ind, I in INDICATORS.items():
+            vals = list(telemetry.preflight_values(crew_id, ind).values())
+            if len(vals) >= MIN_PREFLIGHT:
+                hit[ind] = {"mean": round(statistics.mean(vals), I["dp"]), "sd": max(statistics.pstdev(vals), I["sd"]), "n": len(vals), "from": "preflight"}
+            else:
+                hit[ind] = {"mean": CREW_BY_ID[crew_id]["base"][ind], "sd": I["sd"], "n": len(vals), "from": "catalog"}
+        _baselines[key] = hit
+    return hit
+
+
+def thresholds_by_indicator() -> dict:
+    """Optional per-indicator override of the global thresholds: {"sleep": {"watch": 1.0, "act": 2.0}}. No screen yet."""
+    return db.get_setting("thresholds_by_indicator", {})
+
+
 def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last: Optional[Dict[str, int]] = None,
-              uv: Optional[dict] = None) -> dict:
-    th = th or thresholds()
+              uv: Optional[dict] = None, by_ind: Optional[dict] = None) -> dict:
+    th = {**(th or thresholds()), **(thresholds_by_indicator() if by_ind is None else by_ind).get(ind, {})}
     day = ms["day"]
     last = telemetry.last_user_day(crew_id, day) if last is None else last
     obs = telemetry.observation(crew_id, ind, day, uv)  # where today's value came from
     I = INDICATORS[ind]
-    base = CREW_BY_ID[crew_id]["base"][ind]
+    B = baselines(crew_id)[ind]
+    base, sd = B["mean"], B["sd"]
     if ind == "exer":  # the exercise plan changes with the place: compare with today's plan, not with pre-flight
         base = min(base, EXERCISE_BY_PLACE[ms["location"]][1])
-    v = telemetry.current(crew_id, ind, ms["day"])
-    z = (v - base) / I["sd"]
+    v = telemetry.current(crew_id, ind, day)
+    z = (v - base) / sd
     bad = -z if I["dir"] == "low" else z if I["dir"] == "high" else abs(z)
     level = 0 if ms["learning"] else 2 if bad >= th["act"] else 1 if bad >= th["watch"] else 0
+    # population range: the safety limit. A critical single reading today is level 2 even in learning;
+    # a recent value outside the normal range is at least level 1 (after launch).
+    pop = reference.check(ind, CREW_BY_ID[crew_id]["sex"], v)
+    if reference.check(ind, CREW_BY_ID[crew_id]["sex"], obs["value"])["status"] == "critical":
+        pop["status"] = "critical"
+    if pop["status"] == "critical":
+        level = 2
+    elif pop["status"] == "out" and not ms["learning"]:
+        level = max(level, 1)
     return {"id": ind, "name": I["name"], "unit": I["unit"], "area": I["area"], "facet": I.get("facet"),
-            "dp": I["dp"], "value": round(v, 2), "baseline": base, "delta": round(v - base, 2),
+            "dp": I["dp"], "value": round(v, 2), "baseline": round(base, 3), "delta": round(v - base, 2),
             "z": round(z, 2), "bad": round(bad, 2), "level": level,
             "source": f"telemetry:{crew_id}:{ind}:day{day}",
             "origin": obs["origin"], "last_measured_day": last.get(ind),
-            "age_days": day - last[ind] if ind in last else None}
+            "age_days": day - last[ind] if ind in last else None,
+            "spread": round(sd, 3), "baseline_from": B["from"], "baseline_n": B["n"], "population": pop}
 
 
 def indicators(crew_id: str, ms: dict) -> Dict[str, dict]:
     th = thresholds()
     last = telemetry.last_user_day(crew_id, ms["day"])
     uv = telemetry.user_values(crew_id, ms["day"], ms["day"])
-    return {i: indicator(crew_id, i, ms, th, last, uv) for i in INDICATORS}
+    by_ind = thresholds_by_indicator()
+    return {i: indicator(crew_id, i, ms, th, last, uv, by_ind) for i in INDICATORS}
 
 
 def latest_checkin(crew_id: str, kind: str, day: int, window: int = 7) -> Optional[dict]:
@@ -88,8 +135,8 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict]) -> Dict[str, dict]:
                 lv, note = 1, f"{d['pct_of_limit']}% of the career limit used."
         if sid == "immune" and not ms["learning"] and 152 <= ms["day"] <= 165:
             lv, note = max(lv, 1), "Blood count due after the radiation storm."
-        if ms["learning"]:
-            lv = 0
+        if ms["learning"]:  # nothing to watch yet, except a safety limit
+            lv = 2 if any(inds[i]["population"]["status"] == "critical" for i in S["indicators"]) else 0
         out[sid] = {"id": sid, "name": S["name"], "area": S["area"], "level": lv, "status": STATUS[lv],
                     "indicators": S["indicators"], "note": note}
     return out
@@ -103,10 +150,27 @@ def score(inds: Dict[str, dict], area: str, syss: Dict[str, dict]) -> int:
     return int(round(max(0, min(100, s))))
 
 
+def _indicator_alert(i: str, d: dict) -> dict:
+    """Alert for one indicator on its own: outside the personal normal, or past the population safety limit."""
+    sysid = next((k for k, s in SYSTEMS.items() if i in s["indicators"]), None)
+    p = d["population"]
+    critical = p["status"] == "critical"
+    why = f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}."
+    if p["status"] != "in" and (p["low"] is not None or p["high"] is not None):
+        lo = "no lower limit" if p["low"] is None else f"from {p['low']:g}"
+        hi = "no upper limit" if p["high"] is None else f"up to {p['high']:g}"
+        why += f" The usual adult range is {lo} {hi} {d['unit']}."
+    return {"id": f"ind_{i}", "level": d["level"], "sys": sysid,
+            "title": f"{d['name']} is past the safety limit." if critical else f"{d['name']} is outside your normal.",
+            "why": why,
+            "todo": TODO_BY_INDICATOR.get(i, ["Measure again in 1 hour", "If it stays, tell the medical officer"]),
+            "sources": [d["source"]], "goals": []}
+
+
 def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
     """Cross-signal rules first, then single indicators that are left. Each alert says what to do."""
-    if ms["learning"]:
-        return []
+    if ms["learning"]:  # no early warnings while Canary learns the baseline; a safety limit still speaks
+        return [_indicator_alert(i, d) for i, d in inds.items() if d["population"]["status"] == "critical"]
     A, used = [], set()
     lv = lambda i: inds[i]["level"]  # noqa: E731
     c = CREW_BY_ID[crew_id]
@@ -125,8 +189,8 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
         used.update(["sleep", "mood", "react", "stress", "social", "dsst", "span", "kss", "tlx"])
         A.append({"id": "behaviour", "level": 2, "sys": "brain", "test": "pvt",
                   "title": "Sleep, mood and focus are dropping together.",
-                  "why": (f"For two weeks you have slept {c['base']['sleep'] - inds['sleep']['value']:.1f} h less than your normal, "
-                          f"you react {inds['react']['value'] - c['base']['react']:.0f} ms slower and spend less time with the crew."),
+                  "why": (f"For two weeks you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
+                          f"you react {inds['react']['value'] - inds['react']['baseline']:.0f} ms slower and spend less time with the crew."),
                   "todo": ["Hand over any critical task today", "Retake the reaction test before any decision", "Follow the 3-night sleep plan"],
                   "sources": [inds[i]["source"] for i in ("sleep", "mood", "react")],
                   "goals": [{"id": "al_light", "area": "mental", "title": "Bright light on waking, amber light 2 h before bed"},
@@ -194,13 +258,8 @@ def alerts(crew_id: str, ms: dict, inds: Dict[str, dict]) -> List[dict]:
                   "sources": [f"goal:{crew_id}:mood:day{day}"], "goals": []})
 
     for i, d in inds.items():
-        if d["level"] and i not in used:
-            sysid = next((k for k, s in SYSTEMS.items() if i in s["indicators"]), None)
-            A.append({"id": f"ind_{i}", "level": d["level"], "sys": sysid,
-                      "title": f"{d['name']} is outside your normal.",
-                      "why": f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}.",
-                      "todo": TODO_BY_INDICATOR.get(i, ["Measure again in 1 hour", "If it stays, tell the medical officer"]),
-                      "sources": [d["source"]], "goals": []})
+        if d["level"] and (i not in used or d["population"]["status"] == "critical"):
+            A.append(_indicator_alert(i, d))
     return sorted(A, key=lambda a: -a["level"])
 
 

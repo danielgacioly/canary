@@ -52,6 +52,10 @@ class DatasetSource:
     def last_observation(self, crew_id: str, ind: str, day: int) -> Optional[dict]:
         return self._table().last(crew_id, ind, day)
 
+    def rows_between(self, crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, float]:
+        """Rows of the file (simulated or real) on days d0..d1, by day."""
+        return {d: v for (d, v, *_rest) in self._table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
+
     def value(self, crew_id: str, ind: str, day: int) -> float:
         t = self._table()
         o = t.last(crew_id, ind, day)
@@ -106,6 +110,26 @@ def last_user_day(crew_id: str, day: int) -> Dict[str, int]:
         for ind in inds:
             out[ind] = d
     return out
+
+
+def preflight_values(crew_id: str, ind: str) -> Dict[int, float]:
+    """Every measurement of `ind` on the plan's pre-flight days (Earth legs that end before launch), by day.
+
+    The file's rows, with the person's own check-ins of those days on top. Never the carried-forward value.
+    """
+    days = [(l["start"], min(l["end"], -1)) for l in plan.get()["legs"] if l["location"] == "earth" and l["start"] < 0]
+    out: Dict[int, float] = {}
+    for d0, d1 in days:
+        out.update(SOURCE.rows_between(crew_id, ind, d0, d1))  # type: ignore[attr-defined]
+        for d, inds in user_values(crew_id, d0, d1).items():
+            if ind in inds:
+                out[d] = inds[ind]["value"]
+    return out
+
+
+def preflight_checkins(crew_id: str) -> int:
+    """How many check-ins exist before launch: part of the baseline cache key."""
+    return db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id=? AND day<0", (crew_id,))[0]["n"]
 
 
 def overrides(crew_id: str, day: int) -> Dict[str, float]:
