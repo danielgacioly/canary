@@ -11,6 +11,7 @@
 from typing import Optional
 
 from .. import db
+from . import care
 from .catalog import CREW_BY_ID, LOCATIONS, SYSTEMS
 
 MEDICAL_OFFICER = "k"
@@ -43,7 +44,10 @@ LIMITING = {"sickness", "regravity", "amsler", "ind_hr", "ind_bp", "ind_spo2", "
 
 
 def operational(snap: dict) -> dict:
-    """Operational status: for the astronaut and the medical team only. Built from personal alerts; environment alerts are crew hazards."""
+    """Operational status: for the astronaut and the medical team only. Built from personal alerts; environment alerts are crew hazards.
+
+    Inside the care window of a closed emergency the status is at least the protocol's `ops`; the answer then says why
+    (`reason`) and on which day the restriction ends (`until_day`, the last restricted day)."""
     personal = [a for a in snap["alerts"] if not a.get("env")]
     if any(a["level"] == 2 for a in personal):
         key = "rest"
@@ -51,7 +55,15 @@ def operational(snap: dict) -> dict:
         key = "limited"
     else:
         key = "full"
-    return {"key": key, **OPS[key]}
+    out = {"key": key, **OPS[key]}
+    w = care.active(snap["crew_id"], snap["day"]) if snap.get("day") is not None else None
+    if w and care.LEVEL[w["ops"]] > 0:
+        if care.LEVEL[w["ops"]] > OPS[key]["level"]:
+            out = {"key": w["ops"], **OPS[w["ops"]]}
+        if care.LEVEL[w["ops"]] >= out["level"]:
+            out.update(reason=f"After Guided Response ({w['name']}) on day {w['day']}: {OPS[w['ops']]['label'].lower()} until day {w['until_day']}.",
+                       until_day=w["until_day"], care={k: w[k] for k in ("protocol", "name", "ops", "day", "until_day")})
+    return out
 
 
 def care_by(crew_id: str) -> str:

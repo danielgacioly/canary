@@ -9,7 +9,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from .. import db
-from . import plan, reference, risk, telemetry
+from . import care, plan, reference, risk, telemetry
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -66,6 +66,10 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
               uv: Optional[dict] = None, by_ind: Optional[dict] = None) -> dict:
     th = {**(th or thresholds()), **(thresholds_by_indicator() if by_ind is None else by_ind).get(ind, {})}
     day = ms["day"]
+    window = None if ms["learning"] else care.active(crew_id, day)  # inside the care window of a closed emergency: tighter, for this person only
+    if window:
+        f = care.sensitivity()["factor"]
+        th = {k: v * f for k, v in th.items()}
     last = telemetry.last_user_day(crew_id, day) if last is None else last
     obs = telemetry.observation(crew_id, ind, day, uv)  # where today's value came from
     I = INDICATORS[ind]
@@ -92,7 +96,8 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
             "source": f"telemetry:{crew_id}:{ind}:day{day}",
             "origin": obs["origin"], "last_measured_day": last.get(ind),
             "age_days": day - last[ind] if ind in last else None,
-            "spread": round(sd, 3), "baseline_from": B["from"], "baseline_n": B["n"], "population": pop}
+            "spread": round(sd, 3), "baseline_from": B["from"], "baseline_n": B["n"], "population": pop,
+            **({"sensitive_until": window["sensitive_until"]} if window else {})}
 
 
 def indicators(crew_id: str, ms: dict) -> Dict[str, dict]:
@@ -342,5 +347,5 @@ def snapshot(crew_id: str, ms: dict) -> dict:
         lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area])
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
     top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
-    return {"crew_id": crew_id, "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
+    return {"crew_id": crew_id, "day": ms["day"], "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
             "level": top, "status": STATUS[top], "dose": dose(ms)}
