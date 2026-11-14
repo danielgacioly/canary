@@ -26,7 +26,7 @@ from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tu
 from pydantic import ValidationError
 
 from ..domain.catalog import CREW
-from .contracts import (DATA_SOURCE_PREFIXES, FIXED_ACTIONS, AssistantResponse, Explanation, Observation,
+from .contracts import (PERSONAL_SOURCE_PREFIXES, FIXED_ACTIONS, AssistantResponse, Explanation, Observation,
                         ToolContext, is_data_source, is_knowledge_source, source_prefix)
 
 RULES_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "guard_rules.json"
@@ -253,7 +253,7 @@ class PostcheckResult(NamedTuple):
 
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
-_PERSONAL_PREFIXES = tuple(p for p in DATA_SOURCE_PREFIXES if p != "nasa")  # {prefix}:{crew}:...
+_PERSONAL_PREFIXES = PERSONAL_SOURCE_PREFIXES  # {prefix}:{crew}:...
 
 
 def _other_people(bound: str) -> List[Tuple[str, re.Pattern]]:

@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { CrewDetail, GoalsResponse, Suggestions } from '../api/types'
+import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
 import BodyView, { Blood } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
@@ -13,8 +13,8 @@ import { Icon, LineChart, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { useApi, useSession } from '../state/session'
 
-type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'settings'
-const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['suggestions', 'Suggestions'], ['patches', 'Patches'], ['dashboard', 'Dashboard'], ['settings', 'Settings']]
+type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'info' | 'settings'
+const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['suggestions', 'Suggestions'], ['patches', 'Patches'], ['dashboard', 'Dashboard'], ['info', 'My information'], ['settings', 'Settings']]
 
 export default function MySpace() {
   const { me } = useSession()
@@ -46,6 +46,7 @@ function Inside({ me }: { me: string }) {
       {tab === 'suggestions' && <SuggestionsTab me={me} />}
       {tab === 'patches' && <PatchesTab me={me} />}
       {tab === 'dashboard' && <DashboardTab d={d} me={me} />}
+      {tab === 'info' && <InfoTab me={me} />}
       {tab === 'settings' && <SettingsTab d={d} me={me} />}
       {check && <Check kind={check} onClose={() => setCheck(null)} />}
     </div>
@@ -151,7 +152,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
   const groups: [string, string[]][] = [
     ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
-    ['Physical', ['hr', 'bp', 'spo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
+    ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
   ]
   return (
     <>
@@ -166,6 +167,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
                 <figure key={k} className={`chart-card s${i.level}`}>
                   <figcaption><span className="dot" /><b>{i.name}</b><span className="num muted">{i.value.toFixed(i.dp)} {i.unit}</span></figcaption>
                   <LineChart series={[{ pts: d.trends[k], color: name === 'Mental' ? 'var(--mental)' : 'var(--physical)' }]} refY={i.baseline} refLabel="your normal" w={360} h={150} />
+                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text} · NASA-STD-3001 {i.standard.item}</p>}
                 </figure>
               )
             })}
@@ -187,6 +189,34 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
         <div style={{ maxWidth: 560 }}><Blood d={d} /></div>
       </section>
     </>
+  )
+}
+
+/* ---------------------------------------------------------------- my information: the record Mission Control registered */
+const SKIN: Record<string, string> = { I: 'Always burns, never tans', II: 'Burns easily, tans little', III: 'Sometimes burns, tans gradually', IV: 'Rarely burns, tans well', V: 'Very rarely burns', VI: 'Never burns' }
+function InfoTab({ me }: { me: string }) {
+  const { data: r } = useApi<PersonalRecord>(() => api.record(me), [me])
+  if (!r) return <Loading what="your information" />
+  const list = (x: string[]) => (x.length ? x.join(', ') : 'None')
+  const dob = new Date(`${r.dob}T00:00:00`).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+  const groups: [string, [string, string][]][] = [
+    ['Identity', [['Full name', r.name], ['Date of birth', dob], ['Age', `${r.age}`], ['Sex', r.sex], ['Nationality', r.nationality], ['Home', r.home], ['Languages', r.languages.join(', ')]]],
+    ['Body', [['Height', `${r.height_cm} cm`], ['Weight', `${r.weight_kg} kg`], ['Body mass index', `${r.bmi}`], ['Blood type', r.blood_type], ['Skin type', `${r.skin_type} (Fitzpatrick) · ${SKIN[r.skin_type] ?? ''}`], ['Dominant hand', r.handedness], ['Vision', r.vision]]],
+    ['Medical', [['Allergies', list(r.allergies)], ['Medications', list(r.medications)], ['Conditions', list(r.conditions)], ['Diet', r.diet], ['Vaccinations', r.vaccinations]]],
+    ['Mission', [['Role', r.role], ['Agency', r.agency], ['Previous flights', `${r.flights}`], ['Days in space before this mission', `${r.days_in_space}`], ['Emergency contact', r.emergency_contact]]],
+  ]
+  return (
+    <div className="info">
+      <p className="goals-summary rise">Registered by {r.registered_by} on {r.registered_on}<span className="dot-sep" />Only you and the medical team see it<span className="dot-sep" />To correct something, tell the flight surgeon</p>
+      <div className="info-grid">
+        {groups.map(([title, rows], i) => (
+          <section key={title} className="info-group rise" style={{ ['--d' as string]: i + 1 }}>
+            <h2>{title}</h2>
+            <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === 'Blood type' ? 'big' : ''}>{v}</dd></div>)}</dl>
+          </section>
+        ))}
+      </div>
+    </div>
   )
 }
 

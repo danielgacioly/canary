@@ -2,7 +2,7 @@
 
 Only what people do is stored here (check-ins, goals, messages, emergencies,
 briefings, settings). Sensor telemetry comes from a TelemetrySource
-(see domain/telemetry.py), which today is a deterministic simulator.
+(see domain/telemetry.py), which today reads the observation table (see domain/simdata.py).
 """
 import json
 import sqlite3
@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS briefings (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL, status TEXT NOT NULL,
   facts TEXT NOT NULL, text TEXT NOT NULL, mode TEXT NOT NULL, created_at REAL NOT NULL,
   sent_at REAL, deliver_at REAL);
+CREATE TABLE IF NOT EXISTS advice (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, goal_id TEXT NOT NULL, origin TEXT NOT NULL,
+  indicator TEXT NOT NULL, risk TEXT, start_day INTEGER NOT NULL, check_day INTEGER NOT NULL,
+  start_bad REAL NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS care_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, emergency_id INTEGER NOT NULL UNIQUE, crew_id TEXT NOT NULL, protocol TEXT NOT NULL,
+  outcome TEXT NOT NULL, from_day INTEGER NOT NULL, until_day INTEGER NOT NULL, ops TEXT NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS notices (
+  crew_id TEXT NOT NULL, alert_id TEXT NOT NULL, since_day INTEGER NOT NULL, day INTEGER NOT NULL, level INTEGER NOT NULL,
+  title TEXT NOT NULL, to_id TEXT NOT NULL, created_at REAL NOT NULL, PRIMARY KEY (crew_id, alert_id, since_day));
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
   response TEXT NOT NULL, created_at REAL NOT NULL,
@@ -64,6 +74,16 @@ def migrate(conn: sqlite3.Connection) -> None:
 
 _lock = threading.RLock()
 _conn: Optional[sqlite3.Connection] = None
+# Read cache. A health snapshot asks the same few questions (settings, the person's check-ins) tens of thousands of
+# times while it walks back through the days of a risk; the answers only change when something is written. Every
+# write goes through x(), reset() or a new connection, and each of them empties the cache, so a read never returns
+# data older than the last write. Rows are copied out, so a caller that edits a row cannot change the cache.
+_cache: dict = {}
+_CACHE_MAX = 50_000
+
+
+def _forget() -> None:
+    _cache.clear()
 
 
 def connect(path: Optional[str] = None) -> sqlite3.Connection:
@@ -75,12 +95,24 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             _conn.executescript(SCHEMA)
             migrate(_conn)
             _conn.commit()
+            _forget()
         return _conn
 
 
 def q(sql: str, args: tuple = ()) -> list:
     with _lock:
-        return [dict(r) for r in connect().execute(sql, args).fetchall()]
+        try:
+            key = (sql, tuple(args))
+            hit = _cache.get(key)
+        except TypeError:  # an argument that cannot be a key: read without the cache
+            key, hit = None, None
+        if hit is None:
+            hit = [dict(r) for r in connect().execute(sql, args).fetchall()]
+            if key is not None:
+                if len(_cache) >= _CACHE_MAX:
+                    _forget()
+                _cache[key] = hit
+        return [dict(r) for r in hit]
 
 
 def x(sql: str, args: tuple = ()) -> int:
@@ -88,6 +120,7 @@ def x(sql: str, args: tuple = ()) -> int:
         c = connect()
         cur = c.execute(sql, args)
         c.commit()
+        _forget()
         return cur.lastrowid
 
 
@@ -103,6 +136,7 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log"):
+        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "advice", "care_events", "notices"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
+        _forget()

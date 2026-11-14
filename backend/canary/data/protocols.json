@@ -76,6 +76,13 @@
     "Continuous heart monitoring for 24 h",
     "Someone at their side at all times",
     "Send the defibrillator trace to Earth"
+   ],
+   "window_days": 1,
+   "ops": "rest",
+   "after_days": [
+    1,
+    null,
+    null
    ]
   },
   "seizure": {
@@ -132,6 +139,14 @@
     "No critical task or spacewalk for 72 h",
     "Someone nearby for the next 24 h of sleep",
     "Blood count and a review of current medication"
+   ],
+   "window_days": 3,
+   "ops": "rest",
+   "after_days": [
+    1,
+    3,
+    1,
+    null
    ]
   },
   "choke": {
@@ -187,6 +202,12 @@
    "after": [
     "Abdominal exam by the medical officer",
     "Watch for cough and fever for 48 h"
+   ],
+   "window_days": 2,
+   "ops": "limited",
+   "after_days": [
+    null,
+    2
    ]
   },
   "chest": {
@@ -230,6 +251,12 @@
    "after": [
     "Full rest until the flight surgeon answers",
     "Repeat ECG at 1 h and 6 h"
+   ],
+   "window_days": 1,
+   "ops": "rest",
+   "after_days": [
+    null,
+    1
    ]
   },
   "allergy": {
@@ -273,6 +300,13 @@
     "Observation for 6 to 12 h",
     "Find and isolate the cause",
     "Restock the epinephrine used"
+   ],
+   "window_days": 1,
+   "ops": "limited",
+   "after_days": [
+    1,
+    null,
+    null
    ]
   },
   "bleed": {
@@ -311,6 +345,13 @@
     "Vital signs every 15 min for 1 h",
     "Blood count in 6 h",
     "Clean drops from air and surfaces"
+   ],
+   "window_days": 1,
+   "ops": "limited",
+   "after_days": [
+    1,
+    1,
+    null
    ]
   },
   "eye": {
@@ -343,6 +384,12 @@
    "after": [
     "Photo of the eye to Earth",
     "Amsler grid daily for a week"
+   ],
+   "window_days": 7,
+   "ops": "limited",
+   "after_days": [
+    null,
+    7
    ]
   },
   "crisis": {
@@ -384,6 +431,13 @@
     "Private conference with behavioural health",
     "Critical tasks reassigned for 48 h",
     "Mood check-in twice a day"
+   ],
+   "window_days": 2,
+   "ops": "rest",
+   "after_days": [
+    null,
+    2,
+    null
    ]
   },
   "rad": {
@@ -426,6 +480,13 @@
     "Blood count at 24 h and 7 days",
     "Dose added to career record",
     "Review this week’s outside plan"
+   ],
+   "window_days": 7,
+   "ops": "full",
+   "after_days": [
+    7,
+    null,
+    7
    ]
   },
   "triage": {
@@ -470,7 +531,15 @@
      "end": 1
     }
    ],
-   "after": []
+   "after": [],
+   "window_days": 0,
+   "ops": "full",
+   "after_days": []
   }
+ },
+ "care_note": {
+  "source": "prototype assumption",
+  "verified": false,
+  "note": "window_days, ops and after_days are read from the text of `after`, rounded up to whole days. Illustrative like the rest of this file: not clinically reviewed, to be replaced by flight-surgeon protocols."
  }
 }

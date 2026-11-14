@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 from .. import db
 from ..domain import goals, health, mission, protocols, selftests, telemetry
 from ..domain.catalog import INDICATORS, LOCATIONS, SYSTEMS
-from .contracts import SETTINGS_NEVER_RETURNED, ToolContext, ToolResult
+from .contracts import PERSONAL_SOURCE_PREFIXES, SETTINGS_NEVER_RETURNED, ToolContext, ToolResult
 from . import kb
 
 # ---------------------------------------------------------------- enums (from catalog / selftests / protocols)
@@ -41,7 +41,7 @@ MAX_QUERY_CHARS = 200
 MAX_CHECKIN_ROWS = 40
 
 # Source prefixes whose second segment is a crew id (schema.md §2). Used to enforce VISIBILITY on every result.
-_PERSONAL_PREFIXES = ("telemetry", "status", "goals", "checkin", "summary")
+_PERSONAL_PREFIXES = PERSONAL_SOURCE_PREFIXES
 _MISSION_KEYS = ("day", "location", "learning", "storm")
 
 
@@ -99,6 +99,21 @@ def explain_system(ctx: ToolContext, sys: str) -> ToolResult:
     data = {"system": S["name"], "status": snap["systems"][sys]["status"], "note": snap["systems"][sys]["note"],
             "space": S["space"], "indicators": inds}
     return ToolResult(data=data, sources=[f"card:{sys}"] + [i["source"] for i in inds])
+
+
+_RISK_INTERNAL = ("points", "floor")
+
+
+def get_risks(ctx: ToolContext) -> ToolResult:
+    """Each risk with its level, trend, the day it started, the evidence behind it, where its data comes from (`data`) and
+    the hazards that are possible factors. Read-only; the rules decide, not a model."""
+    ms = _ms(ctx)
+    risks = health.snapshot(ctx.crew_id, ms)["risks"]
+    # Scoring weights stay in the rules: the model gets the evidence, never the points behind a level.
+    risks = [{**r, "evidence": [{k: v for k, v in e.items() if k not in _RISK_INTERNAL} for e in r["evidence"]]} for r in risks]
+    srcs = [e["source"] for r in risks for e in r["evidence"]]
+    srcs += [f"card:risk:{r['id']}" for r in risks if r["level"]] + [f"card:hazard:{h}" for r in risks for h in r["hazards"]]
+    return ToolResult(data=risks, sources=list(dict.fromkeys(srcs)) or [f"risk:{ctx.crew_id}:day{ms['day']}"])
 
 
 def get_protocol(ctx: ToolContext, pid: str) -> ToolResult:
@@ -194,6 +209,13 @@ TOOLS: Dict[str, dict] = {
         "fn": explain_system,
         "description": "What spaceflight does to a body system, and that system's current status for the person.",
         "input_schema": _obj({"sys": {"type": "string", "enum": SYSTEM_IDS, "description": "Body system id."}}),
+    },
+    "get_risks": {
+        "fn": get_risks,
+        "description": ("Every risk for the person (behavioural health, radiation, vision, nutrition, kidneys, immunity, heart, bone and muscle) "
+                        "with level, trend, start day, evidence, data origin (real, partial or simulated), the NASA red-risk mark and the "
+                        "hazards that are possible factors, never proven causes."),
+        "input_schema": _obj({}),
     },
     "get_protocol": {
         "fn": get_protocol,
@@ -376,6 +398,8 @@ def route(crew_id: str, question: str, ctx: Optional[ToolContext] = None) -> Lis
             calls.append(("get_protocol", {"pid": pid}))
     if re.search(r"what (should|do) i do|what now|today|how am i|status|overall", q) or not calls:
         calls.insert(0, ("get_status", {}))
+    if re.search(r"risk|fatigue|exhaust|burn ?out|worn out|radiation|vision|sans|nutrition|kidney|immun|heart|cardio|bone|muscle|hazard|ridge|why", q):
+        calls.append(("get_risks", {}))
     if re.search(r"goal|task|plan", q):
         calls.append(("list_goals", {}))
     out, seen = [], set()

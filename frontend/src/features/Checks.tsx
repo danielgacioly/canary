@@ -43,7 +43,7 @@ function useSubmit(onClose: () => void) {
   return async (kind: CheckKind, payload: Record<string, unknown>, msg?: string) => {
     if (!me) return
     const r = await api.checkin(me, kind, payload)
-    bump(); toast(msg ?? `Saved: ${r.summary}${r.goal ? ' · goal done' : ''}`); onClose()
+    bump(); toast(`${msg ?? `Saved: ${r.summary}${r.goal ? ' · goal done' : ''}`}${r.conclusion ? ` ${r.conclusion.text}` : ''}`); onClose()
   }
 }
 

@@ -16,6 +16,16 @@ from ...domain.catalog import INDICATORS, LOCATIONS, SYSTEMS
 
 DATA = pathlib.Path(__file__).resolve().parents[2] / "data"
 PLACES = tuple(LOCATIONS)  # earth, rocket, iss, moon, transit, mars
+
+
+def _slug(place: str) -> str:
+    """Place id as it may appear in a kb source id (`moon_rover` -> `moon-rover`; KB_SOURCE_RE has no underscores)."""
+    return place.replace("_", "-")
+
+
+def _uses(place: str, key: str) -> bool:
+    """True when a variant keyed `key` (a place) applies at `place`: the place itself, or a rover on that body."""
+    return place == key or LOCATIONS[place].get("body") == key
 GRAVITY_KEYS = ("g0", "gp", "g1")
 GRAVITY_LABEL = {"g0": "0 g (zero gravity)", "gp": "partial gravity (Moon, Mars)", "g1": "1 g (Earth gravity)"}
 # Bump when the chunking rules change, so the corpus hash changes with them.
@@ -94,12 +104,15 @@ def _protocols(m: dict) -> List[Document]:
             for key in sorted(v):
                 if key in GRAVITY_KEYS:
                     # A place-specific variant of the same step wins over the gravity one there (protocols.resolve).
-                    overridden = sorted(pl for pl in PLACES if LOCATIONS[pl]["gravity_key"] == key and pl in v)
+                    # A rover also uses its planet's variant (protocols.resolve: place, then body, then gravity).
+                    overridden = sorted(pl for pl in PLACES if LOCATIONS[pl]["gravity_key"] == key
+                                        and (pl in v or LOCATIONS[pl].get("body") in v))
                     chunks.append(ChunkSpec(f"s{n}-{key}", "variant", f"{head}, step {n}, in {GRAVITY_LABEL[key]}",
                                             v[key], gravity=key, not_in=overridden))
                 elif key in LOCATIONS:
-                    chunks.append(ChunkSpec(f"s{n}-{key}", "variant", f"{head}, step {n}, {LOCATIONS[key]['name']}",
-                                            v[key], gravity=LOCATIONS[key]["gravity_key"], location=key))
+                    for pl in (x for x in PLACES if _uses(x, key) and (x == key or x not in v)):
+                        chunks.append(ChunkSpec(f"s{n}-{_slug(pl)}", "variant", f"{head}, step {n}, {LOCATIONS[pl]['name']}",
+                                                v[key], gravity=LOCATIONS[pl]["gravity_key"], location=pl))
                 else:
                     raise ValueError(f"protocol {pid} step {n}: unknown variant key {key!r}")
         if p["after"]:
@@ -128,7 +141,7 @@ def _cards(m: dict) -> List[Document]:
 def _places(m: dict) -> List[Document]:
     out = []
     for pl, p in LOCATIONS.items():
-        doc_id = f"LOC-{pl.upper()}"
+        doc_id = f"LOC-{_slug(pl).upper()}"
         reply = "live" if p["reply"] == "Live" else f"in {p['reply']}"
         text = (f"{p['name']} ({p['sub']}). Gravity: {p['gravity']}. Earth replies {reply}; "
                 f"nearest hospital: {p['hospital'].lower()}. Background radiation: about {p['dose_rate']} mSv a day. "
@@ -162,17 +175,21 @@ def _hazards(m: dict) -> List[Document]:
         chunks = [ChunkSpec("summary", "summary", h["name"], f"{h['name']}: {h['what']} Body systems it affects: {names}.",
                             keywords=m["keywords"].get(doc_id, ""))]
         for pl in PLACES:
-            lv = privacy.RIDGE_LEVEL[pl][h["id"]]
-            text = f"{h['name']} at {LOCATIONS[pl]['name']}: {privacy.LEVEL_LABEL[lv].lower()}. {privacy._here(h['id'], pl)}."
+            # Place-only level (no mission day, no storm): the live level also moves with the plan (privacy.ridge).
+            lv, basis = privacy._level(h["id"], pl, None, None)
+            text = (f"{h['name']} at {LOCATIONS[pl]['name']}: {privacy.LEVEL_LABEL[lv].lower()} for the place alone ({basis}). "
+                    f"{privacy._here(h['id'], pl)}.")
             if h["id"] == "R" and pl != "earth":
                 text += " A solar storm raises it to high."
+            if h["id"] in ("I", "G"):
+                text += " The live level also depends on the mission day and the last change of gravity."
             g = privacy.HAZARD_BY_GRAVITY.get(LOCATIONS[pl]["gravity_key"]) if h["id"] == "G" else None
             if g:
                 text += f" {g[0]}: {g[1]}"
-            chunks.append(ChunkSpec(pl, "place", f"{h['name']}, {LOCATIONS[pl]['name']}", text,
+            chunks.append(ChunkSpec(_slug(pl), "place", f"{h['name']}, {LOCATIONS[pl]['name']}", text,
                                     gravity=LOCATIONS[pl]["gravity_key"], location=pl))
         out.append(Document(doc_id, _version(m, doc_id), "hazard", h["name"], "", "illustrative",
-                            "privacy.RIDGE, privacy.RIDGE_LEVEL, privacy.HAZARD_BY_GRAVITY; NASA HRP hazards", chunks))
+                            "privacy.RIDGE, privacy.RIDGE_CUTS (levels from the plan), privacy.HAZARD_BY_GRAVITY; NASA HRP hazards", chunks))
     return out
 
 

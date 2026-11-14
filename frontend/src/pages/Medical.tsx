@@ -65,10 +65,16 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           <span className="small muted">{c.role}</span>
           <div className="ops-line"><span className="lbl">Operational status</span>
             <span className={`status s${c.ops.level}`}><span className="dot" />{c.ops.label}</span></div>
+          {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
           {!!turnsOf(c.id).length && <span className="small dim">Assistant: {turnsOf(c.id).length} recent · {turnsOf(c.id).filter(t => t.guard_flags.length).length} flagged</span>}
           <div className="row small"><span style={{ color: 'var(--physical)' }}>Physical {c.areas.physical.score}</span><span style={{ color: 'var(--mental)' }}>Mental {c.areas.mental.score}</span></div>
           {c.alerts.slice(0, 3).map(a => <span key={a.id} className={`small s${a.level} c`}>● {a.title}</span>)}
         </div>))}</div>
+      {ov.notices.length > 0 && <section className="card">
+        <div className="head"><h2>Critical alerts sent</h2><span className="small muted">once per episode · to the medical officer, or the substitute</span></div>
+        {ov.notices.map(n => <div key={`${n.crew_id}${n.alert_id}${n.since_day}`} className="small">
+          <b>{n.name}</b> · {n.title} <span className="muted">since day {n.since_day} · sent day {n.day} to {n.to_name}</span></div>)}
+      </section>}
       <section className="card">
         <div className="head"><h2>Every indicator, every person</h2><span className="small muted">value · deviation from own baseline (σ)</span></div>
         <div className="scroll"><table className="t">
@@ -193,10 +199,10 @@ function Messages() {
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   return (
     <div className="grid g2">
-      <form className="card col" onSubmit={async e => { e.preventDefault(); await api.send('flight surgeon', to, text); setText(''); bump() }}>
-        <h2>Message the crew</h2><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
+      <form className="card col" onSubmit={async e => { e.preventDefault(); await api.send(to === 'mission-control' ? 'ship medical team' : 'flight surgeon', to, text); setText(''); bump() }}>
+        <h2>Messages</h2><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
         <select value={to} onChange={e => setTo(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }}>
-          <option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+          <option value="mission-control">Mission Control (Earth)</option><option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <textarea required rows={4} value={text} onChange={e => setText(e.target.value)} style={{ padding: 10, borderRadius: 9, border: '1px solid var(--line-2)', background: 'var(--bg)' }} />
         <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={!text.trim()}><Icon name="send" size={15} />Send</button>
         <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>

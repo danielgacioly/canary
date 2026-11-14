@@ -55,12 +55,19 @@ Every fact the assistant may state carries a source id. The guard only accepts i
 | `protocol` | `protocol:{pid}` | `protocol:seizure` | `tools.get_protocol` (`protocols.resolve`) | existing, legacy alias of `kb:PROTO-*` (still returned) |
 | `kb` | `kb:{doc_id}@{version}#{chunk}` | `kb:PROTO-NEURO-001@1#s2` | `tools.search_knowledge` | **new** |
 | `summary` | `summary:{crew}:day{n}:7d` | `summary:h:day147:7d` | `tools.get_weekly_summary` | **new** |
+| `risk` | `risk:{crew}:day{n}` | `risk:h:day147` | `tools.get_risks` (no evidence) | from `main` (risk layer) |
+| `goal` | `goal:{crew}:mood:day{n}` | `goal:h:mood:day147` | `risk.py` / `health.py` (mood log missing) | from `main`; not an action id (`goal:{goal_id}` in §6 has no crew segment) |
+| `dose` | `dose:day{n}` | `dose:day147` | `risk.py` (mission dose, same for everyone) | from `main` |
+| `recipe` | `recipe:{indicator}` | `recipe:urine_volume` | `telemetry` (simulated observation) | from `main` |
+| `emergency` | `emergency:{id}` | `emergency:3` | `care.py` (care window after Guided Response) | from `main` |
+| `card` (risk, hazard) | `card:risk:{risk}`, `card:hazard:{R,I,D,G,E}` | `card:risk:fatigue` | `tools.get_risks` (`knowledge.risk_cards`, `hazard_cards`) | from `main`; knowledge, not in `kb.db` |
 
 Rules:
 
 - `kb:` ids are always versioned (`@1`), so an audit can tell which protocol text an answer used.
 - `card:` and `protocol:` stay valid as aliases of the matching `kb:` document (`kb_map.json` `legacy`): `explain_system` and `get_protocol` still return them, the guard accepts them in `explanations`, and `source_meta` covers only `kb:` ids.
 - An id the model writes that no tool returned is dropped, and the claim with it.
+- `contracts.PERSONAL_SOURCE_PREFIXES` (`telemetry`, `status`, `goals`, `checkin`, `summary`, `risk`, `goal`) carry the crew id second: a result or claim with another person's id is withheld.
 - `checkin` kinds are the 13 tests and logs of `domain/selftests.TESTS`: `pvt`, `dsst`, `span`, `mood`, `kss`, `tlx`, `wellbeing`, `vitals`, `amsler`, `symptoms`, `sleep`, `reading`, `journal`. A journal check-in stores only a line count, never the text. Alerts `wellbeing`, `sleepy` (KSS ≥ 7) and `symptoms` (severity ≥ 3) cite `checkin:` ids (`domain/health.py`).
 - Knowledge document ids (§3) are `PROTO-*`, `CARD-*`, `LOC-*`, `NASA-*`, `HAZARD-{R,I,D,G,E}`, `PRIVACY-CONTRACT` and `TEST-{id}` (e.g. `kb:TEST-KSS@1#summary`).
 
@@ -119,7 +126,7 @@ erDiagram
 | System card | `CARD-{SYSTEM}` | `catalog.SYSTEMS` | `brain` → `CARD-BRAIN` |
 | Place | `LOC-{PLACE}` | `catalog.LOCATIONS` | `mars` → `LOC-MARS` |
 | NASA source | `NASA-{DATASET}` | `domain/nasa` sources | `NASA-DONKI` |
-| Hazard | `HAZARD-{R,I,D,G,E}` | `privacy.RIDGE` + `RIDGE_LEVEL`, `privacy.HAZARD_BY_GRAVITY` | `G` → `HAZARD-G` (Gravity) |
+| Hazard | `HAZARD-{R,I,D,G,E}` | `privacy.RIDGE` + place-only level from `privacy._level` (`RIDGE_CUTS`), `privacy.HAZARD_BY_GRAVITY` | `G` → `HAZARD-G` (Gravity) |
 | Privacy contract | `PRIVACY-CONTRACT` | `privacy.CONTRACT` (who sees what) and the `privacy.py` docstring | `PRIVACY-CONTRACT` |
 | Self-test | `TEST-{ID}` | `selftests.TESTS` (one per test or log; scales KSS, NASA-TLX, PHQ-2 / GAD-2) | `kss` → `TEST-KSS` |
 

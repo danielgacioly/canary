@@ -8,7 +8,7 @@ before anyone sees it.
 - chat.py        entry 1: ask(crew_id, question, viewer) -> precheck, provider loop, postcheck, log
 - briefing.py    entry 2: weekly briefing; the model rewrites computed facts as a BriefingDraft
 - suggestions.py entry 3: rule-written suggestions; a model may only rephrase each reason
-- tools.py       8 strict tools bound to the signed-in viewer (ToolContext); route() picks them by rule
+- tools.py       9 strict tools bound to the signed-in viewer (ToolContext); route() picks them by rule
 - guard.py       precheck (emergency, diagnosis, dose, injection) and postcheck (sources, numbers, wording,
                  action allow-list, other people's health), rule bank in data/guard_rules.json
 - kb/            knowledge base in kb.db (`make index`): hybrid BM25 + vectors, BM25 only offline

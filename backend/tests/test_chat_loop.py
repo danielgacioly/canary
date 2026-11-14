@@ -501,3 +501,18 @@ def test_gemini_http_errors_do_not_expose_response_body(code, reason):
             providers.ProviderRequest(task="suggestions", system="s", question="[]"))
     assert not out.ok and out.guard_exit == reason
     assert "secret-key-and-data" not in out.error
+
+
+def test_get_risks_sources_pass_the_guard_in_ai_mode(monkeypatch):
+    """Merge of main's risk layer: risk evidence ids are data sources, hazard cards are knowledge."""
+    r = tools.run_tool(ctx(), "get_risks", {})
+    fat = next(k for k in r.data if k["id"] == "fatigue")
+    ev = next(e for e in fat["evidence"] if e["source"].startswith("telemetry:"))
+    hz = [s for s in r.sources if s.startswith("card:hazard:")]
+    assert fat["level"] and hz and all("points" not in e for e in fat["evidence"])
+    ans = response("Your fatigue risk is raised.", observations=[(ev["text"].capitalize() + ".", [ev["source"]])],
+                   explanations=[("Isolation may be a possible factor, not a proven cause.", hz[:1])],
+                   limitations=["The data does not show the cause."])
+    _, out = ask(monkeypatch, [tool_use(("get_risks", {})), final(ans)], question="Why is my fatigue risk up?")
+    assert out["mode"] == "ai" and out["guard"]["reason"] is None, out["guard"]
+    assert out["observations"][0]["source_ids"] == [ev["source"]] and out["explanations"]

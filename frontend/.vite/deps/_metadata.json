@@ -1,0 +1,94 @@
+{
+  "hash": "d69b9c3b",
+  "configHash": "417eaacf",
+  "lockfileHash": "6f57f7a6",
+  "browserHash": "575afd5f",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "60896b52",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "d4969da1",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "98de88b5",
+      "needsInterop": true
+    },
+    "react-router-dom": {
+      "src": "../../node_modules/react-router-dom/dist/index.js",
+      "file": "react-router-dom.js",
+      "fileHash": "3a2eb028",
+      "needsInterop": false
+    },
+    "three": {
+      "src": "../../node_modules/three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "1cf55b20",
+      "needsInterop": false
+    },
+    "three/examples/jsm/loaders/GLTFLoader.js": {
+      "src": "../../node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+      "file": "three_examples_jsm_loaders_GLTFLoader__js.js",
+      "fileHash": "1ebf3370",
+      "needsInterop": false
+    },
+    "three/examples/jsm/controls/OrbitControls.js": {
+      "src": "../../node_modules/three/examples/jsm/controls/OrbitControls.js",
+      "file": "three_examples_jsm_controls_OrbitControls__js.js",
+      "fileHash": "79d462eb",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/EffectComposer.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/EffectComposer.js",
+      "file": "three_examples_jsm_postprocessing_EffectComposer__js.js",
+      "fileHash": "b3d708ba",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/RenderPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/RenderPass.js",
+      "file": "three_examples_jsm_postprocessing_RenderPass__js.js",
+      "fileHash": "4a53d459",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/UnrealBloomPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js",
+      "file": "three_examples_jsm_postprocessing_UnrealBloomPass__js.js",
+      "fileHash": "b5bac274",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/OutputPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/OutputPass.js",
+      "file": "three_examples_jsm_postprocessing_OutputPass__js.js",
+      "fileHash": "e3661c48",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-HCGKX5ED": {
+      "file": "chunk-HCGKX5ED.js"
+    },
+    "chunk-WNPTCGAH": {
+      "file": "chunk-WNPTCGAH.js"
+    },
+    "chunk-YZ7RHIIL": {
+      "file": "chunk-YZ7RHIIL.js"
+    },
+    "chunk-3CK76CR2": {
+      "file": "chunk-3CK76CR2.js"
+    },
+    "chunk-Z7OYAWFU": {
+      "file": "chunk-Z7OYAWFU.js"
+    },
+    "chunk-5WRI5ZAA": {
+      "file": "chunk-5WRI5ZAA.js"
+    }
+  }
+}

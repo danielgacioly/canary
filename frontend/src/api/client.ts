@@ -1,10 +1,12 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantAuditEntry, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  Leaderboard, Leg, MedGoal, MedicalOverview, Message, Mission, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
+  ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
+// Mission Control (Canary Control) session: a separate token from a separate PIN.
+let controlToken: string | null = sessionStorageGet('canary.ctl')
 // Session token of whoever entered their private space on this terminal (from the 4-digit PIN sign-in).
 let viewerToken: string | null = sessionStorageGet('canary.viewer')
 
@@ -28,6 +30,7 @@ function sessionLost(path: string, status: number, token: string): boolean {
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (medicalToken) headers.Authorization = `Bearer ${medicalToken}`
+  if (controlToken) headers['X-Canary-Control'] = controlToken
   const sent = viewerToken
   if (sent) headers['X-Canary-Viewer'] = sent
   const r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
@@ -82,8 +85,9 @@ export const api = {
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
   checkin: (crew_id: string, kind: string, payload: Record<string, unknown>) =>
-    req<{ ok: boolean; summary: string; goal: string | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
+    req<{ ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload }) }),
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
+  record: (crew_id: string) => req<PersonalRecord>(`/crew/${crew_id}/record`),
   suggestions: (crew_id: string) => req<Suggestions>(`/suggestions/${crew_id}`),
   acceptSuggestion: (crew_id: string, sid: string) => req<Suggestions>(`/suggestions/${crew_id}/${sid}/accept`, { method: 'POST' }),
 
@@ -116,6 +120,19 @@ export const api = {
     try { sessionStorage.removeItem('canary.med') } catch { /* private mode */ }
   },
   isMedical: () => medicalToken !== null,
+
+  missionOverview: () => req<MissionOverview>('/mission/overview'),
+  controlSignIn: async (pin: string) => {
+    const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body({ pin }) })
+    controlToken = r.token
+    try { sessionStorage.setItem('canary.ctl', r.token) } catch { /* private mode */ }
+  },
+  controlSignOut: () => { controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
+  isControl: () => controlToken !== null,
+  controlOverview: () => req<ControlOverview>('/control/overview'),
+  controlDemo: () => req<{ crew: SeatForm[]; mission: MissionForm; presets: Record<string, string> }>('/control/demo'),
+  controlRegister: (crew: SeatForm[], mission: MissionForm) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission }) }),
+  controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),
   assistantAudit: (limit = 30) => req<AssistantAuditEntry[]>(`/medical/assistant-audit?limit=${limit}`),

@@ -15,7 +15,7 @@ from canary.assistant.kb import build as B
 from canary.assistant.kb import corpus, hybrid
 from canary.assistant.kb.embed import DIMS, NullEmbedder
 from canary.config import settings
-from canary.domain import protocols, selftests
+from canary.domain import nasa, protocols, selftests
 from canary.domain.catalog import LOCATIONS, SYSTEMS
 
 
@@ -73,11 +73,11 @@ def test_build_writes_every_table_and_kind(kb_path):
     meta = dict(rows(kb_path, "SELECT key, value FROM kb_meta"))
     assert meta["embedder"] == "none" and meta["dims"] == "0" and len(meta["corpus_hash"]) == 64
     kinds = dict(rows(kb_path, "SELECT kind, COUNT(*) FROM kb_documents GROUP BY kind"))
-    assert kinds == {"protocol": len(protocols.order()), "system_card": len(SYSTEMS), "location": 6,
-                     "nasa_source": 4, "hazard": 5, "privacy": 1, "self_test": len(selftests.TESTS)}
+    assert kinds == {"protocol": len(protocols.order()), "system_card": len(SYSTEMS), "location": len(LOCATIONS),
+                     "nasa_source": sum(x["id"].startswith("nasa:") for x in nasa.SOURCES), "hazard": 5, "privacy": 1, "self_test": len(selftests.TESTS)}
     docs = {r[0] for r in rows(kb_path, "SELECT doc_id FROM kb_documents")}
     assert {f"HAZARD-{h}" for h in "RIDGE"} <= docs
-    assert {f"LOC-{p.upper()}" for p in LOCATIONS} <= docs
+    assert {f"LOC-{p.replace('_', '-').upper()}" for p in LOCATIONS} <= docs
     assert {"PRIVACY-CONTRACT", "TEST-KSS", "TEST-TLX", "TEST-WELLBEING", "PROTO-NEURO-001", "CARD-EYES"} <= docs
 
 
@@ -96,7 +96,9 @@ def test_chunks_follow_the_protocol_bank(kb_path):
         doc = corpus.load_map()["protocols"][pid]
         sections = [r[0] for r in rows(kb_path, "SELECT section FROM kb_chunks WHERE doc_id = ?", (doc,))]
         assert sections.count("summary") == 1 and sections.count("step") == len(p["steps"])
-        assert sections.count("variant") == sum(len(st.get("v") or {}) for st in p["steps"])
+        # A place variant is also indexed for each rover on that body that has no variant of its own.
+        per_key = lambda v, k: 1 if k not in LOCATIONS else sum(corpus._uses(pl, k) and (pl == k or pl not in v) for pl in LOCATIONS)  # noqa: E731
+        assert sections.count("variant") == sum(per_key(st.get("v") or {}, k) for st in p["steps"] for k in (st.get("v") or {}))
 
 
 def test_kb_map_covers_every_legacy_id(kb_path):

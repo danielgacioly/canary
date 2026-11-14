@@ -26,6 +26,7 @@ VALID_ARGS = {
     "list_goals": {},
     "get_checkins": {"kind": "any", "days": 14},
     "get_weekly_summary": {},
+    "get_risks": {},
     "search_knowledge": {"query": "why is my sleep worse", "kind": "any", "k": 4},
 }
 
@@ -138,7 +139,7 @@ def test_no_result_reaches_another_person(cid, medical):
         assert r.ok, (name, r.error)
         for s in r.sources:
             parts = s.split(":")
-            if parts[0] in ("telemetry", "status", "goals", "checkin", "summary"):
+            if parts[0] in C.PERSONAL_SOURCE_PREFIXES:
                 assert parts[1] == cid, (name, s)
         blob = json.dumps(r.data)
         for o in others:

@@ -25,16 +25,33 @@ LOCATIONS: Dict[str, dict] = {
     "mars": {"name": "Mars", "sub": "Gale crater", "gravity_key": "gp", "gravity": "3/8 g",
              "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
              "what": "Your body is relearning weight after months in 0 g. Stand up slowly."},
+    "moon_rover": {"name": "Lunar rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "1/6 g",
+                   "delay_s": 1.3, "reply": "3 seconds", "hospital": "About 3 days", "dose_rate": 1.37,
+                   "what": "Days away from the base in a small cabin. Every walk outside is a surface EVA."},
+    "mars_rover": {"name": "Mars rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "3/8 g",
+                   "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
+                   "what": "Far from the habitat's gym and medical bay. Canary guides first; the base is hours away."},
 }
-DOSE_SOURCE = "Typical daily dose by place from published ISS, Apollo, MSL cruise and Curiosity RAD figures; to be verified."
-CAREER_LIMIT_MSV = 600  # NASA career limit, NASA-STD-3001 (2022). To be verified before quoting.
+# The body a place belongs to (a rover counts sols and uses the protocols of its planet) and the kind of EVA done there,
+# which sets the aerobic-capacity limit of NASA-STD-3001 (V1 4001 microgravity, V1 4002 surface).
+for _k, _body, _eva in (("earth", "earth", "none"), ("rocket", "space", "none"), ("iss", "space", "microgravity"),
+                        ("transit", "space", "microgravity"), ("moon", "moon", "surface"), ("mars", "mars", "surface"),
+                        ("moon_rover", "moon", "surface"), ("mars_rover", "mars", "surface")):
+    LOCATIONS[_k].update(body=_body, eva=_eva)
+DOSE_SOURCE = ("Typical daily dose by place from published ISS, Apollo, MSL cruise and Curiosity RAD figures; to be verified. "
+               "A pressurized rover is given the dose of its planet's surface (prototype assumption: no rover shielding figure used).")
+# NASA-STD-3001 Volume 1 Rev. C (2023), checked against the document on 2026-11-14:
+# [V1 4030] career effective dose below 600 mSv, the same for all ages and sexes; [V1 4031] the design solar particle
+# event below 250 mSv effective dose. https://www.nasa.gov/wp-content/uploads/2023/11/nasa-std-3001-vol-1-rev-c-with-signature.pdf
+CAREER_LIMIT_MSV = 600
+SPE_LIMIT_MSV = 250
 
 
 def day_label(day: int, location: str, leg_start: int = 0) -> str:
-    """L-30 before launch, Sol N on Mars (counted from landing), Day N otherwise."""
+    """L-30 before launch, Sol N on Mars (counted from landing, rover traverses included), Day N otherwise."""
     if day < 0:
         return f"L{day}"
-    if location == "mars":
+    if LOCATIONS.get(location, {}).get("body") == "mars":
         return f"Sol {day - leg_start}"
     return f"Day {day}"
 
@@ -42,23 +59,54 @@ def day_label(day: int, location: str, leg_start: int = 0) -> str:
 # ---------------------------------------------------------------- crew (fictional)
 CREW: List[dict] = [
     {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
-     "cbc_subject": "C001", "age": 46,
+     "cbc_subject": "C002", "age": 46, "sex": "F",
      "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
-              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0}},
+              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40, "vo2": 38.5}},
     {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
-     "cbc_subject": "C002", "age": 41,
+     "cbc_subject": "C001", "age": 41, "sex": "M",
      "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
-              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0}},
+              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45, "vo2": 41.0}},
     {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
-     "cbc_subject": "C003", "age": 38,
+     "cbc_subject": "C003", "age": 38, "sex": "F",
      "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
-              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0}},
+              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38, "vo2": 44.0}},
     {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
-     "cbc_subject": "C004", "age": 44,
+     "cbc_subject": "C004", "age": 44, "sex": "M",
      "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
-              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0}},
+              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48, "vo2": 39.5}},
 ]
 CREW_BY_ID = {c["id"]: c for c in CREW}
+
+# ---------------------------------------------------------------- personal records
+# Registered by Mission Control before flight (the future admin flow). Fictional people.
+# Private: the astronaut and the medical team. Ages follow the mission clock from LAUNCH_DATE.
+LAUNCH_DATE = "2035-06-01"
+RECORDS: Dict[str, dict] = {
+    "h": {"dob": "1988-09-14", "sex": "Female", "nationality": "Brazilian", "languages": ["Portuguese", "English", "Spanish"],
+          "agency": "Brazilian Space Agency (AEB)", "flights": 2, "days_in_space": 214,
+          "height_cm": 168, "weight_kg": 61.5, "blood_type": "O−", "skin_type": "III", "handedness": "Right",
+          "vision": "No correction", "allergies": ["Penicillin"], "medications": [], "conditions": [],
+          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
+          "eva": "surface", "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
+    "k": {"dob": "1993-11-02", "sex": "Male", "nationality": "Japanese", "languages": ["Japanese", "English"],
+          "agency": "Japan Aerospace Exploration Agency (JAXA)", "flights": 1, "days_in_space": 181,
+          "height_cm": 174, "weight_kg": 70.2, "blood_type": "A+", "skin_type": "III", "handedness": "Left",
+          "vision": "Glasses for reading", "allergies": [], "medications": [], "conditions": [],
+          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
+          "eva": "none", "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
+    "a": {"dob": "1997-02-20", "sex": "Female", "nationality": "Nigerian", "languages": ["English", "Yoruba", "French"],
+          "agency": "European Space Agency (ESA)", "flights": 0, "days_in_space": 0,
+          "height_cm": 171, "weight_kg": 64.0, "blood_type": "B+", "skin_type": "VI", "handedness": "Right",
+          "vision": "No correction", "allergies": ["Peanuts"], "medications": [], "conditions": [],
+          "diet": "No peanuts", "vaccinations": "Up to date (checked L-90)",
+          "eva": "surface", "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
+    "t": {"dob": "1990-12-05", "sex": "Male", "nationality": "Chilean", "languages": ["Spanish", "English"],
+          "agency": "NASA (international partner seat)", "flights": 1, "days_in_space": 12,
+          "height_cm": 182, "weight_kg": 81.4, "blood_type": "O+", "skin_type": "IV", "handedness": "Right",
+          "vision": "Contact lenses", "allergies": [], "medications": ["Antihistamine as needed (seasonal)"], "conditions": ["Seasonal allergic rhinitis"],
+          "diet": "Vegetarian", "vaccinations": "Up to date (checked L-90)",
+          "eva": "surface", "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
+}
 
 # ---------------------------------------------------------------- indicators
 # dir: which way is bad. sd: personal day-to-day spread used for the z-score.
@@ -68,6 +116,10 @@ INDICATORS: Dict[str, dict] = {
     "mood": {"name": "Mood", "unit": "/5", "area": "mental", "facet": "Mood", "dir": "low", "sd": 0.35, "dp": 1},
     "stress": {"name": "Stress", "unit": "/5", "area": "mental", "facet": "Stress", "dir": "high", "sd": 0.4, "dp": 1},
     "social": {"name": "Time with crew", "unit": "min", "area": "mental", "facet": "Connection", "dir": "low", "sd": 15, "dp": 0},
+    "dsst": {"name": "Processing speed", "unit": "correct", "area": "mental", "facet": "Speed", "dir": "low", "sd": 4, "dp": 0},
+    "span": {"name": "Working memory", "unit": "digits", "area": "mental", "facet": "Memory", "dir": "low", "sd": 0.5, "dp": 1},
+    "kss": {"name": "Sleepiness", "unit": "/9", "area": "mental", "facet": "Alertness", "dir": "high", "sd": 0.5, "dp": 1},
+    "tlx": {"name": "Workload", "unit": "/100", "area": "mental", "facet": "Workload", "dir": "high", "sd": 6, "dp": 0},
     "hr": {"name": "Resting pulse", "unit": "bpm", "area": "physical", "dir": "both", "sd": 3, "dp": 0},
     "bp": {"name": "Blood pressure", "unit": "mmHg", "area": "physical", "dir": "both", "sd": 5, "dp": 0},
     "spo2": {"name": "Blood oxygen", "unit": "%", "area": "physical", "dir": "low", "sd": 0.7, "dp": 0},
@@ -77,17 +129,30 @@ INDICATORS: Dict[str, dict] = {
     "exer": {"name": "Exercise", "unit": "min", "area": "physical", "dir": "low", "sd": 12, "dp": 0},
     "grip": {"name": "Grip strength", "unit": "kg", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
     "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
+    "vo2": {"name": "Aerobic capacity (VO2max)", "unit": "mL/kg/min", "area": "physical", "dir": "low", "sd": 3.0, "dp": 1},
+}
+
+# Where each cognitive or self-report indicator comes from. None of the numbers is a published value.
+INDICATOR_NOTES: Dict[str, dict] = {
+    "dsst": {"source": "prototype assumption", "verified": False,
+             "note": "Correct answers in 60 s of a digit-symbol task. Baseline and spread are fictional, same as data/recipes.json."},
+    "span": {"source": "prototype assumption", "verified": False,
+             "note": "Longest forward digit span. Baseline and spread are fictional, same as data/recipes.json."},
+    "kss": {"source": "prototype assumption", "verified": False,
+            "note": "Karolinska Sleepiness Scale, 1 to 9. The scale is published; the personal baseline and spread are fictional."},
+    "tlx": {"source": "prototype assumption", "verified": False,
+            "note": "NASA-TLX raw score, 0 to 100. The scale is published; the personal baseline and spread are fictional."},
 }
 
 # ---------------------------------------------------------------- body systems (what the 3D body shows)
 SYSTEMS: Dict[str, dict] = {
-    "brain": {"name": "Brain & mind", "area": "mental", "indicators": ["sleep", "react", "mood", "stress", "social"],
+    "brain": {"name": "Brain & mind", "area": "mental", "indicators": ["sleep", "react", "mood", "stress", "social", "dsst", "span", "kss", "tlx"],
               "space": "Isolation, confinement, noise and shifted light cycles erode sleep, mood and focus. NASA lists behavioural health among the top risks of long missions.",
               "hazard": "Isolation & confinement"},
     "eyes": {"name": "Eyes & vision", "area": "physical", "indicators": [],
              "space": "Fluids shift toward the head in 0 g. After months, some astronauts develop swelling at the back of the eye (SANS). A weekly Amsler grid is a quick screen.",
              "hazard": "Altered gravity"},
-    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "bp"],
+    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "bp", "vo2"],
               "space": "Without gravity the heart works less and blood volume drops. Back under gravity, standing up can make you faint.",
               "hazard": "Altered gravity"},
     "lungs": {"name": "Lungs & breathing", "area": "physical", "indicators": ["spo2"],
@@ -122,6 +187,8 @@ EXERCISE_BY_PLACE = {
     "transit": ("2 h of exercise: resistance and bike", 120),
     "moon": ("1 h of resistance exercise", 60),
     "mars": ("1 h of resistance and a suited walk", 60),
+    "moon_rover": ("30 min of resistance bands in the rover cabin", 30),
+    "mars_rover": ("30 min of resistance bands in the rover cabin", 30),
 }
 WINDOW_BY_PLACE = {
     "earth": "Walk outside for 15 min",
@@ -130,6 +197,8 @@ WINDOW_BY_PLACE = {
     "transit": "5 min at the porthole: find the blue dot",
     "moon": "Watch Earth in the lunar sky for 5 min",
     "mars": "Watch the blue Martian sunset",
+    "moon_rover": "5 min at the rover window, watching Earth over the horizon",
+    "mars_rover": "5 min at the rover window, watching the horizon",
 }
 
 # sys links the goal to a body system.
@@ -191,3 +260,72 @@ STORY: List[dict] = [
     {"loc": "mars", "day": 222, "me": "a", "storm": "mars", "when": "Sol 12 on Mars, replaying 20 May 2024",
      "text": "That day the Curiosity rover measured radiation 51 times above normal. The chart is that record. The crew stays inside."},
 ]
+
+
+# ---------------------------------------------------------------- hazard matrix (hazard x indicator)
+# The team's matrix "matriz-perigos-indicadores". Hazards: R radiation, I isolation & confinement, D distance from
+# Earth, G altered gravity, E hostile closed environment. Keys are indicator ids, check-in kinds or evidence names
+# ("dose", "amsler", "symptoms"). Every link carries its `source` as the team wrote it and `verified: False`: the
+# "HRP" and "Patel 2020" sources are still to be checked against the HRP risk pages and the article. These are
+# possible factors for a signal, never a cause.
+_P, _H = "Patel 2020", "HRP"
+HAZARDS_BY_INDICATOR: Dict[str, List[dict]] = {}
+
+
+def _link(keys, hazard: str, why: str, source: str, verified: bool = False) -> None:
+    for k in ([keys] if isinstance(keys, str) else keys):
+        HAZARDS_BY_INDICATOR.setdefault(k, []).append({"hazard": hazard, "why": why, "source": source, "verified": verified})
+
+
+_link("sleep", "I", "routine and monotony", f"{_P} (BMed); {_H}")
+_link("sleep", "E", "noise, light, CO2", f"{_P} (BMed); {_H}")
+_link("react", "R", "effect on the nervous system", _P)
+_link("react", "I", "fatigue, stress", _P)
+_link("react", "E", "high CO2", _P)
+_link("mood", "I", "isolation, conflicts", f"{_P} (BMed)")
+_link("mood", "D", "no real-time contact", f"{_P} (BMed)")
+_link("mood", "E", "confinement", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "I", "confinement", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "D", "distance from home", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "E", "noise, confinement", f"{_P} (BMed)")
+_link("social", "I", "isolation", f"{_P} (BMed)")
+_link(["hr", "bp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}")
+_link("hr", "G", "deconditioning, readaptation", f"{_P}; {_H}")
+_link("bp", "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}")
+_link("spo2", "E", "recirculated air, CO2, dust", _H)
+_link("temp", "E", "microbes in a closed environment", _H)
+_link("gluc", "D", "limited diet", f"{_P} (nutrition); {_H}")
+_link("gluc", "G", "inactivity", f"{_P} (nutrition); {_H}")
+_link("weight", "I", "appetite drops", f"{_P} (nutrition)")
+_link("weight", "D", "limited food, no resupply", f"{_P} (nutrition)")
+_link("weight", "G", "muscle loss", f"{_P} (nutrition)")
+_link("water", "D", "recycled water", _H)
+_link("water", "G", "thirst fades", _H)
+_link("exer", "I", "motivation", _H)
+_link("exer", "G", "a countermeasure is needed", _H)
+_link("exer", "E", "little space, equipment", _H)
+_link("grip", "G", "no load", _H)
+_link("bone", "D", "nutrition (vitamin D)", _H)
+_link("bone", "G", "no load", _H)
+_link("urine_calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones)")
+_link("creatinine", "G", "hydration, muscle", _H)
+_link("vo2", "G", "deconditioning without load", f"{_H}; NASA-STD-3001 V1 4001-4004")
+_link("calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones); real data OSD-575")
+_link("potassium", "D", "limited diet, hydration", f"{_P} (nutrition); real data OSD-575")
+_link("crp", "I", "stress", f"{_P}; {_H}; real data OSD-575")
+_link("crp", "E", "microbes", f"{_P}; {_H}; real data OSD-575")
+_link("vitamin_d", "E", "no sunlight", _H)
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "R", "drops first after a dose", f"{_P}; {_H}; real data OSD-569")
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "I", "stress", f"{_P}; {_H}; real data OSD-569")
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "E", "microbes", f"{_P}; {_H}; real data OSD-569")
+_link("amsler", "G", "fluid shift towards the head", f"{_P} (SANS)")
+_link("amsler", "E", "CO2 as a cofactor", f"{_P} (SANS)")
+_link("dose", "R", "direct", "real data RadLab, DONKI")
+_link("co2", "E", "direct", f"{_P} (SANS cofactor)")
+# Links the matrix does not have and the code suggests (the hazard each body system already declares in SYSTEMS).
+# Not silent: marked as prototype assumptions, to confirm with the team.
+_ASSUME = "prototype assumption (hazard of the body system in SYSTEMS)"
+_link(["dsst", "span", "kss", "tlx"], "I", "the brain system's hazard in SYSTEMS", _ASSUME)
+_link("urine_volume", "G", "the kidney system's hazard in SYSTEMS", _ASSUME)
+# Rows of the matrix with no indicator in the catalog yet: cytokines (OSD-575/656).
+HAZARD_ROWS_WITHOUT_INDICATOR = ["cytokines"]

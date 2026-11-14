@@ -1,116 +1,172 @@
 """Where sensor readings come from.
 
 `TelemetrySource` is the seam for real devices. Today the only implementation is
-`SimulatedSource`: deterministic (same input, same number), with the demo story
-written into it. A self check-in stored in the database overrides the simulated
-value for that day.
+`DatasetSource`, which reads the observation table (`data/observations.csv`, one row
+per measurement with its origin, built from `data/recipes.json` by
+`data/generate_dataset.py`). Real rows dropped into `data/real/` replace simulated ones.
+A self check-in stored in the database overrides the file value for that day.
 """
 import json
 from typing import Dict, Optional, Protocol
 
 from .. import db
-from . import plan
-from .catalog import CREW_BY_ID, INDICATORS, LOCATIONS
-
-
-def h01(key: str) -> float:
-    """Stable pseudo-random number in [0, 1) from a string (FNV-1a + avalanche)."""
-    h = 2166136261
-    for ch in key.encode():
-        h ^= ch
-        h = (h * 16777619) & 0xFFFFFFFF
-    h ^= h >> 15
-    h = (h * 2246822507) & 0xFFFFFFFF
-    h ^= h >> 13
-    return (h % 100000) / 100000
+from . import plan, simdata
+from .catalog import LOCATIONS
+from .simdata import h01  # noqa: F401  (re-exported: goals and suggestions use it)
 
 
 class TelemetrySource(Protocol):
     def value(self, crew_id: str, ind: str, day: int) -> float: ...
 
 
-class SimulatedSource:
-    """Personal baseline + day-to-day noise + place effects + the demo story."""
+class DatasetSource:
+    """Reads the observation table (backend/canary/data/observations.csv, built by data/generate_dataset.py).
+
+    With the default mission plan it reads the file. With any other plan it generates the same table in
+    memory with the same generator, once per plan (cached). On a day without a measurement it returns the
+    last observation; `last_observation` also says how old it is. A self check-in still wins on top of it
+    (see `overrides`).
+    """
+
+    def __init__(self, path=simdata.OBS_FILE):
+        self.path = path
+        self._tables: Dict[tuple, simdata.Table] = {}
+        self._ver: Optional[tuple] = None  # (plan version, plan signature)
+
+    def _table(self) -> simdata.Table:
+        v = plan.version()
+        if self._ver is None or self._ver[0] != v:
+            self._ver = (v, simdata.signature(plan.get()["legs"]))
+        sig = self._ver[1]
+        t = self._tables.get(sig)
+        if t is None:
+            default = sig == simdata.signature(plan.PRESETS[plan.DEFAULT]["legs"])
+            if default and self.path.exists():
+                rows = [(r["crew_id"], r["day"], r["indicator"], r["value"], r["unit"], r["origin"], r["method"], r["source"], r["note"])
+                        for r in simdata.read_csv(self.path)]
+            else:
+                rows = simdata.Generator(plan.get()["legs"]).observations()
+            t = self._tables[sig] = simdata.Table(rows)
+        return t
+
+    def last_observation(self, crew_id: str, ind: str, day: int) -> Optional[dict]:
+        return self._table().last(crew_id, ind, day)
+
+    def rows_between(self, crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, float]:
+        """Rows of the file (simulated or real) on days d0..d1, by day."""
+        return {d: v for (d, v, *_rest) in self._table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
 
     def value(self, crew_id: str, ind: str, day: int) -> float:
-        c = CREW_BY_ID[crew_id]
-        I = INDICATORS[ind]
-        if ind == "bone":
-            return self._bone(crew_id, day)
-        v = c["base"][ind] + (h01(f"{crew_id}{ind}{day}") - 0.5) * 1.6 * I["sd"]
-        # Story: Helena's slow slide on the way to Mars (days 132-153), then recovery
-        if crew_id == "h":
-            r = 0 if day < 132 else (day - 132) / 16 if day <= 153 else max(0.0, 1.3 - (day - 153) / 12)
-            v += {"sleep": -1.5, "mood": -1.2, "react": 70, "stress": 1.1, "social": -38}.get(ind, 0) * min(r, 1.3)
-        # Story: Tomás, space sickness in the first days
-        if crew_id == "t" and 1 <= day <= 6:
-            v += {"hr": 12, "water": -1.1, "exer": -50, "mood": -0.6}.get(ind, 0) * (1 - (day - 1) / 6)
-        # Everyone: readapting to gravity on Mars
-        # Everyone: readapting to partial gravity in the first 30 days after a 0 g cruise
-        since = plan.days_since_gravity_change(day)
-        if since is not None and since <= 30:
-            v += {"bp": -14, "hr": 12, "grip": -3}.get(ind, 0) * (1 - since / 30)
-        # Exercise target is lower in the first hours and on the surface
-        if ind == "exer" and plan.location_at(day) == "rocket":
-            v = min(v, 25 + 10 * h01(f"x{crew_id}{day}"))
-        if ind in ("mood", "stress"):
-            v = min(5.0, max(1.0, v))
-        return v
-
-    def _bone(self, crew_id: str, day: int) -> float:
-        """Estimated % change of weight-bearing bone density since launch."""
-        if day <= 0:
-            return (h01(f"b{crew_id}{day}") - 0.5) * 0.4
-        key = (crew_id, plan.version())
-        cum = _BONE.setdefault(key, [0.0])  # cum[d] = loss after day d
-        if len(cum) <= day:
-            c = CREW_BY_ID[crew_id]
-            # 0.35%/month with full exercise, up to 1%/month without (order of magnitude from NASA HRP; verify).
-            # Full rate in 0 g, 40% in partial gravity, slow recovery back on Earth.
-            per_day = (1.0 - 0.65 * min(1.0, c["base"]["exer"] / 110)) / 30
-            rate = {"g0": 1.0, "gp": 0.4, "g1": -0.25}
-            for d in range(len(cum), day + 1):
-                cum.append(max(0.0, cum[-1] + per_day * rate[LOCATIONS[plan.location_at(d)]["gravity_key"]]))
-        return -cum[day] + (h01(f"b{crew_id}{day}") - 0.5) * 0.3
+        t = self._table()
+        o = t.last(crew_id, ind, day)
+        if o is not None:
+            return o["value"]
+        first = t.first(crew_id, ind)  # before the first measurement: the first one is the best guess
+        if first is None:
+            raise KeyError(f"no observations for {crew_id}/{ind}")
+        return first
 
 
-_BONE: Dict[tuple, list] = {}
-SOURCE: TelemetrySource = SimulatedSource()
+SOURCE: TelemetrySource = DatasetSource()
+
+
+def last_observation(crew_id: str, ind: str, day: int) -> Optional[dict]:
+    """Last measurement of `ind` up to `day` with its age in days, origin, method, source and note; None if there is none."""
+    return SOURCE.last_observation(crew_id, ind, day)  # type: ignore[attr-defined]
+
+
+# Which check-in field feeds which indicator: kind -> [(payload field, indicator)].
+CHECKIN_FIELDS = {
+    "mood": [("mood", "mood"), ("stress", "stress")],
+    "pvt": [("ms", "react")],
+    "sleep": [("hours", "sleep")],
+    "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")],
+    "dsst": [("correct", "dsst")],
+    "span": [("span", "span")],
+    "kss": [("level", "kss")],
+    "tlx": [("raw", "tlx")],
+}
+
+
+def _rows(crew_id: str, d0: int, d1: int) -> list:
+    return db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? AND day>=? AND day<=? ORDER BY id", (crew_id, d0, d1))
+
+
+def user_values(crew_id: str, d0: int, d1: int) -> Dict[int, Dict[str, dict]]:
+    """Self-measured values by day and indicator (latest check-in of the day wins), with the check-in kind."""
+    out: Dict[int, Dict[str, dict]] = {}
+    for r in _rows(crew_id, d0, d1):
+        p = json.loads(r["payload"])
+        for field, ind in CHECKIN_FIELDS.get(r["kind"], []):
+            if p.get(field) is not None:
+                out.setdefault(r["day"], {})[ind] = {"value": float(p[field]), "kind": r["kind"]}
+    return out
+
+
+def last_user_day(crew_id: str, day: int) -> Dict[str, int]:
+    """For each indicator, the last day up to `day` on which the person measured it themselves."""
+    out: Dict[str, int] = {}
+    for d, inds in sorted(user_values(crew_id, -10**6, day).items()):
+        for ind in inds:
+            out[ind] = d
+    return out
+
+
+def preflight_values(crew_id: str, ind: str) -> Dict[int, float]:
+    """Every measurement of `ind` on the plan's pre-flight days (Earth legs that end before launch), by day.
+
+    The file's rows, with the person's own check-ins of those days on top. Never the carried-forward value.
+    """
+    days = [(l["start"], min(l["end"], -1)) for l in plan.get()["legs"] if l["location"] == "earth" and l["start"] < 0]
+    out: Dict[int, float] = {}
+    for d0, d1 in days:
+        out.update(SOURCE.rows_between(crew_id, ind, d0, d1))  # type: ignore[attr-defined]
+        for d, inds in user_values(crew_id, d0, d1).items():
+            if ind in inds:
+                out[d] = inds[ind]["value"]
+    return out
+
+
+def preflight_checkins(crew_id: str) -> int:
+    """How many check-ins exist before launch: part of the baseline cache key."""
+    return db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id=? AND day<0", (crew_id,))[0]["n"]
 
 
 def overrides(crew_id: str, day: int) -> Dict[str, float]:
     """Self-measured values for one day (latest check-in wins)."""
-    out: Dict[str, float] = {}
-    for r in db.q("SELECT kind,payload FROM checkins WHERE crew_id=? AND day=? ORDER BY id", (crew_id, day)):
-        p = json.loads(r["payload"])
-        if r["kind"] == "mood":
-            out["mood"] = float(p["mood"])
-            if "stress" in p:
-                out["stress"] = float(p["stress"])
-        elif r["kind"] == "pvt":
-            out["react"] = float(p["ms"])
-        elif r["kind"] == "sleep" and p.get("hours") is not None:
-            out["sleep"] = float(p["hours"])
-        elif r["kind"] == "vitals":
-            for k in ("hr", "bp", "temp", "spo2"):
-                if p.get(k) is not None:
-                    out[k] = float(p[k])
-    return out
+    return {i: v["value"] for i, v in user_values(crew_id, day, day).get(day, {}).items()}
+
+
+def observation(crew_id: str, ind: str, day: int, uv: Optional[Dict[int, Dict[str, dict]]] = None) -> dict:
+    """The one way to read a value: {"value", "origin", "source", "day"}.
+
+    A self check-in of that day wins (origin "user"); otherwise the last row of the observation file up to
+    that day, with the origin and source of the row; before the first row, the first row.
+    """
+    u = (uv if uv is not None else user_values(crew_id, day, day)).get(day, {}).get(ind)
+    if u is not None:
+        return {"value": u["value"], "origin": "user", "source": f"checkin:{crew_id}:{u['kind']}:day{day}", "day": day}
+    o = last_observation(crew_id, ind, day)
+    if o is not None:
+        return {"value": o["value"], "origin": o["origin"], "source": o["source"], "day": o["day"]}
+    return {"value": SOURCE.value(crew_id, ind, day), "origin": "simulated", "source": f"recipe:{ind}", "day": day}
 
 
 def reading(crew_id: str, ind: str, day: int, ov: Optional[Dict[str, float]] = None) -> float:
-    ov = overrides(crew_id, day) if ov is None else ov
-    return ov[ind] if ind in ov else SOURCE.value(crew_id, ind, day)
+    if ov is not None and ind in ov:
+        return ov[ind]
+    return observation(crew_id, ind, day)["value"]
 
 
 def current(crew_id: str, ind: str, day: int) -> float:
-    """Weighted recent value: 60% today, 25% yesterday, 15% the day before."""
-    ov = overrides(crew_id, day)
-    return 0.6 * reading(crew_id, ind, day, ov) + 0.25 * SOURCE.value(crew_id, ind, day - 1) + 0.15 * SOURCE.value(crew_id, ind, day - 2)
+    """Weighted recent value: 60% today, 25% yesterday, 15% the day before. Check-ins count on all three days."""
+    uv = user_values(crew_id, day - 2, day)
+    return sum(w * observation(crew_id, ind, day - k, uv)["value"] for k, w in enumerate((0.6, 0.25, 0.15)))
 
 
 def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
-    return [[d, round(SOURCE.value(crew_id, ind, d), 2)] for d in range(day - n + 1, day + 1)]
+    uv = user_values(crew_id, day - n + 1, day)
+    return [[d, round(observation(crew_id, ind, d, uv)["value"], 2)] for d in range(day - n + 1, day + 1)]
 
 
 def cumulative_dose(day: int, location_now: str, storm: Optional[str]) -> float:

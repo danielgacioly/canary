@@ -9,6 +9,7 @@ import json
 import mimetypes
 import pathlib
 import time
+from datetime import date, timedelta
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -21,12 +22,29 @@ from pydantic import BaseModel, Field
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import goals, health, mission, nasa, plan, privacy, protocols, selftests, telemetry
-from .domain.catalog import CAREER_LIMIT_MSV, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry
+from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+
+def _warm_story() -> None:
+    """Compute every crew member's health on the days of the demo story once, in the background, so the first click
+    on each scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
+    from .domain import risk
+    try:
+        for step in STORY:
+            ms = {**risk._day_ms(step["day"]), "storm": step["storm"]}
+            for c in list(CREW):
+                health.snapshot(c["id"], ms)
+    except Exception:  # a warm-up must never take the API down; the next request computes it anyway
+        pass
+
 
 @asynccontextmanager
 async def lifespan(_app):
     db.connect()
+    registry.load()
+    if settings.warm_cache:
+        import threading
+        threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
     yield
 
 
@@ -131,7 +149,7 @@ def ping():
 def catalog():
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
             "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": STORY, "sources": nasa.SOURCES}
+            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary()}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -158,13 +176,17 @@ def put_mission(body: MissionIn):
             mission.set_location(None if body.clear_location else body.location)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    return mission.state()
+    ms = mission.state()
+    advice.sync_all(ms["day"])  # an advice concluded by the new day may call for a message to the medical officer
+    notify.sync(ms)  # a new critical alert reaches the medical officer, once per episode
+    return ms
 
 
 @app.post("/api/demo/reset", tags=["mission"])
 def demo_reset():
     db.reset()
     plan.reset_cache()
+    registry.load()
     auth.clear_failures()
     return mission.state()
 
@@ -183,7 +205,7 @@ def plan_conditions():
     for l in p["legs"]:
         place = LOCATIONS[l["location"]]
         legs.append({**l, "days": l["end"] - l["start"] + 1, "gravity_key": place["gravity_key"],
-                     "ridge": privacy.ridge(l["location"]),
+                     "ridge": privacy.ridge(l["location"], None, (max(l["start"], 0) + l["end"]) // 2),
                      "dose_leg_msv": round(place["dose_rate"] * max(0, l["end"] - max(l["start"], 0) + 1), 1)})
     end = p["legs"][-1]["end"]
     step = max(1, (end + 1) // 60)
@@ -281,7 +303,7 @@ def crew_overview():
     sw = nasa.space_weather(ms["storm"])
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
-            "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"]),
+            "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
             "warnings": [{k: a[k] for k in ("id", "level", "title", "why", "todo", "sources")} for a in env],
             "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
@@ -304,9 +326,25 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
             "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
-            "blood": nasa.blood(c["cbc_subject"]), "events": events,
+            "blood": nasa.blood(c["cbc_subject"], c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
-            "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access}
+            "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access,
+            "care_events": care.events(crew_id, ms["day"])}
+
+
+@app.get("/api/crew/{crew_id}/record", tags=["crew"])
+def crew_record(crew_id: str, v: dict = Depends(viewer)):
+    """My information: the personal record Mission Control registered. Self and medical team only."""
+    c = _crew(crew_id)
+    require_self(crew_id, v)
+    r = RECORDS[crew_id]
+    ms = mission.state()
+    today = date.fromisoformat(registry.launch_date()) + timedelta(days=ms["day"])
+    dob = date.fromisoformat(r["dob"])
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    bmi = round(r["weight_kg"] / (r["height_cm"] / 100) ** 2, 1)
+    return {**r, "name": c["name"], "role": c["role"], "home": c["home"], "age": age, "bmi": bmi,
+            "date_today": today.isoformat(), "registered_by": "Mission Control", "registered_on": "L-180"}
 
 
 class PhotoIn(BaseModel):
@@ -353,8 +391,38 @@ class DoneIn(BaseModel):
 def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)):
     _crew(crew_id)
     require_self(crew_id, v)
-    goals.set_done(crew_id, goal_id, mission.state()["day"], body.done)
+    ms = mission.state()
+    goals.set_done(crew_id, goal_id, ms["day"], body.done)
+    if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
+        g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
+        if g:
+            advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
+    advice.sync(crew_id, ms["day"])
     return goals_for(crew_id, v)
+
+
+@app.get("/api/advice/{crew_id}", tags=["goals"])
+def advice_for(crew_id: str, v: dict = Depends(viewer)):
+    """The advice loop: advice in progress and concluded, with the outcome against the person's own normal. Read-only."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    day = mission.state()["day"]
+    return {"day": day, **advice.for_crew(crew_id, day), "escalation": advice.escalation(crew_id, day),
+            "margin": advice.MARGIN, "assumption": advice.SOURCE}
+
+
+@app.post("/api/alerts/{crew_id}/{alert_id}/seen", tags=["crew"])
+def alert_seen(crew_id: str, alert_id: str, v: dict = Depends(viewer)):
+    """Mark today's episode of an alert as seen. If the alert goes away and comes back, the new episode is not seen."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    ms = mission.state()
+    a = next((x for x in health.snapshot(crew_id, ms)["alerts"] if x["id"] == alert_id), None)
+    if not a:
+        raise HTTPException(404, "that alert is not active today")
+    health.mark_seen(crew_id, a, ms["day"])
+    advice.sync(crew_id, ms["day"])
+    return {"alert_id": alert_id, "since_day": a["since_day"], "days_active": a["days_active"], "seen": True}
 
 
 @app.get("/api/leaderboard", tags=["goals"])
@@ -379,6 +447,9 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     """A test or log from the Tests page (or a quick check from My space). Private: self and medical team."""
     _crew(body.crew_id)
     require_self(body.crew_id, v)
+    err = selftests.validate(body.kind, body.payload)
+    if err:
+        raise HTTPException(400, err)
     day = mission.state()["day"]
     p = selftests.normalise(body.kind, body.payload)
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
@@ -386,7 +457,10 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     g = selftests.goal_for(body.kind, p)
     if g:
         goals.set_done(body.crew_id, g, day, True)
+    advice.sync(body.crew_id, day)
+    notify.sync(mission.state(), [body.crew_id])
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
+            "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
 
 
@@ -450,20 +524,23 @@ def emergency_event(eid: int, body: EmergencyEvent):
         db.x("UPDATE emergencies SET patient=? WHERE id=?", (body.patient, eid))
     if body.text:
         log.append([t, body.text])
-    if body.close:
+    if body.close and not _emergency(eid)["ended_at"]:  # closing twice does not repeat goals, window or report
         ms = mission.state()
         e = _emergency(eid)
         db.x("UPDATE emergencies SET ended_at=?, outcome=? WHERE id=?", (time.time(), body.outcome or "stable", eid))
         log.append([t, f"Closed: {body.outcome or 'stable'}"])
         if e["protocol"] and e["patient"]:
-            after = protocols.resolve(ms["location"])["protocols"][e["protocol"]]["after"]
-            for a in after:
+            for item in protocols.care(e["protocol"])["after_items"]:  # each follow-up lasts the days its text gives
                 db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (e["patient"], "physical", a, "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + 3, time.time()))
+                     (e["patient"], "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
+            care.open_window(e, ms["day"], body.outcome or "stable")
         delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
         report = f"Guided Response report: {e['protocol'] or 'triage'}, patient {e['patient'] or 'unknown'}, outcome {body.outcome or 'stable'}, {len(log)} logged steps."
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
              (e["responder"] or "crew", "earth", "report", report, time.time(), time.time() + delay))
+        db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
+        notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
+        return _emergency(eid)
     db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
     return _emergency(eid)
 
@@ -498,9 +575,15 @@ def send_message(body: MessageIn):
 
 
 @app.get("/api/messages", tags=["messages"])
-def messages(crew_id: Optional[str] = None):
+def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
+    return messages(crew_id, v)
+
+
+def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
+    private = ("advice", "alert", "alert_earth")  # private to the medical officer and the medical team
+    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
     for r in rows:
@@ -602,8 +685,44 @@ def medical_overview():
     for c in CREW:
         s = health.snapshot(c["id"], ms)
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
-                    "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"]})
-    return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5]}
+                    "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"],
+                    "care_events": care.events(c["id"], ms["day"])})
+    return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5],
+            "notices": notify.list_for(ms["day"]), "care_sensitivity": care.sensitivity()}
+
+
+class CareSensitivityIn(BaseModel):
+    factor: float = Field(ge=care.FACTOR_RANGE[0], le=care.FACTOR_RANGE[1])
+
+
+@app.put("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
+def put_care_sensitivity(body: CareSensitivityIn):
+    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change)."""
+    db.set_setting("care_sensitivity", {"factor": body.factor})
+    return care.sensitivity()
+
+
+@app.get("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
+def get_care_sensitivity():
+    return care.sensitivity()
+
+
+class ExerciseAdjustIn(BaseModel):
+    max_pct: int = Field(ge=0, le=50)
+    level1: int = Field(ge=0, le=50)
+    level2: int = Field(ge=0, le=50)
+
+
+@app.put("/api/medical/exercise-adjust", tags=["medical"], dependencies=[Depends(require_medical)])
+def put_exercise_adjust(body: ExerciseAdjustIn):
+    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct."""
+    db.set_setting("exercise_adjust", {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}})
+    return goals.exercise_adjust()
+
+
+@app.get("/api/medical/exercise-adjust", tags=["medical"], dependencies=[Depends(require_medical)])
+def get_exercise_adjust():
+    return goals.exercise_adjust()
 
 
 class ThresholdsIn(BaseModel):
@@ -652,6 +771,135 @@ def med_goals():
 def del_med_goal(gid: int):
     db.x("DELETE FROM medical_goals WHERE id=?", (gid,))
     return med_goals()
+
+
+# ---------------------------------------------------------------- mission overview (public) and Canary Control (Mission Control)
+@app.get("/api/mission/overview", tags=["mission"])
+def mission_overview():
+    """General information about the mission and the crew as a whole. Public on board: no health data."""
+    ms = mission.state()
+    info = registry.mission_info() or {}
+    p = plan.get()
+    launch = date.fromisoformat(registry.launch_date())
+    dest = next((l for l in reversed(p["legs"]) if l["location"] not in ("earth", "rocket")), p["legs"][-1])
+    crew = [{**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
+             **{k: RECORDS.get(c["id"], {}).get(k) for k in ("nationality", "agency", "languages", "flights", "days_in_space")}}
+            for c in CREW]
+    return {"registered": registry.registered(), "callsign": info.get("callsign"), "name": p["name"],
+            "launch_date": launch.isoformat(), "today_date": (launch + timedelta(days=ms["day"])).isoformat(),
+            "destination": LOCATIONS[dest["location"]]["name"], "flight_days": p["legs"][-1]["end"] + 1,
+            "legs": p["legs"], "mission": ms, "crew": crew}
+
+
+def _control_sig(exp: int) -> str:
+    return hmac.new(settings.token_secret.encode(), f"control:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def require_control(x_canary_control: Optional[str] = Header(None)) -> None:
+    try:
+        tag, exp, sig = (x_canary_control or "").split(".")
+        if tag != "control" or int(exp) < time.time() or not hmac.compare_digest(sig, _control_sig(int(exp))):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(401, "Mission Control sign-in required")
+
+
+@app.post("/api/control/session", tags=["control"])
+def control_session(body: PinIn):
+    if auth.locked("control"):
+        raise HTTPException(429, "too many attempts, wait a minute")
+    if not hmac.compare_digest(body.pin, settings.control_pin):
+        auth.fail("control")
+        raise HTTPException(401, "wrong PIN")
+    exp = int(time.time() + settings.token_ttl_s)
+    return {"token": f"control.{exp}.{_control_sig(exp)}", "expires_at": exp}
+
+
+@app.get("/api/control/overview", tags=["control"], dependencies=[Depends(require_control)])
+def control_overview():
+    """What Earth follows: operational status as the medical team reports it, participation, hazards, traffic."""
+    ms = mission.state()
+    board = goals.crew_board(ms["day"]) if CREW else {"people": {}}
+    people = []
+    for c in CREW:
+        s = health.snapshot(c["id"], ms)
+        last = db.q("SELECT day FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 1", (c["id"],))
+        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": privacy.operational(s),
+                       "today": board["people"].get(c["id"]), "last_checkin_day": last[0]["day"] if last else None})
+    env = [a for a in (health.snapshot(CREW[0]["id"], ms)["alerts"] if CREW else []) if a.get("env")]
+    return {"registered": registry.registered(), "mission": ms, "overview": mission_overview(), "people": people,
+            "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]), "warnings": [{k: a[k] for k in ("title", "todo")} for a in env],
+            "dose": health.dose(ms), "emergencies": emergencies()[:5]}
+
+
+@app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
+def control_demo():
+    """What the 'fill with the demo crew' button puts in the form."""
+    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()}}
+
+
+class SeatIn(BaseModel):
+    seat: str = Field(pattern="^(h|k|a|t)$")
+    name: str = Field(min_length=2, max_length=80)
+    role: str = Field(min_length=2, max_length=60)
+    home: str = Field(default="", max_length=80)
+    pin: str = Field(pattern=r"^\d{4}$")
+    dob: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    sex: str = ""
+    nationality: str = ""
+    languages: List[str] = []
+    agency: str = ""
+    flights: int = Field(default=0, ge=0, le=20)
+    days_in_space: int = Field(default=0, ge=0, le=2000)
+    height_cm: float = Field(default=170, ge=120, le=220)
+    weight_kg: float = Field(default=70, ge=35, le=160)
+    blood_type: str = ""
+    skin_type: str = Field(default="III", pattern="^(I|II|III|IV|V|VI)$")
+    handedness: str = "Right"
+    vision: str = ""
+    allergies: List[str] = []
+    medications: List[str] = []
+    conditions: List[str] = []
+    diet: str = ""
+    vaccinations: str = ""
+    emergency_contact: str = ""
+
+
+class MissionRegIn(BaseModel):
+    callsign: str = Field(min_length=2, max_length=40)
+    name: str = Field(min_length=2, max_length=80)
+    launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    preset: str
+
+
+class RegisterIn(BaseModel):
+    crew: List[SeatIn]
+    mission: MissionRegIn
+
+
+@app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
+def control_register(body: RegisterIn):
+    """Register the four crew seats and the mission, then start the mission clock from the beginning."""
+    if body.mission.preset not in plan.PRESETS:
+        raise HTTPException(400, "unknown mission profile")
+    crew = [s.model_dump() for s in body.crew]
+    try:
+        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], body.mission.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    for p in crew:
+        auth.set_pin(p["seat"], p["pin"])
+    plan.use_preset(body.mission.preset)
+    plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
+    mission.set_step(0)
+    return control_overview()
+
+
+@app.post("/api/control/clear", tags=["control"], dependencies=[Depends(require_control)])
+def control_clear():
+    """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
+    registry.clear()
+    return control_overview()
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)

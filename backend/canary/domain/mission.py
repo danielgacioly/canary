@@ -7,7 +7,7 @@ overrides it ("Where are you?").
 from typing import Optional
 
 from .. import db
-from . import plan
+from . import plan, registry
 from .catalog import LOCATIONS, STORY, day_label
 
 DEFAULT = {"step": 0, "day": None, "location": None}
@@ -28,7 +28,7 @@ def state() -> dict:
         "steps": len(STORY),
         "story": step,
         "day": day,
-        "day_label": day_label(day, loc, leg["start"] if loc == leg["location"] else 0),
+        "day_label": day_label(day, loc, plan.landing_day(day, LOCATIONS[loc].get("body")) if loc == leg["location"] else 0),
         "location": loc,
         "place": {"id": loc, **LOCATIONS[loc]},
         "storm": step["storm"] if day == step["day"] else None,
@@ -38,7 +38,9 @@ def state() -> dict:
         "custom_day": s["day"] is not None,
         "location_override": s["location"] is not None,
         "plan_name": plan.get()["name"],
-        "setup_done": bool(db.get_setting("setup_done", True)),  # the mission admin (future flow) ships it configured
+        "setup_done": bool(db.get_setting("setup_done", True)),
+        "callsign": (registry.mission_info() or {}).get("callsign"),
+        "registered": registry.registered(),  # the mission admin (future flow) ships it configured
     }
 
 
