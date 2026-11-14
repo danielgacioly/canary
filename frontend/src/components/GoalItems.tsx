@@ -8,7 +8,7 @@ import { Icon } from './ui'
 /** The one quiet line under a goal: why, or, when it applies, the lightened load for fatigue and the advice check. */
 function goalLine(g: Goal): string {
   const parts: string[] = []
-  if (g.adjusted) parts.push(`${g.adjusted.pct}% lighter for fatigue, within your team's ${g.adjusted.max_pct}% limit`)
+  if (g.adjusted) parts.push(`Lightened for fatigue; your team allows up to ${g.adjusted.max_pct}%`)
   else parts.push(g.why)
   if (g.advice) parts.push(g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`)
   return parts.join(' · ')
@@ -42,7 +42,7 @@ export function TeamRow({ t, names }: { t: TeamGoal; names: Record<string, strin
   return (
     <div className="team-row col" style={{ gap: 10 }}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
-        <div className="grow"><div style={{ fontWeight: 600 }}>{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
+        <div className="grow"><div className="goal-title">{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
         {t.done && <span className="status s0"><span className="dot" />Done</span>}
       </div>
       <div className="row">

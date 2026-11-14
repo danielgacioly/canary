@@ -1,7 +1,7 @@
 // My space: one private page per astronaut. Locked, it only asks "Choose your profile".
 // Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
 // and Settings (photo, PIN, lock).
-import { useRef, useState } from 'react'
+import { useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
@@ -83,7 +83,7 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
             <div className="goal-group-head">
               <h2>{a === 'physical' ? 'Physical' : 'Mental'}</h2>
               <span className="sub">{n} of {list.length}</span>
-              <span className="bar-track"><i style={{ width: `${(100 * n) / Math.max(1, list.length)}%`, background: a === 'physical' ? 'var(--physical)' : 'var(--mental)' }} /></span>
+              <span className="bar-track"><i className={`a-${a}`} style={{ width: `${(100 * n) / Math.max(1, list.length)}%` }} /></span>
             </div>
             <div className="goal-list">{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} />)}</div>
           </section>
@@ -113,11 +113,7 @@ function SuggestionsTab({ me }: { me: string }) {
       <div className="suggest-list">
         {data.items.map((s, i) => (
           <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
-            <div className="row" style={{ gap: 10 }}>
-              <span className="area-dot" style={{ background: s.area === 'mental' ? 'var(--mental)' : 'var(--physical)' }} />
-              <span className="small muted">{s.area === 'mental' ? 'Mental' : 'Physical'}</span>
-            </div>
-            <h2>{s.title}</h2>
+            <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
             <p className="muted">{s.why}</p>
             <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
             {s.goal && (
@@ -147,7 +143,7 @@ function PatchesTab({ me }: { me: string }) {
       <div className="patches big">{p.badges.map((b, i) => (
         <div key={b.id} className={`patch rise ${b.earned ? '' : 'off'}`} style={{ ['--d' as string]: i }}>
           <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
-          {b.earned ? <span className="small" style={{ color: 'var(--gold)' }}>Earned</span> : (
+          {b.earned ? <span className="small gold-text">Earned</span> : (
             <span className="patch-progress"><span className="bar-track"><i style={{ width: `${(100 * b.progress) / b.need}%` }} /></span><span className="small dim num">{b.progress}/{b.need}</span></span>
           )}
         </div>))}</div>
@@ -171,7 +167,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
       {GROUPS.map(([name, ids], gi) => (
         <section key={name} className="rise" style={{ ['--d' as string]: gi + 1 }}>
           <div className="section-head"><h2>{name}</h2></div>
-          <div className="charts">
+          <div className="charts" style={chartCols(ids.filter(k => d.indicators[k]).length)}>
             {ids.filter(k => d.indicators[k]).map(k => {
               const i = d.indicators[k]
               const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
@@ -207,6 +203,13 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
       </section>
     </>
   )
+}
+
+/** Columns that divide the charts evenly; whatever is left over, the last chart stretches over. */
+function chartCols(count: number): CSSProperties {
+  const cols = [3, 2].find(k => count % k === 0) ?? 3
+  const rest = count % cols
+  return { ['--cols' as string]: cols, ['--last-span' as string]: rest ? cols - rest + 1 : 1 } as CSSProperties
 }
 
 /** Goals done on each of the last 14 days: fixed-width bars. With fewer than 3 days of data, only the number. */
@@ -330,7 +333,7 @@ function ChangePin({ me, first, onClose, onDone }: { me: string; first: string; 
   const stepNo = { current: 1, new: 2, confirm: 3 }[step]
   return (
     <PinModal onCancel={onClose}>
-      <span className="lbl" style={{ display: 'block', textAlign: 'center', marginBottom: 8 }}>Change PIN, step {stepNo} of 3</span>
+      <span className="lbl pin-step">Change PIN, step {stepNo} of 3</span>
       {step === 'current' && <PinPad key="c" title="Current PIN" subtitle={`${first}, enter the PIN you use now`} onCancel={onClose}
         onSubmit={async pin => { await api.crewSignIn(me, pin); setCurrent(pin); setStep('new') }} />}
       {step === 'new' && <PinPad key="n" title="New PIN" subtitle={mismatch ? 'The two did not match. Choose again.' : 'Choose 4 digits you will remember'} onCancel={onClose}

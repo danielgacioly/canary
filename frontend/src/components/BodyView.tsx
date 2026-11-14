@@ -212,7 +212,7 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
       <button className="back rise" onClick={onBack}><Icon name="back" />Back to overview</button>
       <div className="rise" style={{ ['--d' as string]: 1 }}>
         <h1>{st.name}</h1>
-        <p className="meta" style={{ textTransform: 'capitalize' }}>{st.area} · {info.hazard}</p>
+        <p className="meta cap">{st.area} · {info.hazard}</p>
         <div style={{ marginTop: 10 }}><Status level={st.level} /></div>
         {st.note && <p className="why">{st.note}</p>}
       </div>

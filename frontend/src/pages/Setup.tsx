@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Leg } from '../api/types'
 import { Dot } from '../components/People'
+import Timeline from '../components/Timeline'
 import Stars from '../components/Stars'
 import { CanaryMark, Icon, Loading } from '../components/ui'
 import * as rules from '../lib/validate'
@@ -213,7 +214,7 @@ export default function Setup() {
   return (
     <div className="intro setup">
       <Stars />
-      <div className="row reveal" style={{ padding: '24px 7vw 0' }}>
+      <div className="row reveal setup-top">
         <span className="brand"><CanaryMark size={26} />CANARY</span>
         <span className="small dim setup-tag">Mission setup</span>
         <button className="btn sm ghost right" onClick={useDemo} disabled={phase !== 'edit'}>Skip, use the demo story<Icon name="chev" /></button>
@@ -221,12 +222,12 @@ export default function Setup() {
 
       <div className="setup-stage">
         <div className="setup-head" key={`h${step}`}>
-          <span className="kicker reveal">Step {step + 1} of 4 · {STEP_NAMES[step]}</span>
           <h1 className="reveal d1">{heads.h}</h1>
           <p className="lead reveal d2">{heads.p}</p>
+          <span className="small dim reveal d2">Step {step + 1} of 4: {STEP_NAMES[step]}</span>
         </div>
 
-        {err && <p className="small" style={{ color: 'var(--act)' }} role="alert">Could not save the plan: {err}</p>}
+        {err && <p className="small act-text" role="alert">Could not save the plan: {err}</p>}
         <div className="setup-body" key={`b${step}`}>
           {step === 0 && (
             <div className="dest-grid" role="radiogroup" aria-label="Destination">
@@ -234,7 +235,7 @@ export default function Setup() {
                 const p = catalog.locations[d]
                 return (
                   <button key={d} role="radio" aria-checked={dest === d} className={`dest rise p-${d} ${dest === d ? 'on' : ''}`} style={{ ['--d' as string]: i + 1 }} onClick={() => pick(d)}>
-                    <span className="dest-top"><h2>{p.name}</h2><span className="dest-check">{dest === d && <Icon name="check" size={16} />}</span></span>
+                    <span className="dest-top"><span className="pc-dot" /><h2>{p.name}</h2><span className="dest-check">{dest === d && <Icon name="check" size={16} />}</span></span>
                     <span className="small muted">{SPECS[d].line}</span>
                     <dl>
                       <dt>Gravity</dt><dd className="num">{p.gravity}</dd>
@@ -354,20 +355,13 @@ function NumField({ f, value, onChange, report }: { f: Field; value: number; onC
   )
 }
 
-/** The itinerary as a bar that re-proportions smoothly when the numbers change. */
-function Preview({ legs, names, now }: { legs: Seg[]; names: Record<string, string>; now?: string }) {
-  const lo = legs[0].start, hi = legs[legs.length - 1].end, span = hi - lo + 1
-  const at = (d: number) => `${(100 * (d - lo + 0.5)) / span}%`
+/** The itinerary as a thin bar that re-proportions smoothly, names in the legend underneath. */
+function Preview({ legs, names, now, nowLabel }: { legs: Seg[]; names: Record<string, string>; now?: number; nowLabel?: string }) {
+  const hi = legs[legs.length - 1].end, lo = legs[0].start
+  const places = Object.fromEntries(Object.entries(names).map(([k, name]) => [k, { name }]))
   return (
     <div className="preview">
-      <div className="timeline">
-        {legs.map((l, i) => (
-          <div key={i} className={`seg p-${l.location}`} style={{ flexGrow: l.end - l.start + 1 }} title={`${l.label}: day ${l.start} to ${l.end}`}>
-            <b>{l.title ?? names[l.location]}</b><span>{l.end - l.start + 1} d</span>
-          </div>
-        ))}
-        <i className="now" style={{ left: now ?? at(0) }} data-l="Launch" />
-      </div>
+      <Timeline legs={legs.map(l => ({ ...l, label: l.title ?? l.label }))} places={places} now={now ?? 0} nowLabel={nowLabel ?? 'Launch'} compact />
       <div className="preview-total row wrap">
         <span className="num">Launch on day 0 · {hi + 1} days in all</span>
         <span className="small dim right">{-lo} days of training first</span>
@@ -380,16 +374,16 @@ function Preview({ legs, names, now }: { legs: Seg[]; names: Record<string, stri
 function Launch({ name, legs, count, names }: { name: string; legs: Seg[]; count: number; names: Record<string, string> }) {
   const [sweep, setSweep] = useState(false)
   useEffect(() => { const r = requestAnimationFrame(() => requestAnimationFrame(() => setSweep(true))); return () => cancelAnimationFrame(r) }, [])
-  const lo = legs[0].start, span = legs[legs.length - 1].end - lo + 1
+  const lo = legs[0].start
   return (
     <div className="launch" role="status" aria-live="polite">
-      <span className="kicker reveal">Launching</span>
       <h2 className="reveal d1">{name}</h2>
+      <span className="small dim reveal d1">Launching</span>
       <div className="countdown" aria-label={count > 0 ? String(count) : 'Liftoff'}>
         {count > 0 ? <span key={count} className="count-n num">{count}</span> : <span key="go" className="count-go">Liftoff</span>}
       </div>
       <div className="launch-tl reveal d2">
-        <Preview legs={legs} names={names} now={sweep ? `${(100 * (0 - lo + 0.5)) / span}%` : '0%'} />
+        <Preview legs={legs} names={names} now={sweep ? 0 : lo} />
       </div>
     </div>
   )

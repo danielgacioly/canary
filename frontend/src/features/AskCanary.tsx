@@ -52,13 +52,13 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   }
   return (
     <>
-      <div className="scrim" style={{ background: 'rgba(2,3,7,.4)' }} onClick={onClose} />
+      <div className="scrim soft" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-label="Ask Canary">
-        <div className="row" style={{ padding: '18px 18px 12px', borderBottom: '1px solid var(--line)' }}>
+        <div className="row drawer-head">
           <div><h2>Ask Canary</h2><div className="small muted">Explains your data. Never diagnoses.</div></div>
           <button className="btn sm ghost right" onClick={onClose}><Icon name="close" size={15} /></button>
         </div>
-        <div style={{ padding: '12px 18px' }}>
+        <div className="drawer-body">
           <div className="slot">
             <div className="row"><span className="lbl">AI slot</span>
               <span className="tag right">{status ? (status.configured ? `provider: ${status.provider}` : 'no model connected') : '…'}</span></div>
@@ -68,7 +68,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="chat">
-          {!me && <p className="muted small"><b style={{ color: 'var(--ink)' }}>Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
+          {!me && <p className="muted small"><b className="ink">Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
           {me && !items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. Emergencies go to the red button.</p>}
           {items.map(a => (
             <div key={a.id} className="col" style={{ gap: 8 }}>
@@ -87,8 +87,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           {busy && <span className="lbl">Checking your data…</span>}
           <div ref={end} />
         </div>
-        <div style={{ padding: 14, borderTop: '1px solid var(--line)' }}>
-          <div className="row wrap" style={{ gap: 6, marginBottom: 10 }}>{SUGGEST.map(s => <button key={s} className="btn sm" disabled={busy} onClick={() => sug.run(() => ask(s))}>{s}</button>)}</div>
+        <div className="drawer-foot">
+          <div className="row wrap drawer-suggest">{SUGGEST.map(s => <button key={s} className="btn sm" disabled={busy} onClick={() => sug.run(() => ask(s))}>{s}</button>)}</div>
           <ActionError error={sug.error} />
           <form noValidate onSubmit={form.submit}>
             <div className="row ask-row">

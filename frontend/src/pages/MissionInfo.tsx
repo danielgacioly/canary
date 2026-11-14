@@ -27,10 +27,10 @@ export default function MissionInfo() {
       </div>
 
       <div className="stats rise" style={{ ['--d' as string]: 1 }}>
-        <div className="stat"><div className="k">Launch</div><b style={{ fontSize: 18 }}>{fmtDate(o.launch_date)}</b><div className="s">Day 0</div></div>
-        <div className="stat"><div className="k">Today</div><b style={{ fontSize: 18 }}>{ms.day_label}</b><div className="s">{fmtDate(o.today_date)}</div></div>
-        <div className="stat"><div className="k">Destination</div><b style={{ fontSize: 18 }}>{o.destination}</b><div className="s">{o.flight_days} days from launch to the end of the plan</div></div>
-        <div className="stat"><div className="k">Where now</div><b style={{ fontSize: 18 }}>{ms.place.name}</b><div className="s">Earth replies {ms.place.reply === 'Live' ? 'live' : `in ${ms.place.reply}`}</div></div>
+        <div className="stat"><div className="k">Launch</div><b>{fmtDate(o.launch_date)}</b><div className="s">Day 0</div></div>
+        <div className="stat"><div className="k">Today</div><b>{ms.day_label}</b><div className="s">{fmtDate(o.today_date)}</div></div>
+        <div className="stat"><div className="k">Destination</div><b>{o.destination}</b><div className="s">{o.flight_days} days from launch to the end of the plan</div></div>
+        <div className="stat"><div className="k">Where now</div><b>{ms.place.name}</b><div className="s">Earth replies {ms.place.reply === 'Live' ? 'live' : `in ${ms.place.reply}`}</div></div>
       </div>
 
       <section className="rise" style={{ ['--d' as string]: 2 }}>

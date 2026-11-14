@@ -119,13 +119,13 @@ function Triage({ ov }: { ov: MedicalOverview }) {
               const limit = GENERIC_LIMIT[k] ?? (lines.length ? lines.join(' · ') : '')
               return (
                 <tr key={k}>
-                  <td><b>{def.name}</b> <span className="dim small">{def.unit}</span></td>
+                  <td><b>{def.name}</b> <span className="dim small">{k === 'bone' ? '% of pre-flight' : def.unit}</span></td>
                   {ov.crew.map(c => {
                     const i = c.indicators[k], s = i.standard
                     const eva = k === 'vo2' && c.standard_profile ? EVA_WORD[c.standard_profile.eva] : null
                     return (
                       <td key={c.id} className={`num r s${i.level}`}>
-                        <span className={i.level ? 'c' : ''}>{i.value.toFixed(i.dp)}</span> <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>
+                        <span className={i.level ? 'c' : ''}>{(k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>
                         {(eva || s) && (
                           <div className="cell-note small">
                             {eva && <div className="dim">{eva}</div>}
@@ -233,7 +233,7 @@ function Rules({ ov }: { ov: MedicalOverview }) {
   const form = useForm({
     initial: { watch: ov.thresholds.watch, act: ov.thresholds.act },
     validate: f => ({ act: f.act > f.watch ? null : `Act (${f.act.toFixed(1)} σ) must be above watch (${f.watch.toFixed(1)} σ). Raise act or lower watch.` }),
-    submit: async f => { await api.setThresholds(f.watch, f.act); bump(); toast('Alert rules updated for the whole crew') },
+    submit: async f => { await api.setThresholds(f.watch, f.act); bump(); toast('Alert rules updated') },
   })
   const sliders = [['watch', 'Watch from', 0.5, 4, 's1'], ['act', 'Act from', 1, 5, 's2']] as const
   return (

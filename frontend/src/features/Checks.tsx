@@ -60,7 +60,7 @@ function Result({ saved: { r, note }, onDone }: { saved: Saved; onDone: () => vo
       <p className="result-sum">{r.summary}</p>
       {note && <p className="muted">{note}</p>}
       {r.conclusion && <p>{r.conclusion.text}</p>}
-      {r.goal && <p className="small" style={{ color: 'var(--ok)' }}>A goal for today is complete.</p>}
+      {r.goal && <p className="small ok-text">A goal for today is complete.</p>}
       <button className="btn pri" autoFocus onClick={onDone}>Done</button>
     </div>
   )
@@ -105,7 +105,7 @@ function Pvt() {
           {st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · tap for the next` : 'Tap to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW' : 'Too early. Tap to retry'}
         </div>
       ) : (
-        <div className="card pad-sm"><span className="lbl">Average</span><b className="num" style={{ fontSize: 36, display: 'block' }}>{avg} ms</b>
+        <div className="col pvt-avg"><span className="lbl">Average</span><b className="num big">{avg} ms</b>
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>
       )}
       <div className="row wrap">{rts.map((r, i) => <span key={i} className="tag num">{r} ms</span>)}</div>
@@ -395,7 +395,7 @@ function Wellbeing() {
           <div className="seg-ctl wrap">{WB_A.map((t, j) => <button type="button" key={j} className={a[i] === j ? 'on' : ''} aria-pressed={a[i] === j} onClick={() => form.set(`q${i}`, j)}>{t}</button>)}</div>
         </FieldGroup>
       ))}
-      {flag && <p className="small" style={{ color: 'var(--watch)' }}>Thank you for answering honestly. This is worth talking about: Canary will suggest a moment with the medical officer.</p>}
+      {flag && <p className="small watch-text">Thank you for answering honestly. This is worth talking about: Canary will suggest a moment with the medical officer.</p>}
       <FormError form={form} />
       <SubmitButton form={form}>Save</SubmitButton>
     </form>

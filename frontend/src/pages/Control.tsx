@@ -47,7 +47,7 @@ function ControlGate({ onOk }: { onOk: () => void }) {
       <div className="row control-top"><span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
       <div className="control-gate-body">
-        <p className="muted reveal" style={{ maxWidth: '46ch', textAlign: 'center' }}>Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
+        <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
         <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="Demo PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
       </div>
     </div>
@@ -99,10 +99,10 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
   return (
     <>
       <div className="stats rise">
-        <div className="stat"><div className="k">Mission</div><b style={{ fontSize: 18 }}>{ov.overview.callsign}</b><div className="s">{ov.overview.name}</div></div>
-        <div className="stat"><div className="k">Mission time</div><b style={{ fontSize: 18 }}>{ms.day_label}</b><div className="s">{ms.leg.label || ms.place.name}</div></div>
-        <div className="stat"><div className="k">Signal delay</div><b style={{ fontSize: 18 }}>{ms.place.reply}</b><div className="s">each way</div></div>
-        <div className="stat"><div className="k">Mission dose</div><b style={{ fontSize: 18 }}>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
+        <div className="stat"><div className="k">Mission</div><b>{ov.overview.callsign}</b><div className="s">{ov.overview.name}</div></div>
+        <div className="stat"><div className="k">Mission time</div><b>{ms.day_label}</b><div className="s">{ms.leg.label || ms.place.name}</div></div>
+        <div className="stat"><div className="k">Signal delay</div><b>{ms.place.reply}</b><div className="s">each way</div></div>
+        <div className="stat"><div className="k">Mission dose</div><b>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
       </div>
 
       <section className="rise" style={{ ['--d' as string]: 1 }}>
@@ -360,7 +360,7 @@ function ControlMessages({ delay }: { delay: string }) {
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
       </form>
       <section>
-        <h2 style={{ marginBottom: 12 }}>Traffic with the ship</h2>
+        <h2 className="traffic-h">Traffic with the ship</h2>
         <div className="col" style={{ gap: 12 }}>{traffic.map(m => {
           const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
           const out = m.sender === 'mission-control'
@@ -368,7 +368,7 @@ function ControlMessages({ delay }: { delay: string }) {
             <div key={m.id} className={`msg ${out ? 'out' : 'in'}`}>
               <div className="row small"><b>{out ? 'Mission Control → medical team' : `${m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
                 <span className="num dim right">{eta ? `${out ? 'arrives' : 'arriving'} in ${eta}s` : out ? 'delivered' : 'received'}</span></div>
-              <div className="muted" style={{ whiteSpace: 'pre-line' }}>{m.text.slice(0, 400)}</div>
+              <div className="muted pre-line">{m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
             </div>)
         })}{!traffic.length && <p className="muted">No traffic yet.</p>}</div>
       </section>
