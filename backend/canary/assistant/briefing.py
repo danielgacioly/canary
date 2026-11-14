@@ -1,20 +1,28 @@
 """Entry 2: a one-page weekly briefing for the flight surgeon.
 
-Code computes the facts; the model (when connected) only writes the prose, and
-guard.unknown_numbers rejects any text with numbers that are not in the facts.
-Sections are in priority order so the first lines are enough on a slow link.
-The astronaut sees the briefing and approves it before it is queued for Earth.
+Code computes the facts; the model (when connected) only rewrites them as prose in the BriefingDraft shape
+(contracts.py, schema.md §7), with no tools. The draft is kept only when it validates, every line cites a
+source from the allowed list, and guard.unknown_numbers finds no number that is not in the facts; otherwise
+the template text is used (mode "template"). Sections are in priority order so the first lines are enough on
+a slow link. The astronaut sees the briefing and approves it before it is queued for Earth.
 """
 import json
+import pathlib
 import time
-from typing import List
+from typing import List, Optional
+
+from pydantic import ValidationError
 
 from .. import db
 from ..config import settings
 from ..domain import goals, health, mission
 from ..domain.catalog import CREW_BY_ID, LOCATIONS
 from . import guard
+from .contracts import BriefingDraft
 from .providers import ProviderRequest, get_provider
+
+PROMPT_VERSION = "briefing_v1"
+SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent / "prompts" / f"{PROMPT_VERSION}.md").read_text()
 
 
 def facts(crew_id: str) -> dict:
@@ -54,14 +62,57 @@ def template(f: dict) -> str:
     return "\n".join(lines)
 
 
+def allowed_sources(crew_id: str, f: dict) -> List[str]:
+    """Source ids a briefing line may cite: the weekly summary and this person's indicators and alerts."""
+    snap = health.snapshot(crew_id, mission.state())
+    ids = [f"summary:{crew_id}:day{f['day']}:7d"]
+    ids += [i["source"] for i in snap["indicators"].values() if i.get("source")]
+    ids += [s for a in snap["alerts"] for s in a.get("sources", [])]
+    return list(dict.fromkeys(ids))
+
+
+def render(f: dict, draft: BriefingDraft) -> str:
+    lines: List[str] = [f"BRIEFING {f['crew'].upper()} · {f['day_label']} · {f['place']}"]
+    for n, sec in enumerate(draft.sections, 1):
+        lines.append(f"{n} {sec.heading.upper()}")
+        lines += [f"- {ln.text}" for ln in sec.lines] or ["- Nothing to report."]
+    if draft.missing_information:
+        lines.append("MISSING INFORMATION")
+        lines += [f"- {t}" for t in draft.missing_information]
+    if draft.needs_medical_review:
+        lines.append("NEEDS MEDICAL REVIEW")
+        lines += [f"- {t}" for t in draft.needs_medical_review]
+    return "\n".join(lines)
+
+
+def check_draft(data, f: dict, allowed: List[str]) -> Optional[str]:
+    """The rendered text when the draft passes every check, else None."""
+    try:
+        draft = BriefingDraft.model_validate(data)
+    except (ValidationError, ValueError, TypeError):
+        return None
+    if not draft.sections or any(s not in allowed for sec in draft.sections for ln in sec.lines for s in ln.source_ids):
+        return None
+    written = [sec.heading for sec in draft.sections] + [ln.text for sec in draft.sections for ln in sec.lines]
+    written += draft.missing_information + draft.needs_medical_review
+    if guard.unknown_numbers("\n".join(written), json.dumps(f)):  # only what the model wrote; the header is ours
+        return None
+    return render(f, draft)
+
+
 def build(crew_id: str) -> dict:
     f = facts(crew_id)
+    allowed = allowed_sources(crew_id, f)
     provider = get_provider()
-    out = provider.complete(ProviderRequest(task="briefing", system="Write a flight-surgeon briefing from these facts only.",
-                                            question="weekly briefing", context=[{"facts": f}]))
+    out = provider.complete(ProviderRequest(
+        task="briefing", system=SYSTEM_PROMPT,
+        question="Write this week's briefing. Allowed source ids: " + json.dumps(allowed),
+        context=[{"facts": f}]))
     text, mode = template(f), "template"
-    if out.ok and out.answer and not guard.unknown_numbers(out.answer, json.dumps(f)):
-        text, mode = out.answer, "ai"
+    if out.ok and out.data is not None:
+        checked = check_draft(out.data, f, allowed)
+        if checked:
+            text, mode = checked, "ai"
     bid = db.x("INSERT INTO briefings(crew_id,day,status,facts,text,mode,created_at) VALUES(?,?,?,?,?,?,?)",
                (crew_id, f["day"], "draft", json.dumps(f), text, mode, time.time()))
     return get(bid)

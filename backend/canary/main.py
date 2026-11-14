@@ -540,7 +540,7 @@ def assistant_status():
 def assistant_ask(body: AskIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
     require_self(body.crew_id, v)
-    return chat.ask(body.crew_id, body.question)
+    return chat.ask(body.crew_id, body.question, viewer=v)
 
 
 @app.get("/api/assistant/history/{crew_id}", tags=["assistant"])
@@ -609,6 +609,12 @@ def medical_overview():
 class ThresholdsIn(BaseModel):
     watch: float = Field(ge=0.5, le=4)
     act: float = Field(ge=1, le=5)
+
+
+@app.get("/api/medical/assistant-audit", tags=["medical"], dependencies=[Depends(require_medical)])
+def medical_assistant_audit(limit: int = 30):
+    """AssistantAuditEntry[]: the latest questions, how they were answered and which guards fired."""
+    return chat.audit(max(1, min(limit, 200)))
 
 
 @app.put("/api/medical/thresholds", tags=["medical"], dependencies=[Depends(require_medical)])
