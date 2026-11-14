@@ -238,3 +238,67 @@ STORY: List[dict] = [
     {"loc": "mars", "day": 222, "me": "a", "storm": "mars", "when": "Sol 12 on Mars, replaying 20 May 2024",
      "text": "That day the Curiosity rover measured radiation 51 times above normal. The chart is that record. The crew stays inside."},
 ]
+
+
+# ---------------------------------------------------------------- hazard matrix (hazard x indicator)
+# The team's matrix "matriz-perigos-indicadores". Hazards: R radiation, I isolation & confinement, D distance from
+# Earth, G altered gravity, E hostile closed environment. Keys are indicator ids, check-in kinds or evidence names
+# ("dose", "amsler", "symptoms"). Every link carries its `source` as the team wrote it and `verified: False`: the
+# "HRP" and "Patel 2020" sources are still to be checked against the HRP risk pages and the article. These are
+# possible factors for a signal, never a cause.
+_P, _H = "Patel 2020", "HRP"
+HAZARDS_BY_INDICATOR: Dict[str, List[dict]] = {}
+
+
+def _link(keys, hazard: str, why: str, source: str, verified: bool = False) -> None:
+    for k in ([keys] if isinstance(keys, str) else keys):
+        HAZARDS_BY_INDICATOR.setdefault(k, []).append({"hazard": hazard, "why": why, "source": source, "verified": verified})
+
+
+_link("sleep", "I", "routine and monotony", f"{_P} (BMed); {_H}")
+_link("sleep", "E", "noise, light, CO2", f"{_P} (BMed); {_H}")
+_link("react", "R", "effect on the nervous system", _P)
+_link("react", "I", "fatigue, stress", _P)
+_link("react", "E", "high CO2", _P)
+_link("mood", "I", "isolation, conflicts", f"{_P} (BMed)")
+_link("mood", "D", "no real-time contact", f"{_P} (BMed)")
+_link("mood", "E", "confinement", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "I", "confinement", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "D", "distance from home", f"{_P} (BMed)")
+_link(["stress", "cortisol"], "E", "noise, confinement", f"{_P} (BMed)")
+_link("social", "I", "isolation", f"{_P} (BMed)")
+_link(["hr", "bp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}")
+_link("hr", "G", "deconditioning, readaptation", f"{_P}; {_H}")
+_link("bp", "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}")
+_link("spo2", "E", "recirculated air, CO2, dust", _H)
+_link("temp", "E", "microbes in a closed environment", _H)
+_link("gluc", "D", "limited diet", f"{_P} (nutrition); {_H}")
+_link("gluc", "G", "inactivity", f"{_P} (nutrition); {_H}")
+_link("weight", "I", "appetite drops", f"{_P} (nutrition)")
+_link("weight", "D", "limited food, no resupply", f"{_P} (nutrition)")
+_link("weight", "G", "muscle loss", f"{_P} (nutrition)")
+_link("water", "D", "recycled water", _H)
+_link("water", "G", "thirst fades", _H)
+_link("exer", "I", "motivation", _H)
+_link("exer", "G", "a countermeasure is needed", _H)
+_link("exer", "E", "little space, equipment", _H)
+_link("grip", "G", "no load", _H)
+_link("bone", "D", "nutrition (vitamin D)", _H)
+_link("bone", "G", "no load", _H)
+_link("urine_calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones)")
+_link("creatinine", "G", "hydration, muscle", _H)
+_link("vitamin_d", "E", "no sunlight", _H)
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "R", "drops first after a dose", f"{_P}; {_H}; real data OSD-569")
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "I", "stress", f"{_P}; {_H}; real data OSD-569")
+_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "E", "microbes", f"{_P}; {_H}; real data OSD-569")
+_link("amsler", "G", "fluid shift towards the head", f"{_P} (SANS)")
+_link("amsler", "E", "CO2 as a cofactor", f"{_P} (SANS)")
+_link("dose", "R", "direct", "real data RadLab, DONKI")
+_link("co2", "E", "direct", f"{_P} (SANS cofactor)")
+# Links the matrix does not have and the code suggests (the hazard each body system already declares in SYSTEMS).
+# Not silent: marked as prototype assumptions, to confirm with the team.
+_ASSUME = "prototype assumption (hazard of the body system in SYSTEMS)"
+_link(["dsst", "span", "kss", "tlx"], "I", "the brain system's hazard in SYSTEMS", _ASSUME)
+_link("urine_volume", "G", "the kidney system's hazard in SYSTEMS", _ASSUME)
+# Rows of the matrix with no indicator in the catalog yet: cytokines (OSD-575/656).
+HAZARD_ROWS_WITHOUT_INDICATOR = ["cytokines"]

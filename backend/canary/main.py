@@ -189,7 +189,7 @@ def plan_conditions():
     for l in p["legs"]:
         place = LOCATIONS[l["location"]]
         legs.append({**l, "days": l["end"] - l["start"] + 1, "gravity_key": place["gravity_key"],
-                     "ridge": privacy.ridge(l["location"]),
+                     "ridge": privacy.ridge(l["location"], None, (max(l["start"], 0) + l["end"]) // 2),
                      "dose_leg_msv": round(place["dose_rate"] * max(0, l["end"] - max(l["start"], 0) + 1), 1)})
     end = p["legs"][-1]["end"]
     step = max(1, (end + 1) // 60)
@@ -287,7 +287,7 @@ def crew_overview():
     sw = nasa.space_weather(ms["storm"])
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
-            "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"]),
+            "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
             "warnings": [{k: a[k] for k in ("id", "level", "title", "why", "todo", "sources")} for a in env],
             "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
@@ -806,7 +806,7 @@ def control_overview():
                        "today": board["people"].get(c["id"]), "last_checkin_day": last[0]["day"] if last else None})
     env = [a for a in (health.snapshot(CREW[0]["id"], ms)["alerts"] if CREW else []) if a.get("env")]
     return {"registered": registry.registered(), "mission": ms, "overview": mission_overview(), "people": people,
-            "ridge": privacy.ridge(ms["location"], ms["storm"]), "warnings": [{k: a[k] for k in ("title", "todo")} for a in env],
+            "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]), "warnings": [{k: a[k] for k in ("title", "todo")} for a in env],
             "dose": health.dose(ms), "emergencies": emergencies()[:5]}
 
 

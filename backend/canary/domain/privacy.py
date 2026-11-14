@@ -11,8 +11,8 @@
 from typing import Optional
 
 from .. import db
-from . import care
-from .catalog import CREW_BY_ID, LOCATIONS, SYSTEMS
+from . import care, plan
+from .catalog import CREW, CREW_BY_ID, LOCATIONS, SYSTEMS
 
 MEDICAL_OFFICER = "k"
 SUBSTITUTE = "h"
@@ -129,15 +129,31 @@ RIDGE = [
     {"id": "E", "name": "Hostile, closed environment", "what": "Recycled air, noise, shared surfaces and no way to step outside.",
      "systems": ["lungs"]},
 ]
-RIDGE_LEVEL = {
-    "earth": {"R": 0, "I": 0, "D": 0, "G": 0, "E": 0},
-    "rocket": {"R": 1, "I": 1, "D": 0, "G": 2, "E": 1},
-    "iss": {"R": 1, "I": 1, "D": 0, "G": 2, "E": 1},
-    "moon": {"R": 2, "I": 1, "D": 1, "G": 1, "E": 2},
-    "transit": {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1},
-    "mars": {"R": 1, "I": 2, "D": 2, "G": 1, "E": 2},
+# The environment (E) is the one hazard still set per place: recycled air, noise and shared surfaces are not in the plan.
+# Prototype assumption.
+E_LEVEL = {"earth": 0, "rocket": 1, "iss": 1, "moon": 2, "transit": 1, "mars": 2}
+# Cuts that turn the plan into a level (0 low, 1 moderate, 2 high). Prototype assumptions: no published rule maps these
+# numbers to a level. They keep the old fixed table's levels for the reference mission and let time and place move them.
+RIDGE_CUTS = {
+    "source": "prototype assumption", "verified": False,
+    "R": {"moderate_msv_day": 0.1, "high_msv_day": 1.0},                    # dose rate of the place; a storm away from Earth is high
+    "I": {"moderate_until_day": 90, "large_crew": 6},                       # days since launch; a crew above `large_crew` is one level lower
+    "D": {"high_delay_s": 60, "moderate_hospital_days": 2},                 # one-way delay; days to a hospital
+    "G": {"readapt_days": 30},                                              # days after a change of gravity
+    "hospital_days": {"earth": 0, "rocket": 0, "iss": 1, "moon": 3, "transit": 9999, "mars": 500},  # read from the `hospital` text of each place
 }
 LEVEL_LABEL = ["Low", "Moderate", "High"]
+
+
+def _since_change(day: int) -> Optional[int]:
+    """Days since the crew changed gravity (0 g to partial, or back to 1 g), None before the first leg change."""
+    legs = plan.get()["legs"]
+    i = plan.leg_index(day)
+    if i == 0:
+        return None
+    if LOCATIONS[legs[i]["location"]]["gravity_key"] == LOCATIONS[legs[i - 1]["location"]]["gravity_key"]:
+        return None
+    return day - legs[i]["start"]
 
 
 def _here(hid: str, location: str) -> str:
@@ -151,12 +167,44 @@ def _here(hid: str, location: str) -> str:
     }[hid]
 
 
-def ridge(location: str, storm: Optional[str] = None) -> list:
+def _level(hid: str, location: str, storm: Optional[str], day: Optional[int]) -> tuple:
+    """(level, basis) of one hazard, from the plan: the place, the mission day and the crew."""
+    p, C = LOCATIONS[location], RIDGE_CUTS
+    if hid == "R":
+        c = C["R"]
+        lv = 0 if p["dose_rate"] < c["moderate_msv_day"] else 1 if p["dose_rate"] < c["high_msv_day"] else 2
+        if storm and location != "earth":
+            return 2, f"a solar storm is in progress away from Earth's magnetic shield (dose {p['dose_rate']} mSv/day)"
+        return lv, f"dose rate {p['dose_rate']} mSv/day (moderate from {c['moderate_msv_day']}, high from {c['high_msv_day']})"
+    if hid == "I":
+        c = C["I"]
+        if location == "earth" or day is None or day < 0:
+            return 0, "pre-flight, close to home" if location == "earth" else "no launch day to count from"
+        lv = 1 if day <= c["moderate_until_day"] else 2
+        if len(CREW) > c["large_crew"]:
+            lv = max(0, lv - 1)
+        return lv, f"day {day} since launch with {len(CREW)} people (high after day {c['moderate_until_day']})"
+    if hid == "D":
+        c = C["D"]
+        hosp = C["hospital_days"][location]
+        lv = 2 if p["delay_s"] >= c["high_delay_s"] else 1 if hosp >= c["moderate_hospital_days"] else 0
+        return lv, f"Earth replies in {p['reply'].lower()}; hospital {p['hospital'].lower()}"
+    if hid == "G":
+        lv = {"g0": 2, "gp": 1, "g1": 0}[p["gravity_key"]]
+        since = _since_change(day) if day is not None else None
+        if since is not None and since < C["G"]["readapt_days"]:
+            lv = max(lv, 2 if p["gravity_key"] == "gp" else 1)
+            return lv, f"{p['gravity']}, day {since + 1} after the change of gravity (readapting for {C['G']['readapt_days']} days)"
+        return lv, f"{p['gravity']} here"
+    return E_LEVEL[location], "recycled air, noise and shared surfaces; set per place (assumption)"
+
+
+def ridge(location: str, storm: Optional[str] = None, day: Optional[int] = None) -> list:
+    """The five hazards for a place, computed from the mission plan (`day` is the mission day; without it only the
+    place counts). Same shape as before, plus `basis` (why this level) and `assumption` (E is set per place)."""
     out = []
     for h in RIDGE:
-        lv = RIDGE_LEVEL[location][h["id"]]
-        if h["id"] == "R" and storm and location != "earth":
-            lv = 2
-        out.append({**h, "level": lv, "label": LEVEL_LABEL[lv], "here": _here(h["id"], location),
-                    "system_names": [SYSTEMS[s]["name"] for s in h["systems"]]})
+        lv, basis = _level(h["id"], location, storm, day)
+        out.append({**h, "level": lv, "label": LEVEL_LABEL[lv], "here": _here(h["id"], location), "basis": basis,
+                    "assumption": h["id"] == "E", "system_names": [SYSTEMS[s]["name"] for s in h["systems"]]})
     return out
