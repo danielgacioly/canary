@@ -29,7 +29,7 @@ from .contracts import MEDICAL_VIEWER, ToolContext, is_data_source
 from .providers import GUARD_EXITS, ProviderRequest, ProviderResult, get_provider
 
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
-PROMPT_VERSION = "system_v1"
+PROMPT_VERSION = "system_v2"
 SYSTEM_PROMPT = (PROMPTS / f"{PROMPT_VERSION}.md").read_text()
 
 UNKNOWN = ("I don't know that from the data on board. The crew medical officer can help, "

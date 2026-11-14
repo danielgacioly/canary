@@ -91,7 +91,7 @@ def test_tool_use_then_supported_answer(monkeypatch):
     assert r["recommended_action"]["id"] == "goal:al_light" and r["recommended_action"]["label"]
     assert r["guard"]["reason"] is None and r["guard"]["dropped_claims"] == []
     assert [t["tool"] for t in r["tools_used"]] == ["get_indicator", "list_goals"]
-    assert r["prompt_version"] == "system_v1" and r["source_meta"] == {}
+    assert r["prompt_version"] == "system_v2" and r["source_meta"] == {}
     for key in ("answer", "claims", "sources", "tools_used", "dropped", "provider", "provider_error", "id"):
         assert key in r
 
