@@ -88,7 +88,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   ) : null
   return (
     <>
-      <div className="scrim" style={{ background: 'rgba(2,3,7,.4)' }} onClick={onClose} />
+      <div className="scrim ask-scrim" style={{ background: 'rgba(2,3,7,.4)' }} onClick={onClose} />
       <aside className="drawer" role="dialog" aria-label="Ask Canary">
         <div className="row" style={{ padding: '18px 18px 12px', borderBottom: '1px solid var(--line)' }}>
           <div><h2>Ask Canary</h2><div className="small muted">Explains your data. Never diagnoses.</div></div>
