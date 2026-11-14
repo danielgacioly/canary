@@ -33,15 +33,15 @@ export default function Crew() {
       <div className="head rise">
         <div>
           <h1>{headline}</h1>
-          <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; each person's status goes only to the medical team.</p>
+          <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; tap yourself to open your space with your PIN.</p>
         </div>
-        <button className="btn right" onClick={() => nav('/me')}><Icon name={me ? 'open' : 'lock'} />{me ? 'Open my space' : 'My space'}</button>
       </div>
 
       <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
         <div className="orbit">
           {data.people.map((p, i) => (
-            <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} onClick={() => nav(p.id === me ? '/me' : `/crew/${p.id}`)}>
+            <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} aria-label={`Open ${p.name}'s space`}
+              onClick={() => nav(p.id === me ? '/me' : `/me?who=${p.id}`)}>
               <Dot p={p} size="xl" me={p.id === me} />
               <b>{p.name}</b>
               <span className="small muted">{p.role}</span>

@@ -205,13 +205,13 @@ Informed by the Impeccable (Operate mode: quieter, distill, craft floor), Emil K
 
 ### The three ideas behind it
 
-**Goals.** Personal goals for the body (exercise by place, water, vitals, mobility, calcium, Amsler grid) and the mind (sleep, reaction test, mood check-in, meditation or prayer, reading, crew time, films and music, calls home, looking homeward, journal). Crew missions are shared weekly targets (2,400 exercise minutes, 5 crew meals, 20 meditation sessions, book club, movie nights). Streaks and nine mission patches; no points or levels.
+**Goals.** Personal goals for the body (exercise by place, water, vitals, mobility, calcium, Amsler grid) and the mind (sleep, reaction test, mood check-in, meditation or prayer, reading, crew time, films and music, calls home, looking homeward, journal). Crew missions are shared weekly targets counted from routine goals ticked, never from measurements (24 exercise sessions, 5 crew meals, 20 meditation sessions, book club, movie nights). Streaks and nine mission patches; no points or levels.
 
 **Warnings.** Each indicator is a z-score against the person's own pre-flight baseline. The medical team sets the thresholds. Cross-signal rules catch what single numbers miss: sleep + mood + reaction time together, high pulse + low water in the first 72 h, low pressure + high pulse back in gravity, a wavy Amsler grid, a solar particle event. Every warning says what it means, what to do now, and adds goals.
 
 **Guided Response.** Not a panic button: a calm, deterministic guide. Protocols are data (`backend/canary/data/protocols.json`) with variants for 0 g, partial gravity and Earth, and for each place. Closing it adds follow-up goals for the patient and queues a report for Earth.
 
-**The ranking counts effort, never vital signs.** It is the one place where individuals are compared, and only by participation: goals done (routine, check-ins, doctor and alert goals) in the last 7 days. There are no points or levels. Goals come from goals done and check-ins sent. A hard day reported honestly earns the same as a good one, so nobody gains by hiding a symptom.
+**The ranking counts effort, never vital signs.** It is the one place where individuals are compared, and only by participation: routine goals done (check-ins included) in the last 7 days. Goals added by an alert, the medical team or a suggestion count only in the person's own space: they come from health data, so a jump in someone's public total would tell the crew they have an alert or a prescription. The ranking API sends only what the page shows (goals, completion, streak, patch count), never the split by area, the day-by-day counts or patch progress. There are no points or levels. Goals come from goals done and check-ins sent. A hard day reported honestly earns the same as a good one, so nobody gains by hiding a symptom.
 
 ---
 

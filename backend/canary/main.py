@@ -336,7 +336,7 @@ def _summary(c: dict, ms: dict, prof: dict) -> dict:
 def crew_list():
     """Full per-person health summary. Medical team only."""
     ms = mission.state()
-    lb = goals.leaderboard(ms["day"])
+    lb = goals.leaderboard(ms["day"], public=False)
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),

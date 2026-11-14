@@ -28,7 +28,7 @@ export default function Ranking() {
       <div className="earn rise" style={{ ['--d' as string]: 1 }}>
         <div><b>Daily goals</b><span>Every goal done counts once, physical or mental</span></div>
         <div><b>Check-ins</b><span>Mood, reaction test, Amsler grid and vitals are goals too</span></div>
-        <div><b>Doctor and alert goals</b><span>Goals added by the medical team or an alert count as well</span></div>
+        <div><b>Only the routine</b><span>Goals from an alert, the doctor or a suggestion count in your own space, never here</span></div>
         <div><b>Streak</b><span>A day counts when 70% of your goals are done</span></div>
       </div>
 

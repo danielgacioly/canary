@@ -101,6 +101,29 @@ def test_leaderboard_ranks_everyone():
         assert not [k for k in keys(payload) if "xp" in k]
 
 
+def test_ranking_and_crew_missions_never_reveal_alert_doctor_goals_or_health_numbers():
+    """The crew sees effort on routine goals only. A goal from an alert, the medical team or a suggestion, and
+    the measured exercise minutes, are health data: ticking one must not move anything the crew can see."""
+    at(3)
+    lb = client.get("/api/leaderboard").json()
+    for r in lb["rows"]:
+        assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "rank", "name", "initials", "role"}
+    ex = next(t for t in lb["team"] if t["id"] == "team_exercise")
+    assert ex["unit"] == "sessions" and all(isinstance(v, int) and v <= 7 for v in ex["contrib"].values())
+
+    def public():
+        ov = client.get("/api/crew/overview").json()
+        return client.get("/api/leaderboard").json(), {k: v for k, v in ov.items() if k in ("people", "team", "crew_streak")}
+
+    before = public()
+    h = as_("h")
+    for gid in ("al_probe", "med_999", "sg_probe"):
+        assert client.post(f"/api/goals/h/{gid}", json={"done": True}, headers=h).status_code == 200
+    assert public() == before
+    for gid in ("al_probe", "med_999", "sg_probe"):
+        client.post(f"/api/goals/h/{gid}", json={"done": False}, headers=h)
+
+
 @pytest.mark.parametrize("q,mode", [
     ("How many mg of melatonin should I take?", "refused"),
     ("Do I have cancer?", "refused"),
