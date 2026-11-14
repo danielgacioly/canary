@@ -71,39 +71,78 @@ def last_observation(crew_id: str, ind: str, day: int) -> Optional[dict]:
     return SOURCE.last_observation(crew_id, ind, day)  # type: ignore[attr-defined]
 
 
-def overrides(crew_id: str, day: int) -> Dict[str, float]:
-    """Self-measured values for one day (latest check-in wins)."""
-    out: Dict[str, float] = {}
-    for r in db.q("SELECT kind,payload FROM checkins WHERE crew_id=? AND day=? ORDER BY id", (crew_id, day)):
+# Which check-in field feeds which indicator: kind -> [(payload field, indicator)].
+CHECKIN_FIELDS = {
+    "mood": [("mood", "mood"), ("stress", "stress")],
+    "pvt": [("ms", "react")],
+    "sleep": [("hours", "sleep")],
+    "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")],
+    "dsst": [("correct", "dsst")],
+    "span": [("span", "span")],
+    "kss": [("level", "kss")],
+    "tlx": [("raw", "tlx")],
+}
+
+
+def _rows(crew_id: str, d0: int, d1: int) -> list:
+    return db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? AND day>=? AND day<=? ORDER BY id", (crew_id, d0, d1))
+
+
+def user_values(crew_id: str, d0: int, d1: int) -> Dict[int, Dict[str, dict]]:
+    """Self-measured values by day and indicator (latest check-in of the day wins), with the check-in kind."""
+    out: Dict[int, Dict[str, dict]] = {}
+    for r in _rows(crew_id, d0, d1):
         p = json.loads(r["payload"])
-        if r["kind"] == "mood":
-            out["mood"] = float(p["mood"])
-            if "stress" in p:
-                out["stress"] = float(p["stress"])
-        elif r["kind"] == "pvt":
-            out["react"] = float(p["ms"])
-        elif r["kind"] == "sleep" and p.get("hours") is not None:
-            out["sleep"] = float(p["hours"])
-        elif r["kind"] == "vitals":
-            for k in ("hr", "bp", "temp", "spo2"):
-                if p.get(k) is not None:
-                    out[k] = float(p[k])
+        for field, ind in CHECKIN_FIELDS.get(r["kind"], []):
+            if p.get(field) is not None:
+                out.setdefault(r["day"], {})[ind] = {"value": float(p[field]), "kind": r["kind"]}
     return out
 
 
+def last_user_day(crew_id: str, day: int) -> Dict[str, int]:
+    """For each indicator, the last day up to `day` on which the person measured it themselves."""
+    out: Dict[str, int] = {}
+    for d, inds in sorted(user_values(crew_id, -10**6, day).items()):
+        for ind in inds:
+            out[ind] = d
+    return out
+
+
+def overrides(crew_id: str, day: int) -> Dict[str, float]:
+    """Self-measured values for one day (latest check-in wins)."""
+    return {i: v["value"] for i, v in user_values(crew_id, day, day).get(day, {}).items()}
+
+
+def observation(crew_id: str, ind: str, day: int, uv: Optional[Dict[int, Dict[str, dict]]] = None) -> dict:
+    """The one way to read a value: {"value", "origin", "source", "day"}.
+
+    A self check-in of that day wins (origin "user"); otherwise the last row of the observation file up to
+    that day, with the origin and source of the row; before the first row, the first row.
+    """
+    u = (uv if uv is not None else user_values(crew_id, day, day)).get(day, {}).get(ind)
+    if u is not None:
+        return {"value": u["value"], "origin": "user", "source": f"checkin:{crew_id}:{u['kind']}:day{day}", "day": day}
+    o = last_observation(crew_id, ind, day)
+    if o is not None:
+        return {"value": o["value"], "origin": o["origin"], "source": o["source"], "day": o["day"]}
+    return {"value": SOURCE.value(crew_id, ind, day), "origin": "simulated", "source": f"recipe:{ind}", "day": day}
+
+
 def reading(crew_id: str, ind: str, day: int, ov: Optional[Dict[str, float]] = None) -> float:
-    ov = overrides(crew_id, day) if ov is None else ov
-    return ov[ind] if ind in ov else SOURCE.value(crew_id, ind, day)
+    if ov is not None and ind in ov:
+        return ov[ind]
+    return observation(crew_id, ind, day)["value"]
 
 
 def current(crew_id: str, ind: str, day: int) -> float:
-    """Weighted recent value: 60% today, 25% yesterday, 15% the day before."""
-    ov = overrides(crew_id, day)
-    return 0.6 * reading(crew_id, ind, day, ov) + 0.25 * SOURCE.value(crew_id, ind, day - 1) + 0.15 * SOURCE.value(crew_id, ind, day - 2)
+    """Weighted recent value: 60% today, 25% yesterday, 15% the day before. Check-ins count on all three days."""
+    uv = user_values(crew_id, day - 2, day)
+    return sum(w * observation(crew_id, ind, day - k, uv)["value"] for k, w in enumerate((0.6, 0.25, 0.15)))
 
 
 def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
-    return [[d, round(SOURCE.value(crew_id, ind, d), 2)] for d in range(day - n + 1, day + 1)]
+    uv = user_values(crew_id, day - n + 1, day)
+    return [[d, round(observation(crew_id, ind, d, uv)["value"], 2)] for d in range(day - n + 1, day + 1)]
 
 
 def cumulative_dose(day: int, location_now: str, storm: Optional[str]) -> float:
