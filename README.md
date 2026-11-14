@@ -220,19 +220,32 @@ The bar at the bottom of every screen drives a six-scene story. Each step sets t
 ### How a number becomes an alert
 
 ```
-reading(day)  ──►  recent = 60% today + 25% yesterday + 15% day before
-                        │
+observation(day) ─►  recent = 60% today + 25% yesterday + 15% day before
+ (check-in or file)     │
 baseline (pre-flight) ──┤  z = (recent − baseline) / personal spread
                         ▼
               level 0 / 1 / 2  by the medical team's thresholds (default 1.5σ / 2.5σ)
                         │
 cross-signal rules ─────┤  e.g. sleep↓ + mood↓ + reaction↑  →  behavioural alert
                         ▼
+  missing data ─────────┤  no mood check-in for 3 days  →  `missing_mood` (level 1, never counts as a health risk)
+                        ▼
          alert = { what it means, what to do now, goals added, sources }
                         │
                         ▼
    body system status  →  colour on the 3D body  →  physical / mental readiness score
 ```
+
+Every day of the 60/25/15 blend is read the same way, through `telemetry.observation(crew, indicator, day)`. A check-in made on day D therefore shows in that day's chart and weighs on the value for D, D+1 and D+2. Missing data is not a risk: `missing_mood` appears when the daily mood goal (`goals.is_done`, real tick or simulated history) was not met today, yesterday and the day before, but it does not change anyone's level, status or score. The wording does not blame the person. Not raised before launch (learning).
+
+### Where a value comes from and how old it is
+
+`telemetry.observation()` returns `{value, origin, source, day}` and is the only reader behind `current()`, `series()` and the assistant's trends:
+
+1. A self check-in of that day wins: `origin: "user"`, `source: "checkin:<crew>:<kind>:day<D>"`. Fields read: mood (mood, stress), pvt (ms), sleep (hours), vitals (hr, bp, temp, spo2), dsst (correct), span (span), kss (level), tlx (raw). Other tests are stored but are not indicators (amsler, symptoms and wellbeing feed their own alert rules; reading and journal only complete goals).
+2. Otherwise the last row of the observation file up to that day, with the origin of the row (`simulated` or `real`).
+
+Each indicator in `GET /api/crew/{id}` also says `origin` (where today's value came from), `last_measured_day` and `age_days` (days since the person last measured it themselves; `null` if never). The four cognitive and self-report indicators (`dsst`, `span`, `kss`, `tlx`, Brain & mind) follow the same baseline, spread and thresholds as the others.
 
 ---
 
@@ -359,7 +372,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew` | Full health summary of everyone, with operational status (medical team only) |
 | `GET /api/goals/{id}` · `POST /api/goals/{id}/{goal}` | Today's goals, crew missions, streak and patches · tick a goal |
 | `GET /api/suggestions/{id}` · `POST /api/suggestions/{id}/{sid}/accept` | Personal suggestions (the astronaut only) · turn one into a goal for 7 days |
-| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only) · every test with its latest result and the recent log (self and medical team) |
+| `POST /api/checkins` · `GET /api/checkins/{id}` | Save a test or log (self only; vitals outside the typing limits, such as a pulse of 900, return 400) · every test with its latest result and the recent log (self and medical team) |
 | `GET /api/crew/photos` · `PUT/DELETE /api/crew/{id}/photo` | Profile photos (the astronaut sets their own) |
 | `GET /api/leaderboard` | Ranking and crew missions |
 | `GET /api/protocols` · `POST /api/emergencies` · `POST /api/emergencies/{id}` | Guided Response bank resolved for the place · open · log, close |
@@ -401,6 +414,8 @@ Full, interactive documentation at `/docs`. The main routes:
 ## Limits, honestly
 
 - **Simulated:** astronaut vital signs are not published as open data, so crew members, baselines, daily readings and the mission dose are simulated (deterministic, with the story written in) and labelled as such. Only the blood count is real. In `observations.csv` every row says `simulated` or `real`, and every recipe without a published source says `prototype assumption` with `verified: false`; `data/DATASET.md` lists them. Open real data exists for the metabolic panel, cytokines and dose by place and is not imported yet.
+- **Prototype assumptions of this layer (`verified: false`):** the baselines, spreads and fatigue effects of `dsst`, `span`, `kss`, `tlx` (see `catalog.INDICATOR_NOTES`; the KSS and NASA-TLX scales are published, the numbers are not), and the vitals typing limits in `selftests.VITALS_LIMITS` (hr 20 to 250, bp 50 to 260, temp 30 to 45, spo2 50 to 100). The limits only catch typos; they are not clinical ranges.
+- **Tests never taken:** the Tests page still says "Not done yet" for a test the person never did, even when the file has simulated history for that indicator. No check-ins are invented for the past.
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.
 - **To verify before quoting:** daily dose by place, the 600 mSv career limit, bone loss of about 1% per month, delays to Mars.

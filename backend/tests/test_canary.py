@@ -447,3 +447,97 @@ def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
     assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
     for d in (-500, 0, 20, 40, 41, 3000):
         assert isinstance(telemetry.SOURCE.value("t", "hr", d), float)
+
+
+# ---------------------------------------------------------------- Prompt 1: everything the person measures is an observation
+def _day(d):
+    return client.put("/api/mission", json={"day": d}).json()
+
+
+def _checkin(cid, kind, payload):
+    return client.post("/api/checkins", json={"crew_id": cid, "kind": kind, "payload": payload}, headers=as_(cid))
+
+
+def test_a_pvt_checkin_shows_in_the_series_and_weighs_on_the_next_two_days():
+    from canary.domain import telemetry
+    _day(100)
+    before = {d: telemetry.current("a", "react", d) for d in (100, 101, 102, 103)}
+    assert _checkin("a", "pvt", {"ms": 600}).status_code == 200
+    assert dict(telemetry.series("a", "react", 100, 5))[100] == 600
+    assert dict(telemetry.series("a", "react", 102, 5))[100] == 600  # still there in later charts
+    assert telemetry.current("a", "react", 100) == pytest.approx(before[100] + 0.6 * (600 - telemetry.SOURCE.value("a", "react", 100)))
+    assert telemetry.current("a", "react", 101) > before[101] + 0.25 * 200
+    assert telemetry.current("a", "react", 102) > before[102] + 0.15 * 200
+    assert telemetry.current("a", "react", 103) == pytest.approx(before[103])
+
+
+@pytest.mark.parametrize("kind,payload,ind,value", [("dsst", {"correct": 10}, "dsst", 10), ("span", {"span": 3}, "span", 3),
+                                                    ("kss", {"level": 9}, "kss", 9), ("tlx", {"scores": {"a": 100, "b": 100}}, "tlx", 100)])
+def test_cognitive_and_self_report_tests_feed_their_indicator(kind, payload, ind, value):
+    _day(100)
+    before = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
+    assert before["origin"] == "simulated" and before["age_days"] is None
+    r = _checkin("a", kind, payload).json()["snapshot"]["indicators"][ind]
+    assert r["origin"] == "user" and r["age_days"] == 0 and r["last_measured_day"] == 100
+    assert r["value"] != before["value"] and r["bad"] > before["bad"]
+    assert dict(client.get("/api/crew/a", headers=as_("a")).json()["trends"][ind])[100] == value
+    _day(103)
+    later = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
+    assert later["origin"] != "user" and later["age_days"] == 3
+
+
+def test_crew_detail_has_the_four_new_indicators_with_origin_and_age():
+    _day(100)
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    for ind in ("dsst", "span", "kss", "tlx"):
+        i = d["indicators"][ind]
+        assert {"value", "baseline", "level", "origin", "age_days"} <= set(i) and i["origin"] in ("simulated", "real", "user")
+        assert ind in catalog.SYSTEMS["brain"]["indicators"] and catalog.INDICATOR_NOTES[ind]["verified"] is False
+
+
+def test_story_alerts_are_unchanged_by_the_new_indicators():
+    s = health.snapshot("h", at(2))
+    assert s["alerts"][0]["id"] == "behaviour" and s["alerts"][0]["level"] == 2
+    assert not any(a["id"].startswith("ind_") and a["id"][4:] in ("dsst", "span", "kss", "tlx") for a in s["alerts"])
+    for cid in ("k", "a", "t"):
+        assert not any(a["id"] == "behaviour" for a in health.snapshot(cid, mission.state())["alerts"])
+    ms = _day(-30)
+    assert all(health.snapshot(c["id"], ms)["alerts"] == [] for c in catalog.CREW)
+    ms = at(1)
+    assert [c["id"] for c in catalog.CREW if any(a["id"] == "sickness" for a in health.snapshot(c["id"], ms)["alerts"])] == ["t"]
+
+
+def test_missing_mood_after_three_days_without_the_goal_and_gone_after_a_checkin():
+    ms = _day(100)
+    for d in (98, 99, 100):
+        goals.set_done("a", "mood", d, False)
+    ids = lambda: [a["id"] for a in health.snapshot("a", mission.state())["alerts"]]  # noqa: E731
+    assert "missing_mood" in ids()
+    a = next(x for x in health.snapshot("a", ms)["alerts"] if x["id"] == "missing_mood")
+    assert a["level"] == 1 and a["sys"] == "brain" and "fault" not in a["why"].lower()
+    assert health.snapshot("a", ms)["level"] == 0  # missing data is not a health risk
+    assert _checkin("a", "mood", {"mood": 4, "stress": 2}).status_code == 200
+    assert "missing_mood" not in ids()
+    goals.set_done("a", "mood", 100, False)
+    goals.set_done("a", "mood", 99, True)
+    assert "missing_mood" not in ids()  # only three days in a row count
+    ms = _day(-5)  # learning: no alerts at all
+    for d in (-7, -6, -5):
+        goals.set_done("a", "mood", d, False)
+    assert health.snapshot("a", ms)["alerts"] == []
+
+
+def test_vitals_outside_what_can_be_typed_are_refused():
+    _day(100)
+    for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"bp": 0}, {"hr": "fast"}):
+        r = _checkin("a", "vitals", bad)
+        assert r.status_code == 400, bad
+    assert _checkin("a", "vitals", {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
+    latest = {t["id"]: t["latest"] for t in client.get("/api/checkins/a", headers=as_("a")).json()["tests"]}
+    assert latest["vitals"]["payload"]["hr"] == 62
+    assert selftests_limits_are_not_clinical()
+
+
+def selftests_limits_are_not_clinical():
+    from canary.domain import selftests
+    return selftests.VITALS_LIMITS_SOURCE["verified"] is False and "not clinical" in selftests.VITALS_LIMITS_SOURCE["source"]

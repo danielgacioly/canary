@@ -379,6 +379,9 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     """A test or log from the Tests page (or a quick check from My space). Private: self and medical team."""
     _crew(body.crew_id)
     require_self(body.crew_id, v)
+    err = selftests.validate(body.kind, body.payload)
+    if err:
+        raise HTTPException(400, err)
     day = mission.state()["day"]
     p = selftests.normalise(body.kind, body.payload)
     db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",

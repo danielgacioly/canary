@@ -44,6 +44,27 @@ KSS = ["Extremely alert", "Very alert", "Alert", "Rather alert", "Neither alert 
        "Sleepy, no effort to stay awake", "Sleepy, some effort to stay awake", "Very sleepy, fighting sleep"]
 
 
+# Typing limits for the vital signs: wide on purpose, only to catch typos and impossible numbers.
+# They are NOT clinical ranges and say nothing about what is healthy.
+VITALS_LIMITS = {"hr": (20, 250), "bp": (50, 260), "temp": (30, 45), "spo2": (50, 100)}
+VITALS_LIMITS_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
+
+
+def validate(kind: str, payload: dict) -> Optional[str]:
+    """An error message when the payload cannot be a real measurement, else None. Only vitals are checked."""
+    if kind != "vitals":
+        return None
+    for k, (lo, hi) in VITALS_LIMITS.items():
+        v = payload.get(k)
+        if v is None:
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
+            return f"{k} must be a number"
+        if not lo <= v <= hi:
+            return f"{k} {v} is outside what can be typed ({lo} to {hi}). Check the number and try again."
+    return None
+
+
 def _hours(bed: str, wake: str) -> float:
     bh, bm = (int(x) for x in bed.split(":"))
     wh, wm = (int(x) for x in wake.split(":"))
