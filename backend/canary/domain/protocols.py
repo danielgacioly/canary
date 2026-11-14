@@ -33,7 +33,7 @@ def care(pid: str) -> dict:
     days = p.get("after_days") or [None] * len(p["after"])
     return {"window_days": window, "ops": p.get("ops", "full"),
             "after_items": [{"title": t, "days": int(d if d is not None else window)} for t, d in zip(p["after"], days)],
-            "source": _BANK.get("care_note", {})}
+            "care_source": _BANK.get("care_note", {})}
 
 
 def resolve(location: str) -> dict:
