@@ -163,22 +163,16 @@ def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, windo
     out = []
     for t in TEAM_GOALS:
         kind, _, gid = t["metric"].partition(":")
-        if kind == "sum_exer":
-            val = sum(telemetry.SOURCE.value(c["id"], "exer", d) for c in CREW for d in days)
-        elif kind == "all_done":  # a crew day: at least 3 of the 4 did it
+        if kind == "all_done":  # a crew day: at least 3 of the 4 did it
             val = sum(1 for d in days if sum(gid in histories[c["id"]][d]["done"] for c in CREW) >= 3)
         elif kind == "count":
             val = sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
         else:  # count20
             val = 20 * sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
         val = round(val)
-        contrib = {}
-        if kind != "sum_exer":
-            for c in CREW:
-                contrib[c["id"]] = sum(1 for d in days if (gid or "") in histories[c["id"]][d]["done"])
-        else:
-            for c in CREW:
-                contrib[c["id"]] = round(sum(telemetry.SOURCE.value(c["id"], "exer", d) for d in days))
+        # Each person's part: how many times they ticked the routine goal. Routine goals only, so a goal added by an
+        # alert or the medical team never shows here.
+        contrib = {c["id"]: sum(1 for d in days if gid in histories[c["id"]][d]["done"]) for c in CREW}
         out.append({**t, "value": val, "pct": min(100, round(100 * val / t["target"])), "done": val >= t["target"],
                     "contrib": contrib})
     return out
@@ -240,9 +234,26 @@ def crew_board(today: int) -> dict:
             "team_done": sum(1 for t in team if t["done"]), "team_total": len(team)}
 
 
-def leaderboard(today: int) -> dict:
+PUBLIC_ROW = ("crew_id", "goals_week", "completion_7d", "streak", "badges_earned")
+
+
+def public_row(crew_id: str, today: int, histories: Dict[str, dict]) -> dict:
+    """What the crew may see of one person in the ranking: routine goals only, the numbers the page shows.
+
+    Goals added by an alert, the medical team or a health-based suggestion are left out of the count, so a jump in
+    someone's total never tells the crew they have an alert or a prescription. The split by area, the day-by-day
+    counts and the patch progress stay in the person's own space.
+    """
+    days = histories[crew_id]
+    p = profile(crew_id, today, histories)
+    p["goals_week"] = sum(len(days[d]["done"]) for d in range(today - 6, today + 1) if d in days)
+    return {k: p[k] for k in PUBLIC_ROW}
+
+
+def leaderboard(today: int, public: bool = True) -> dict:
+    """The ranking. `public` (the crew's view) keeps only PUBLIC_ROW; the medical console asks for full profiles."""
     histories = {c["id"]: _history(c["id"], today) for c in CREW}
-    rows = [profile(c["id"], today, histories) for c in CREW]
+    rows = [public_row(c["id"], today, histories) if public else profile(c["id"], today, histories) for c in CREW]
     rows.sort(key=lambda r: (-r["goals_week"], -r["completion_7d"], -r["streak"]))
     for i, r in enumerate(rows):
         r["rank"] = i + 1

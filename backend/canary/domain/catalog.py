@@ -224,7 +224,8 @@ PERSONAL_BY_ID = {g["id"]: g for g in PERSONAL_GOALS}
 
 # Weekly crew missions. `metric` says how progress is counted from the last 7 days.
 TEAM_GOALS: List[dict] = [
-    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 2,400 minutes this week", "target": 2400, "unit": "min", "metric": "sum_exer"},
+    # Counts the routine exercise goal ticked, never the measured exercise minutes: those are health data.
+    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 24 sessions this week", "target": 24, "unit": "sessions", "metric": "count:exercise"},
     {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social"},
     {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood"},
     {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure"},
