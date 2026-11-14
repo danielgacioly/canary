@@ -31,12 +31,13 @@ SETTINGS_NEVER_RETURNED = ("suggested_goals", "pins", "photos")
 
 # Facts from data: allowed in `observations`.
 DATA_SOURCE_PREFIXES = ("telemetry", "status", "goals", "checkin", "nasa", "summary",
-                        # risk layer (domain/risk.py, health.py, care.py): `risk:{crew}:day{n}`, `goal:{crew}:mood:day{n}`
+                        # risk layer (domain/risk.py, health.py, care.py): `risk:{crew}:day{n}`, `goals:{crew}:mood:day{n}`
                         # (mood log missing), `dose:day{n}` (mission dose, same for everyone), `recipe:{indicator}`
-                        # (simulated observation), `emergency:{id}` (closed emergency behind a care window)
-                        "risk", "goal", "dose", "recipe", "emergency")
+                        # (simulated observation), `emergency:{id}` (closed emergency behind a care window).
+                        # `goal:` is never a source: it only ever means an action id `goal:{goal_id}` (§6).
+                        "risk", "dose", "recipe", "emergency")
 # Data prefixes whose second segment is a crew id: a result or claim citing another person's id is withheld.
-PERSONAL_SOURCE_PREFIXES = ("telemetry", "status", "goals", "checkin", "summary", "risk", "goal")
+PERSONAL_SOURCE_PREFIXES = ("telemetry", "status", "goals", "checkin", "summary", "risk")
 # Approved knowledge: allowed in `explanations`. `card` and `protocol` are legacy aliases of `kb` documents.
 KNOWLEDGE_SOURCE_PREFIXES = ("kb",)
 LEGACY_KNOWLEDGE_PREFIXES = ("card", "protocol")

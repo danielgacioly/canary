@@ -74,7 +74,7 @@ def test_enums_come_from_the_catalogue():
     kinds = props["get_checkins"]["kind"]["enum"]
     assert len(kinds) == 14 and kinds[-1] == "any" and set(kinds[:-1]) == selftests.TEST_IDS
     assert set(props["search_knowledge"]["kind"]["enum"]) == {"protocol", "system_card", "location", "nasa_source",
-                                                              "hazard", "privacy", "self_test", "any"}
+                                                              "hazard", "privacy", "self_test", "risk", "care_window", "any"}
 
 
 @pytest.mark.parametrize("name", list(VALID_ARGS))
@@ -285,3 +285,40 @@ def test_route_uses_the_given_context_only_for_its_person():
 def test_schema_for_status_endpoint():
     s = tools.schema()
     assert [t["name"] for t in s] == list(tools.TOOLS) and all(t["description"] for t in s)
+
+
+# ---------------------------------------------------------------- `goal:` only means an action id
+
+def _all_sources(node):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("source", "sources"):
+                yield from ([v] if isinstance(v, str) else v if isinstance(v, list) else [])
+            yield from _all_sources(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _all_sources(v)
+
+
+@pytest.mark.parametrize("cid", CREW_IDS)
+def test_no_tool_result_source_starts_with_goal(cid):
+    """`goal:{goal_id}` is an action id (schema.md §6); a source id never uses that prefix (the mood check-in
+    evidence is `goals:{crew}:mood:day{n}`)."""
+    seen = []
+    for name, args in VALID_ARGS.items():
+        r = tools.run_tool(ctx(cid), name, args)
+        assert r.ok, (name, r.error)
+        srcs = list(r.sources) + [s for s in _all_sources(r.data) if isinstance(s, str)]
+        seen += srcs
+        assert not [s for s in srcs if s.startswith("goal:")], (name, srcs)
+    assert "goal" not in C.DATA_SOURCE_PREFIXES and "goal" not in C.PERSONAL_SOURCE_PREFIXES
+
+
+def test_missing_mood_evidence_uses_the_goals_prefix():
+    from canary.domain import health
+    db.x("DELETE FROM goal_log WHERE crew_id=? AND goal_id='mood'", ("h",))
+    snap = health.snapshot("h", mission.state())
+    srcs = list(_all_sources(snap))
+    day = mission.state()["day"]
+    assert f"goals:h:mood:day{day}" in srcs
+    assert not [s for s in srcs if isinstance(s, str) and s.startswith("goal:")]
