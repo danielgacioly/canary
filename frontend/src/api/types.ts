@@ -31,11 +31,19 @@ export interface Indicator {
   spread: number; baseline_from: 'preflight' | 'catalog'; baseline_n: number
   population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical'; source: string; verified: boolean }
 }
-export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null }
+export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null; risks?: string[] }
 export interface AlertGoal { id: string; area: Area; title: string }
 export interface Alert {
   id: string; level: Level; title: string; why: string; todo: string[]; sys?: string | null
-  protocol?: string; test?: string; env?: boolean; data?: boolean; sources: string[]; goals: AlertGoal[]
+  protocol?: string; test?: string; env?: boolean; data?: boolean; risk?: string; sources: string[]; goals: AlertGoal[]
+}
+export interface RiskEvidence {
+  indicator?: string; checkin?: string; text: string; value: number | null; baseline: number | null; z: number | null
+  origin: 'user' | 'simulated' | 'real'; source: string; points: number; drift?: { slope: number; days_to_limit: number }
+}
+export interface Risk {
+  id: string; name: string; nasa_red: boolean; systems: string[]; clock_days: number; level: Level; score: number
+  trend: 'rising' | 'stable' | 'falling'; evidence: RiskEvidence[]; since_day: number | null; source: string; verified: boolean
 }
 export interface AreaState { score: number; level: Level; status: string }
 export interface Dose { mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean }
@@ -66,7 +74,7 @@ export interface Analyte { unit: string; range: { min: number; max: number }; va
 export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' }
 export interface CrewDetail {
   crew: CrewInfo; mission: Mission; indicators: Record<string, Indicator>; systems: Record<string, SystemState>
-  alerts: Alert[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
+  alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
