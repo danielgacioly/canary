@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, goals, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
+from .domain import advice, care, goals, guide, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 def _warm_story() -> None:
@@ -208,7 +208,7 @@ def ping():
 def catalog():
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
             "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary()}
+            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -869,6 +869,12 @@ def control_session(body: PinIn):
     return {"token": f"control.{exp}.{_control_sig(exp)}", "expires_at": exp}
 
 
+def _earth_ops(ops: dict) -> dict:
+    """Earth follows the operational status only: why a person is restricted (the care window after an emergency) stays
+    with the person and the medical team."""
+    return {k: v for k, v in ops.items() if k in ("key", "label", "level")}
+
+
 @app.get("/api/control/overview", tags=["control"], dependencies=[Depends(require_control)])
 def control_overview():
     """What Earth follows: operational status as the medical team reports it, participation, hazards, traffic."""
@@ -878,7 +884,7 @@ def control_overview():
     for c in CREW:
         s = health.snapshot(c["id"], ms)
         last = db.q("SELECT day FROM checkins WHERE crew_id=? ORDER BY id DESC LIMIT 1", (c["id"],))
-        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": privacy.operational(s),
+        people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")}, "ops": _earth_ops(privacy.operational(s)),
                        "today": board["people"].get(c["id"]), "last_checkin_day": last[0]["day"] if last else None})
     env = [a for a in (health.snapshot(CREW[0]["id"], ms)["alerts"] if CREW else []) if a.get("env")]
     return {"registered": registry.registered(), "mission": ms, "overview": mission_overview(), "people": people,

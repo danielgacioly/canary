@@ -1638,3 +1638,58 @@ def test_nan_and_null_numbers_in_the_raw_json_are_refused_not_saved():
     r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":null,"bp":null,"temp":null,"spo2":null}}', headers=h)
     assert "form" in _fields(r)
     assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before
+
+
+# ---------------------------------------------------------------- funnel: personal numbers stay in My space and the medical team's view
+PERSONAL = ("prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit", "standard_profile", "risks", "care", "reason",
+            "until_day", "care_events", "prior_dose", "standard")
+
+
+def _crew_facing():
+    ctl = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    return {"crew overview": client.get("/api/crew/overview").json(), "mission overview": client.get("/api/mission/overview").json(),
+            "leaderboard": client.get("/api/leaderboard").json(), "plan conditions": client.get("/api/plan/conditions").json(),
+            "control overview": client.get("/api/control/overview", headers=ctl).json()}
+
+
+def _keys(x):
+    """Every key of a nested JSON value."""
+    if isinstance(x, dict):
+        for k, v in x.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _keys(v)
+
+
+@pytest.mark.parametrize("step", [0, 2, 3, 4])
+def test_crew_facing_endpoints_never_carry_career_dose_risks_eva_or_care(step):
+    at(step)
+    _close("seizure", "t")  # a care window is open for Tomas: Earth and the crew must not learn why he is restricted
+    for name, body in _crew_facing().items():
+        bad = set(PERSONAL) & set(_keys(body))
+        assert not bad, (name, bad)
+        assert "After Guided Response" not in str(body), name  # the emergency itself is crew-wide; the window after it is not
+    dose = client.get("/api/crew/overview").json()["dose"]
+    assert "career_msv" not in dose and dose["mission_msv"] >= 0  # the mission dose is the same for everyone and stays
+
+
+def test_the_career_dose_reaches_the_person_and_the_medical_team_only():
+    at(3)
+    for cid in "hkat":
+        d = client.get(f"/api/crew/{cid}", headers=as_(cid)).json()
+        assert {"prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit"} <= set(d["dose"]) and "risks" in d and "standard_profile" in d
+        assert client.get(f"/api/crew/{cid}").status_code == 403
+        assert client.get(f"/api/crew/{cid}", headers=as_("k" if cid != "k" else "h")).status_code == 403
+    med = client.get("/api/crew/t", headers=_med())
+    assert med.status_code == 200 and med.json()["dose"]["career_msv"] >= med.json()["dose"]["prior_msv"]
+
+
+def test_the_catalog_carries_the_indicator_guide_with_its_sources():
+    g = client.get("/api/catalog").json()["guide"]
+    assert {"bp", "hr", "temp", "spo2", "gluc", "exer", "sleep", "mood", "vo2", "grip", "bone", "radiation"} <= set(g)
+    for k, e in g.items():
+        assert e["how"] and e["effect"] and set(e["actions"]) == {"green", "amber", "red"}, k
+        assert not any(w in str(e).lower() for w in ("manguito", "sem gravidade")), k  # English only
+    assert g["bp"]["sources"]["how"] is None and g["vo2"]["sources"]["actions"]  # no source listed -> the app says so

@@ -1,0 +1,123 @@
+{
+  "about": "English version of como_medir, efeito_no_espaco, acoes and frequencia_sugerida of indicadores.json for the indicators Canary shows (id_map.json, kind indicator, plus the radiation risk). A translation, not a rewrite: no clinical content was added or changed. Sources come from indicadores.json (domain/guide.py); a text without a listed source is shown as 'No source checked yet'.",
+  "pa_sistolica": {
+    "how": "Blood pressure cuff on the arm, seated and at rest for 5 min.",
+    "effect": "Without gravity the heart and vessels adapt and the heart can become rounder. Back in gravity, pressure can drop (risk of dizziness and fainting).",
+    "actions": {
+      "green": "Keep up daily exercise and hydration.",
+      "amber": "Repeat in 15 min. Below 90: hydrate and sit or lie down before standing. Between 120 and 139: cut salt and keep exercising.",
+      "red": "Repeat the measurement; if confirmed, tell the flight surgeon. Above 180, or with chest pain, shortness of breath or a change in vision: emergency."
+    },
+    "frequency": "Daily"
+  },
+  "fc_repouso": {
+    "how": "Watch, heart-rate strap or ECG, on waking, before getting up.",
+    "effect": "The same cardiovascular adaptations as blood pressure. Well-trained people can have a normal rate below 60.",
+    "actions": {
+      "green": "Keep the routine.",
+      "amber": "Check for poor sleep, stress, caffeine or fever. Repeat after 10 min of rest.",
+      "red": "Record an ECG if equipment is available and tell the flight surgeon. With chest pain, fainting or shortness of breath: emergency."
+    },
+    "frequency": "Continuous (wearable) or daily"
+  },
+  "temperatura": {
+    "how": "Oral thermometer.",
+    "effect": "The immune system changes in space; astronauts have had cold sores, atypical allergies, skin rashes and infections from reactivated latent viruses.",
+    "actions": {
+      "green": "Keep the routine.",
+      "amber": "Hydrate, rest and measure again in 4 h. Note any other symptoms.",
+      "red": "Tell the flight surgeon. Isolate from the crew if an infection is suspected."
+    },
+    "frequency": "Daily, and whenever you feel unwell"
+  },
+  "spo2": {
+    "how": "Finger pulse oximeter.",
+    "effect": "Future spacecraft will have a reduced-pressure cabin, which raises the risk of mild hypoxia: confusion, headache, changes in vision and poor sleep.",
+    "actions": {
+      "green": "Keep the routine.",
+      "amber": "Measure again with the hand warm and still (the oximeter is off by 2 to 4%). At 92 or below, tell the flight surgeon.",
+      "red": "Immediate care: supplemental oxygen per protocol and the flight surgeon."
+    },
+    "frequency": "Daily, and before and after a spacewalk (EVA)"
+  },
+  "glicemia": {
+    "how": "Fingerstick glucose meter, fasting.",
+    "effect": "Food, sleep and exercise change the metabolic routine on board.",
+    "actions": {
+      "green": "Keep the planned diet.",
+      "amber": "Repeat fasting the next day and review the diet.",
+      "red": "15/15 rule: eat 15 g of fast carbohydrate and measure again in 15 min. If it does not rise, or with confusion or fainting: emergency."
+    },
+    "frequency": "Weekly, or with symptoms (shaking, sweating, confusion)"
+  },
+  "exercicio": {
+    "how": "Automatic log from the equipment, or a note in the app.",
+    "effect": "On the ISS, the average loss of strength and aerobic fitness is 10 to 12%. Sessions over 20 min with a heart rate above 70% of maximum reduced the loss.",
+    "actions": {
+      "green": "Keep going. Show the streak of days completed.",
+      "amber": "Finish the time on the same day; prioritise resistance exercise.",
+      "red": "Re-plan the schedule with the ground team to recover the sessions."
+    },
+    "frequency": "Daily"
+  },
+  "sono": {
+    "how": "Actigraphy watch, or a log on waking.",
+    "effect": "On the ISS there are 16 sunrises a day, which scrambles the body clock; there is also overwork and irregular schedules.",
+    "actions": {
+      "green": "Keep a fixed bedtime.",
+      "amber": "Use lighting that imitates day and night, avoid caffeine in the afternoon and protect bedtime.",
+      "red": "Tell the flight surgeon and do not schedule critical tasks (EVA, manoeuvres) until sleep recovers, especially between 1 and 7 AM on the body clock."
+    },
+    "frequency": "Daily"
+  },
+  "humor": {
+    "how": "Daily question in the app: 'How are you today?' (1 = very bad, 5 = very good).",
+    "effect": "Isolation, confinement, radiation and distance from Earth can affect mental health.",
+    "actions": {
+      "green": "Keep the routine.",
+      "amber": "Suggest self-care: journal, look out the window, tend the plants, a moment of privacy, contact with family.",
+      "red": "Refer to a private conversation with the psychologist or the flight surgeon."
+    },
+    "frequency": "Daily"
+  },
+  "vo2max": {
+    "how": "Exercise test on the cycle ergometer, measured directly or estimated from heart rate.",
+    "effect": "Without gravity the heart and muscles work less; aerobic capacity can fall by 10% to 30% after flight.",
+    "actions": {
+      "green": "Keep up aerobic training.",
+      "amber": "Keep to microgravity EVAs; step up aerobic training before any surface EVA.",
+      "red": "Postpone planned EVAs, increase aerobic training and tell the flight surgeon."
+    },
+    "frequency": "Monthly, and before each spacewalk (EVA)"
+  },
+  "forca_muscular": {
+    "how": "Strength test on the resistance exercise equipment, compared with the test before flight.",
+    "effect": "In microgravity muscles lose mass and strength; losses of up to 20% do not stop the mission and can be recovered after flight.",
+    "actions": {
+      "green": "Keep up daily resistance exercise.",
+      "amber": "Increase the load or frequency of resistance exercise.",
+      "red": "Tell the flight surgeon and re-plan the exercise routine."
+    },
+    "frequency": "Monthly"
+  },
+  "densidade_ossea_quadril_coluna": {
+    "how": "Bone densitometry (DXA), done before and after flight.",
+    "effect": "Without gravity, bones lose mass. With resistance exercise, most people return from 6 months on the ISS with a loss under 5% at the hip and spine.",
+    "actions": {
+      "green": "Keep up daily resistance exercise.",
+      "amber": "Step up resistance exercise and review calcium and vitamin D with the doctor.",
+      "red": "Tell the flight surgeon; consider medication to protect the bone."
+    },
+    "frequency": "Before and after each mission"
+  },
+  "radiacao_carreira": {
+    "how": "Personal dosimeter, adding up every mission.",
+    "effect": "Space radiation raises the lifetime risk of cancer; the career limit keeps the excess risk of death from cancer under 3%.",
+    "actions": {
+      "green": "Follow the routine.",
+      "amber": "Spend less time in less shielded areas and plan EVAs with the radiation team.",
+      "red": "Tell the flight surgeon and the radiation team; review the activities left in the mission."
+    },
+    "frequency": "Daily (updates itself)"
+  }
+}
