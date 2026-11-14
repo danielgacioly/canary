@@ -18,3 +18,6 @@ frontend/.vite/
 .DS_Store
 .env
 .claude/
+
+# Vite dependency cache
+frontend/.vite/

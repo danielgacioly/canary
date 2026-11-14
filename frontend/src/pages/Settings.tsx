@@ -3,6 +3,8 @@
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Prefs } from '../state/prefs'
+import { ActionError } from '../components/Field'
+import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -21,6 +23,7 @@ function Row({ title, desc, children }: { title: string; desc: string; children:
 export default function Settings() {
   const { prefs, setPref, setStep, toast } = useSession()
   const nav = useNavigate()
+  const reset = useAction()
   const toggle = (k: keyof Prefs, title: string, desc: string) => (
     <Row title={title} desc={desc}><Switch on={prefs[k] as boolean} onChange={v => setPref(k, v as never)} label={title} /></Row>
   )
@@ -60,8 +63,9 @@ export default function Settings() {
           <button className="btn" onClick={() => nav('/welcome')}>Replay</button>
         </Row>
         <Row title="Reset the demo" desc="Clears check-ins, goals ticked, messages, emergencies, photos and changed PINs.">
-          <button className="btn" onClick={async () => { await api.reset(); await setStep(0); toast('Demo reset.') }}>Reset</button>
+          <button className="btn" disabled={reset.busy} onClick={() => reset.run(async () => { await api.reset(); await setStep(0); toast('Demo reset.') })}>{reset.busy ? 'Resetting…' : 'Reset'}</button>
         </Row>
+        <ActionError error={reset.error} />
       </section>
     </div>
   )

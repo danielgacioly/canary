@@ -1,4 +1,5 @@
 """Phase 1 tools: strict schemas, the bound ToolContext, the visibility rule, the envelope and route()."""
+import base64
 import json
 import os
 import tempfile
@@ -146,8 +147,9 @@ def test_no_result_reaches_another_person(cid, medical):
             assert f":{o['id']}:" not in blob and o["name"] not in blob, (name, o["name"])
         for word in ("average", "leaderboard", "rank", "xp", "points", "level_up"):
             assert f'"{word}"' not in blob.lower(), (name, word)
-        for key in C.SETTINGS_NEVER_RETURNED:
+        for key in C.SETTINGS_NEVER_RETURNED + C.FIELDS_NEVER_RETURNED:
             assert f'"{key}"' not in blob
+        assert "data:image/" not in blob
 
 
 def test_another_astronaut_cannot_bind_a_context():
@@ -166,6 +168,31 @@ def test_settings_keys_are_stripped(monkeypatch):
     monkeypatch.setitem(tools.TOOLS["get_status"], "fn", lambda c: C.ToolResult(data=leak, sources=["status:h:day147"]))
     r = tools.run_tool(ctx("h"), "get_status", {})
     assert r.data == {"ok": 1, "nested": [{"keep": True}]}
+
+
+_JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+
+
+def test_vitals_photos_are_never_returned_by_a_tool(monkeypatch):
+    # A real vitals check-in with a photo: the photo sits in checkin_photos and no tool reads it.
+    tok = client.post("/api/crew/h/session", json={"pin": "1001"}).json()["token"]
+    r = client.post("/api/checkins", headers={"X-Canary-Viewer": tok},
+                    json={"crew_id": "h", "kind": "vitals", "payload": {"hr": 62}, "photo": _JPEG})
+    assert r.status_code == 200, r.text
+    assert db.q("SELECT COUNT(*) n FROM checkin_photos WHERE crew_id='h'")[0]["n"] == 1
+    for name, args in VALID_ARGS.items():
+        out = tools.run_tool(ctx("h"), name, args)
+        assert _JPEG not in json.dumps(out.data) and "data:image/" not in json.dumps(out.data), name
+    # A legacy payload that carried the photo inline keeps only the vitals numbers.
+    db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
+         ("h", mission.state()["day"], "vitals", json.dumps({"hr": 61, "photo": _JPEG, "has_photo": True, "note": "x"}), time.time()))
+    got = tools.run_tool(ctx("h"), "get_checkins", {"kind": "vitals", "days": 1})
+    assert {"hr": 61} in [x["values"] for x in got.data["checkins"]]
+    assert "data:image/" not in json.dumps(got.data) and "has_photo" not in json.dumps(got.data) and "note" not in json.dumps(got.data)
+    # Even a domain result that carried one is cleaned, whatever the key.
+    leak = {"photo": _JPEG, "has_photo": True, "data_url": _JPEG, "display": _JPEG, "list": [_JPEG, 1], "keep": "ok"}
+    monkeypatch.setitem(tools.TOOLS["get_status"], "fn", lambda c: C.ToolResult(data=leak, sources=["status:h:day147"]))
+    assert tools.run_tool(ctx("h"), "get_status", {}).data == {"list": [1], "keep": "ok"}
 
 
 # ---------------------------------------------------------------- tools

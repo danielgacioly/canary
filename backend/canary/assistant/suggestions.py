@@ -125,7 +125,7 @@ def candidates(f: dict) -> List[dict]:
     bone = i.get("bone")
     if bone and bone["level"]:
         add("bone", "physical", 74, "Load your bones every day",
-            f"Your bone marker is at {bone['value']}% against your normal {bone['normal']}%.",
+            f"Your estimated bone density is {100 + bone['value']:.1f}% of its pre-flight value; NASA asks for 95% or more.",
             ["Heavy resistance on the squat and deadlift", "Calcium and vitamin D with breakfast", "Impact work on the treadmill harness"],
             "Resistance session with squats and deadlifts", src("bone"))
 

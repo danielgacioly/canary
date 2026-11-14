@@ -86,6 +86,7 @@ export default function MissionPlan() {
           So far <b className="num">{d.now_msv} mSv</b>, {Math.round((100 * d.now_msv) / d.limit_msv)}% of the limit.
           By the end of the plan about <b className="num">{Math.round(d.end_msv)} mSv</b>
           {crosses ? <>, past the limit from <b>day {crosses[0]}</b>.</> : '.'}
+          {' '}This is the mission dose, the same for everyone; each person's career dose is in My space.
         </p>
         <div className="chart-wide"><LineChart series={[{ pts: d.series, color: 'var(--accent)' }]} refY={d.limit_msv} refLabel={`Career limit ${d.limit_msv} mSv`}
           xLabels={['Launch', `Day ${Math.round(last / 2)}`, `Day ${last}`]} w={1100} h={280} /></div>

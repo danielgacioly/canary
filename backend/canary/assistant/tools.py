@@ -7,7 +7,8 @@ Contract (docs/ai/schema.md §5, assistant/contracts.py):
 - Visibility (`contracts.VISIBILITY`): a tool returns only the bound person's own data, to that person or the
   medical team. No tool wraps crew-wide numbers (`goals.leaderboard`, `goals.crew_board`, `/api/crew` rows),
   so no result holds another crew member's data or a crew average. `settings` keys in
-  `contracts.SETTINGS_NEVER_RETURNED` are stripped from every result.
+  `contracts.SETTINGS_NEVER_RETURNED` are stripped from every result, and so are check-in photos
+  (`contracts.FIELDS_NEVER_RETURNED` and any image data URL).
 - Every tool returns the `contracts.ToolResult` envelope `{data, sources, error}` and never raises: a failure
   becomes `error` with no sources.
 
@@ -25,7 +26,7 @@ from typing import Any, Dict, List, Optional
 from .. import db
 from ..domain import goals, health, mission, protocols, selftests, telemetry
 from ..domain.catalog import INDICATORS, LOCATIONS, SYSTEMS
-from .contracts import PERSONAL_SOURCE_PREFIXES, SETTINGS_NEVER_RETURNED, ToolContext, ToolResult
+from .contracts import FIELDS_NEVER_RETURNED, PERSONAL_SOURCE_PREFIXES, SETTINGS_NEVER_RETURNED, ToolContext, ToolResult
 from . import kb
 
 # ---------------------------------------------------------------- enums (from catalog / selftests / protocols)
@@ -132,8 +133,15 @@ def list_goals(ctx: ToolContext) -> ToolResult:
     return ToolResult(data=data, sources=[f"goals:{ctx.crew_id}:day{ms['day']}"])
 
 
+# Vital signs: the four numbers only. The photo of the display lives apart (checkin_photos) and never reaches a tool.
+_VITALS_KEYS = tuple(selftests.VITALS_LIMITS)
+
+
 def _checkin_values(kind: str, p: dict) -> dict:
-    """What a check-in may tell the model. Journal: line count only. Wellbeing: the two scale totals only."""
+    """What a check-in may tell the model. Journal: line count only. Wellbeing: the two scale totals only.
+    Vitals: the allow-listed numbers only."""
+    if kind == "vitals":
+        return {k: p[k] for k in _VITALS_KEYS if k in p}
     if kind == "journal":
         return {"lines": int(p.get("lines", 0) or 0)}
     if kind == "wellbeing":
@@ -159,6 +167,8 @@ def get_checkins(ctx: ToolContext, kind: str, days: int) -> ToolResult:
         except (TypeError, ValueError):
             p = {}
         src = f"checkin:{ctx.crew_id}:{r['kind']}:day{r['day']}"
+        if r["kind"] == "vitals":  # the summary lists every payload key: give it the allow-listed numbers only
+            p = _checkin_values("vitals", p)
         items.append({"kind": r["kind"], "day": r["day"], "summary": selftests.summary(r["kind"], p),
                       "values": _checkin_values(r["kind"], p), "source": src})
         if src not in sources:
@@ -316,11 +326,18 @@ def validate_args(name: str, args: Any) -> Optional[str]:
     return None
 
 
+_NEVER = set(SETTINGS_NEVER_RETURNED) | set(FIELDS_NEVER_RETURNED)
+
+
+def _is_image(v: Any) -> bool:
+    return isinstance(v, str) and v[:11].lower() == "data:image/"
+
+
 def _strip_settings(node: Any) -> Any:
     if isinstance(node, dict):
-        return {k: _strip_settings(v) for k, v in node.items() if k not in SETTINGS_NEVER_RETURNED}
+        return {k: _strip_settings(v) for k, v in node.items() if k not in _NEVER and not _is_image(v)}
     if isinstance(node, list):
-        return [_strip_settings(v) for v in node]
+        return [_strip_settings(v) for v in node if not _is_image(v)]
     return node
 
 

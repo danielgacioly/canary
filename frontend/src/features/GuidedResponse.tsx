@@ -1,6 +1,6 @@
 // Guided Response: deterministic, step-by-step first response. No AI on this path.
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, errorText } from '../api/client'
 import type { Emergency, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
 import { useSession } from '../state/session'
@@ -23,8 +23,8 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
   const [done, setDone] = useState(false)
 
   useEffect(() => {
-    api.protocols().then(setP)
-    api.startEmergency(me).then(setEm)
+    api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
+    api.startEmergency(me).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
     const t = setInterval(() => setNow(Date.now()), 250)
     return () => { clearInterval(t); try { speechSynthesis.cancel() } catch { /* no speech */ } }
   }, [me])
@@ -41,10 +41,10 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     const id = unlogged.current
     if (!em || !P || !id) return
     unlogged.current = null
-    api.emergencyEvent(em.id, { text: `Protocol: ${P.protocols[id].name}`, protocol: id }).then(setEm)
+    api.emergencyEvent(em.id, { text: `Protocol: ${P.protocols[id].name}`, protocol: id }).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`))
   }, [em, P, pid])
 
-  const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm) }
+  const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`)) }
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
 
@@ -73,7 +73,9 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     go(yes ? step.yes : step.no)
   }
   const finish = async (outcome: string) => {
-    if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient ?? undefined, protocol: pid ?? undefined })
+    try {
+      if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient ?? undefined, protocol: pid ?? undefined })
+    } catch (e) { toast(`The report was not closed: ${errorText(e)}. Press the button again.`); return }
     setDone(true); bump()
     toast(patient ? 'Follow-up goals added for the patient. Report queued for Earth.' : 'Report queued for Earth.')
   }

@@ -6,24 +6,32 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ControlOverview, MissionForm, SeatForm } from '../api/types'
+import Timeline from '../components/Timeline'
+import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
 import PinPad from '../components/PinPad'
 import Stars from '../components/Stars'
 import { CanaryMark, Icon, Loading, Tabs } from '../components/ui'
+import { useAction } from '../lib/useAction'
+import { useForm, type Errors } from '../lib/useForm'
+import * as v from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
 type Tab = 'dashboard' | 'register' | 'messages'
 const SEATS = ['h', 'k', 'a', 't']
 const BLOOD = ['O−', 'O+', 'A−', 'A+', 'B−', 'B+', 'AB−', 'AB+']
 const SKIN = ['I', 'II', 'III', 'IV', 'V', 'VI']
+const SEX = ['Female', 'Male', 'Other']
+const HAND = ['Right', 'Left']
+const EVA: [string, string][] = [['surface', 'Surface EVAs'], ['microgravity', 'Microgravity EVAs'], ['none', 'No EVA']]
 
 const emptySeat = (seat: string): SeatForm => ({
   seat, name: '', role: '', home: '', pin: '', dob: '1990-01-01', sex: '', nationality: '', languages: [], agency: '', flights: 0,
   days_in_space: 0, height_cm: 170, weight_kg: 70, blood_type: '', skin_type: 'III', handedness: 'Right', vision: '', allergies: [],
-  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '',
+  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null,
 })
-const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars' }
+const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true }
 
 export default function Control() {
   const [signed, setSigned] = useState(api.isControl())
@@ -39,7 +47,7 @@ function ControlGate({ onOk }: { onOk: () => void }) {
       <div className="row control-top"><span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
       <div className="control-gate-body">
-        <p className="muted reveal" style={{ maxWidth: '46ch', textAlign: 'center' }}>Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
+        <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
         <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="Demo PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
       </div>
     </div>
@@ -75,8 +83,9 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
 }
 
 /* ---------------------------------------------------------------- dashboard */
-function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: () => void; onRegister: () => void }) {
+function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: () => Promise<void>; onRegister: () => void }) {
   const [confirm, setConfirm] = useState(false)
+  const clear = useAction()
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
@@ -90,10 +99,10 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
   return (
     <>
       <div className="stats rise">
-        <div className="stat"><div className="k">Mission</div><b style={{ fontSize: 18 }}>{ov.overview.callsign}</b><div className="s">{ov.overview.name}</div></div>
-        <div className="stat"><div className="k">Mission time</div><b style={{ fontSize: 18 }}>{ms.day_label}</b><div className="s">{ms.leg.label || ms.place.name}</div></div>
-        <div className="stat"><div className="k">Signal delay</div><b style={{ fontSize: 18 }}>{ms.place.reply}</b><div className="s">each way</div></div>
-        <div className="stat"><div className="k">Mission dose</div><b style={{ fontSize: 18 }}>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
+        <div className="stat"><div className="k">Mission</div><b>{ov.overview.callsign}</b><div className="s">{ov.overview.name}</div></div>
+        <div className="stat"><div className="k">Mission time</div><b>{ms.day_label}</b><div className="s">{ms.leg.label || ms.place.name}</div></div>
+        <div className="stat"><div className="k">Signal delay</div><b>{ms.place.reply}</b><div className="s">each way</div></div>
+        <div className="stat"><div className="k">Mission dose</div><b>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
       </div>
 
       <section className="rise" style={{ ['--d' as string]: 1 }}>
@@ -129,104 +138,202 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
       <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
         <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Every crew terminal shows "Waiting for Mission Control" until you register again. A demo reset brings the demo back.</p></div>
         {confirm
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button><button className="btn danger" onClick={onClear}>Clear everything</button></div>
+          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
           : <button className="btn" onClick={() => setConfirm(true)}>Clear crew and mission</button>}
+        <ActionError error={clear.error} />
       </section>
     </>
   )
 }
 
 /* ---------------------------------------------------------------- register: crew, then mission, then save */
+// One flat form: keys are `crew.0.name` ... `crew.3.weight_kg` and `mission.callsign` ..., the same names the API
+// uses in its 422 answers, so a server error lands on the field it names. Numbers and lists are typed as text.
+type Values = Record<string, unknown>
+const SEAT_TEXT: [string, string, number][] = [['home', 'Home city', 80], ['nationality', 'Nationality', 60], ['agency', 'Agency', 80], ['vision', 'Vision', 80],
+  ['diet', 'Diet', 120], ['vaccinations', 'Vaccinations', 200], ['emergency_contact', 'Emergency contact', 200]]
+const SEAT_LISTS: [string, string][] = [['languages', 'Languages'], ['allergies', 'Allergies'], ['medications', 'Medications'], ['conditions', 'Conditions']]
+const SEAT_AGE = [25, 70] as const
+
+const str = (x: unknown) => (x === null || x === undefined ? '' : String(x))
+const items = (t: string) => t.split(',').map(x => x.trim()).filter(Boolean)
+
+function seatToValues(c: SeatForm, i: number): Values {
+  const o: Values = {}
+  for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : val ?? ''
+  return o
+}
+const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes' })
+
+/** Every rule of the registration form, by field. The server repeats them (SeatIn, MissionRegIn, _check_registration). */
+function validateRegister(f: Values, presets: string[], roverPresets: string[]): Errors {
+  const e: Errors = {}
+  const launch = str(f['mission.launch_date'])
+  const pins = new Map<string, number>()
+  SEATS.forEach((_, i) => {
+    const g = (k: string) => str(f[`crew.${i}.${k}`])
+    const put = (k: string, m: string | null) => { e[`crew.${i}.${k}`] = m }
+    put('name', v.length('Name', { min: 2, max: 60 })(g('name')))
+    put('role', v.length('Role', { min: 2, max: 60 })(g('role')))
+    put('home', v.length('Home city', { max: 80, optional: true })(g('home')))
+    put('dob', v.ageAtLaunch('Date of birth', launch, SEAT_AGE[0], SEAT_AGE[1])(g('dob')))
+    put('sex', v.oneOf('Sex', SEX, true)(g('sex')))
+    for (const [k, label, max] of SEAT_TEXT.slice(1)) put(k, v.length(label, { max, optional: true })(g(k)))
+    for (const [k, label] of SEAT_LISTS) put(k, items(g(k)).length > 20 || items(g(k)).some(x => x.length > 60) ? `${label}: at most 20 items of 60 characters, separated by commas` : null)
+    put('flights', v.number('Previous flights', { min: 0, max: 20, integer: true })(g('flights')))
+    put('days_in_space', v.number('Days in space', { min: 0, max: 1000, unit: 'days', integer: true })(g('days_in_space')))
+    const pin = v.pin4()(g('pin'))
+    const first = pins.get(g('pin'))
+    put('pin', pin ?? (first !== undefined ? `PIN is already used by seat ${first + 1}; each seat needs its own` : null))
+    if (!pin) pins.set(g('pin'), pins.get(g('pin')) ?? i)
+    put('height_cm', v.number('Height', { min: 140, max: 210, unit: 'cm' })(g('height_cm')))
+    put('weight_kg', v.number('Weight', { min: 40, max: 150, unit: 'kg' })(g('weight_kg')))
+    put('blood_type', v.oneOf('Blood type', BLOOD, true)(g('blood_type')))
+    put('skin_type', v.oneOf('Skin type', SKIN)(g('skin_type')))
+    put('handedness', v.oneOf('Dominant hand', HAND)(g('handedness')))
+    put('eva', v.oneOf('EVA role', EVA.map(x => x[0]))(g('eva')))
+    put('prior_dose_msv', v.number('Dose from earlier flights', { min: 0, max: 600, unit: 'mSv', optional: true })(g('prior_dose_msv')))
+  })
+  e['mission.callsign'] = v.length('Callsign', { min: 2, max: 24 })(str(f['mission.callsign']))
+  e['mission.name'] = v.length('Mission name', { min: 2, max: 80 })(str(f['mission.name']))
+  e['mission.launch_date'] = v.date('Launch date', { minYear: 2025, maxYear: 2100 })(launch)
+  e['mission.preset'] = v.oneOf('Mission profile', presets)(str(f['mission.preset']))
+  e['mission.rover'] = roverPresets.includes(str(f['mission.preset'])) ? v.oneOf('Rover leg', ['yes', 'no'])(str(f['mission.rover'])) : null
+  return e
+}
+
 function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: ControlOverview) => void }) {
   const [step, setStep] = useState(0)
-  const [crew, setCrew] = useState<SeatForm[]>(SEATS.map(emptySeat))
-  const [m, setM] = useState<MissionForm>(emptyMission)
   const [open, setOpen] = useState('h')
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
   const { data: demo } = useApi(() => api.controlDemo(), [])
   const presets = demo?.presets ?? { mars: 'Mars reference mission', iss: 'Six months on the ISS', moon: 'Lunar surface mission' }
-  const fill = () => { if (demo) { setCrew(demo.crew.map(c => ({ ...c }))); setM({ ...demo.mission }); setErr('') } }
-  const set = (i: number, patch: Partial<SeatForm>) => setCrew(cs => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
-  const crewOk = crew.every(c => c.name.trim().length >= 2 && c.role.trim().length >= 2 && /^\d{4}$/.test(c.pin))
-  const missionOk = m.callsign.trim().length >= 2 && m.name.trim().length >= 2 && /^\d{4}-\d{2}-\d{2}$/.test(m.launch_date)
-  const save = async () => {
-    setBusy(true); setErr('')
-    try { onSaved(await api.controlRegister(crew, m)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
-  }
+  const roverPresets = demo?.rover_presets ?? ['mars', 'moon']
+  const form = useForm<Values>({
+    initial: toValues(SEATS.map(emptySeat), emptyMission),
+    validate: f => validateRegister(f, Object.keys(presets), roverPresets),
+    submit: async f => {
+      const g = (i: number, k: string) => str(f[`crew.${i}.${k}`]).trim()
+      const crew = SEATS.map((seat, i): SeatForm => ({
+        seat, name: g(i, 'name'), role: g(i, 'role'), home: g(i, 'home'), pin: g(i, 'pin'), dob: g(i, 'dob'), sex: g(i, 'sex'), nationality: g(i, 'nationality'),
+        languages: items(g(i, 'languages')), agency: g(i, 'agency'), flights: Number(g(i, 'flights')), days_in_space: Number(g(i, 'days_in_space')),
+        height_cm: v.parseNumber(g(i, 'height_cm')) ?? 0, weight_kg: v.parseNumber(g(i, 'weight_kg')) ?? 0, blood_type: g(i, 'blood_type'), skin_type: g(i, 'skin_type'),
+        handedness: g(i, 'handedness'), vision: g(i, 'vision'), allergies: items(g(i, 'allergies')), medications: items(g(i, 'medications')), conditions: items(g(i, 'conditions')),
+        diet: g(i, 'diet'), vaccinations: g(i, 'vaccinations'), emergency_contact: g(i, 'emergency_contact'),
+        eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')),
+      }))
+      const mission: MissionForm = { callsign: str(f['mission.callsign']).trim(), name: str(f['mission.name']).trim(), launch_date: str(f['mission.launch_date']), preset: str(f['mission.preset']),
+        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false }
+      onSaved(await api.controlRegister(crew, mission))
+    },
+    // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
+    reveal: key => {
+      const m = /^crew\.(\d)\./.exec(key)
+      if (m) { setStep(0); setOpen(SEATS[Number(m[1])]) } else if (key.startsWith('mission.')) setStep(1)
+    },
+  })
+  const fill = () => { if (demo) { form.reset(toValues(demo.crew, demo.mission)) } }
+  const seatNo = (key: string) => { const m = /^crew\.(\d)\./.exec(key); return m ? `Seat ${Number(m[1]) + 1}` : 'Mission' }
+  const val = (k: string) => str(form.values[k])
+  const next = (prefix: string, to: number) => { if (!form.check(k => k.startsWith(prefix)).length) setStep(to) }
+  const { catalog } = useSession()
+  const withRover = roverPresets.includes(val('mission.preset')) && val('mission.rover') !== 'no'
+  const itinerary = demo && catalog ? demo.itineraries[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] : undefined
+  const allErrs = validateRegister(form.values, Object.keys(presets), roverPresets)
+  const seatBad = (i: number) => Object.keys(allErrs).filter(k => k.startsWith(`crew.${i}.`) && allErrs[k]).length
+  const seatShown = (i: number) => form.visible.filter(x => x.key.startsWith(`crew.${i}.`)).length
   return (
-    <div className="register">
+    <form className="register" noValidate onSubmit={form.submit}>
       <div className="row wrap rise">
         <div className="stepper">{['Crew', 'Mission', 'Review and save'].map((t, i) => (
-          <button key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
+          <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
-        <button className="btn right" onClick={fill} disabled={!demo}><Icon name="plus" />Fill with the demo crew and mission</button>
+        <button type="button" className="btn right" onClick={fill} disabled={!demo}><Icon name="plus" />Fill with the demo crew and mission</button>
       </div>
       {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
+      {step < 2 && <FormSummary form={form} describe={seatNo} />}
 
       {step === 0 && (
         <div className="seats rise">
-          {crew.map((c, i) => (
-            <div key={c.seat} className={`seat ${open === c.seat ? 'open' : ''}`}>
-              <button className="seat-head" onClick={() => setOpen(o => (o === c.seat ? '' : c.seat))}>
-                <span className="pdot sm neutral"><span className="ini">{c.name ? c.name.split(' ').map(x => x[0]).slice(0, 2).join('') : i + 1}</span></span>
-                <span className="grow"><b>{c.name || `Seat ${i + 1}`}</b><span className="small muted">{c.role || 'Not filled in'}</span></span>
-                <span className={`small ${c.name && c.role && /^\d{4}$/.test(c.pin) ? 'ok-text' : 'dim'}`}>{c.name && c.role && /^\d{4}$/.test(c.pin) ? 'Ready' : 'Needs name, role and PIN'}</span>
+          {SEATS.map((seat, i) => (
+            <div key={seat} className={`seat ${open === seat ? 'open' : ''}`}>
+              <button type="button" className="seat-head" aria-expanded={open === seat} onClick={() => setOpen(o => (o === seat ? '' : seat))}>
+                <span className="pdot sm neutral"><span className="ini">{val(`crew.${i}.name`) ? val(`crew.${i}.name`).split(' ').map(x => x[0]).slice(0, 2).join('') : i + 1}</span></span>
+                <span className="grow"><b>{val(`crew.${i}.name`) || `Seat ${i + 1}`}</b><span className="small muted">{val(`crew.${i}.role`) || 'Not filled in'}</span></span>
+                {seatShown(i) ? <span className="small err">{seatShown(i)} to fix</span>
+                  : <span className={`small ${seatBad(i) ? 'dim' : 'ok-text'}`}>{seatBad(i) ? 'Not complete' : 'Ready'}</span>}
               </button>
-              {open === c.seat && <SeatFields c={c} set={patch => set(i, patch)} />}
+              {open === seat && <SeatFields form={form} i={i} issRate={demo?.iss_dose_msv_per_day ?? 0.5} />}
             </div>
           ))}
-          <div className="row"><span className="grow" /><button className="btn pri" disabled={!crewOk} onClick={() => setStep(1)}>Next: the mission<Icon name="chev" /></button></div>
+          <div className="row"><span className="grow" /><button type="button" className="btn pri" onClick={() => next('crew.', 1)}>Next: the mission<Icon name="chev" /></button></div>
         </div>
       )}
 
       {step === 1 && (
         <div className="form-grid rise">
-          <label className="field"><span className="lbl">Callsign</span><input value={m.callsign} onChange={e => setM({ ...m, callsign: e.target.value })} placeholder="e.g. Odyssey 1" /></label>
-          <label className="field"><span className="lbl">Mission name</span><input value={m.name} onChange={e => setM({ ...m, name: e.target.value })} placeholder="e.g. Mars reference mission" /></label>
-          <label className="field"><span className="lbl">Launch date</span><input type="date" value={m.launch_date} onChange={e => setM({ ...m, launch_date: e.target.value })} /></label>
-          <label className="field"><span className="lbl">Mission profile</span>
-            <select value={m.preset} onChange={e => setM({ ...m, preset: e.target.value })}>{Object.entries(presets).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
+          <Field form={form} name="mission.callsign" label="Callsign" placeholder="e.g. Odyssey 1" hint="2 to 24 characters" maxLength={24} />
+          <Field form={form} name="mission.name" label="Mission name" placeholder="e.g. Mars reference mission" hint="2 to 80 characters" maxLength={80} />
+          <Field form={form} name="mission.launch_date" label="Launch date" type="date" hint="Between 2025 and 2100" />
+          <Field form={form} name="mission.preset" label="Mission profile" as="select">{Object.entries(presets).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Field>
+          {roverPresets.includes(val('mission.preset')) && (
+            <Field form={form} name="mission.rover" label="Rover leg" as="select" hint="A pressurized rover traverse inside the surface stay, away from the base">
+              <option value="yes">Include the rover traverse</option><option value="no">Surface stay only</option></Field>
+          )}
           <p className="small muted" style={{ gridColumn: '1 / -1' }}>The profile sets the itinerary (training, launch, transfer, stay, return). Every rule on board adapts to it: goals, alerts, radiation, signal delay, Guided Response.</p>
-          <div className="row" style={{ gridColumn: '1 / -1' }}><button className="btn ghost" onClick={() => setStep(0)}><Icon name="back" />Crew</button><span className="grow" /><button className="btn pri" disabled={!missionOk} onClick={() => setStep(2)}>Next: review<Icon name="chev" /></button></div>
+          <div className="row" style={{ gridColumn: '1 / -1' }}><button type="button" className="btn ghost" onClick={() => setStep(0)}><Icon name="back" />Crew</button><span className="grow" /><button type="button" className="btn pri" onClick={() => next('mission.', 2)}>Next: review<Icon name="chev" /></button></div>
         </div>
       )}
 
       {step === 2 && (
         <div className="review rise">
-          <h2>{m.callsign || 'Unnamed'} · {m.name}</h2>
-          <p className="muted">{presets[m.preset]} · launch {m.launch_date}</p>
-          <table className="t"><thead><tr><th>Seat</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>PIN</th></tr></thead>
-            <tbody>{crew.map((c, i) => <tr key={c.seat}><td className="num">{i + 1}</td><td><b>{c.name}</b></td><td>{c.role}</td><td>{c.agency}</td><td>{c.blood_type}</td><td>{c.allergies.join(', ') || 'None'}</td><td className="num">{c.pin ? '••••' : '—'}</td></tr>)}</tbody></table>
+          <h2>{val('mission.callsign') || 'Unnamed'} · {val('mission.name')}</h2>
+          <p className="muted">{presets[val('mission.preset')]} · launch {val('mission.launch_date')}</p>
+          <div className="scroll"><table className="t"><thead><tr><th>Seat</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
+            <tbody>{SEATS.map((c, i) => <tr key={c}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
+          {itinerary && <Timeline legs={itinerary} places={catalog?.locations ?? {}} />}
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
-          {err && <p className="small" style={{ color: 'var(--act)' }}>{err}</p>}
-          <div className="row"><button className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission</button><span className="grow" />
-            <button className="btn pri" disabled={!crewOk || !missionOk || busy} onClick={save}>{busy ? 'Saving…' : 'Save and activate Canary'}</button></div>
+          <FormSummary form={form} describe={seatNo} />
+          <FormError form={form} />
+          <div className="row"><button type="button" className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission</button><span className="grow" />
+            <SubmitButton form={form}>Save and activate Canary</SubmitButton></div>
         </div>
       )}
-    </div>
+    </form>
   )
 }
 
-function SeatFields({ c, set }: { c: SeatForm; set: (p: Partial<SeatForm>) => void }) {
-  const txt = (k: keyof SeatForm, label: string, ph = '') => <label className="field"><span className="lbl">{label}</span><input value={String(c[k] ?? '')} placeholder={ph} onChange={e => set({ [k]: e.target.value } as Partial<SeatForm>)} /></label>
-  const num = (k: keyof SeatForm, label: string) => <label className="field"><span className="lbl">{label}</span><input type="number" value={Number(c[k])} onChange={e => set({ [k]: Number(e.target.value) } as Partial<SeatForm>)} /></label>
-  const list = (k: keyof SeatForm, label: string, ph = '') => <label className="field"><span className="lbl">{label}</span><input value={(c[k] as string[]).join(', ')} placeholder={ph} onChange={e => set({ [k]: e.target.value.split(',').map(x => x.trim()).filter(Boolean) } as Partial<SeatForm>)} /></label>
-  const sel = (k: keyof SeatForm, label: string, opts: string[]) => <label className="field"><span className="lbl">{label}</span><select value={String(c[k])} onChange={e => set({ [k]: e.target.value } as Partial<SeatForm>)}><option value="">—</option>{opts.map(o => <option key={o} value={o}>{o}</option>)}</select></label>
+/** Empty, the server estimates the career dose before this mission from the days already in space at the station's
+ *  daily dose (domain/standards.py prior_dose). Said under the field so nobody believes it is zero. */
+function priorHint(days: string, typed: string, rate: number): string {
+  if (typed.trim()) return '0–600 mSv, as in the flight dosimetry record'
+  const d = v.number('', { min: 0, max: 1000, integer: true })(days) ? null : Number(days)
+  return d === null ? 'Estimated from days in space' : `Estimated from days in space: ${(Math.round(d * rate * 10) / 10).toLocaleString('en-US')} mSv (${d} days at ${rate} mSv/day)`
+}
+
+function SeatFields({ form, i, issRate }: { form: ReturnType<typeof useForm<Values>>; i: number; issRate: number }) {
+  const n = (k: string) => `crew.${i}.${k}`
+  const txt = (k: string, label: string, o: { ph?: string; hint?: string; max?: number } = {}) => <Field form={form} name={n(k)} label={label} placeholder={o.ph} hint={o.hint} maxLength={o.max} />
+  const num = (k: string, label: string, hint: string) => <Field form={form} name={n(k)} label={label} hint={hint} inputMode="decimal" autoComplete="off" />
+  const sel = (k: string, label: string, opts: string[], required = false) => <Field form={form} name={n(k)} label={label} as="select">{!required && <option value="">—</option>}{opts.map(o => <option key={o} value={o}>{o}</option>)}</Field>
+  const list = (k: string, label: string, ph = 'comma separated') => <Field form={form} name={n(k)} label={label} placeholder={ph} hint="Up to 20 items, separated by commas" />
+  const [home, nationality, agency, vision, diet, vaccinations, emergency] = SEAT_TEXT
   return (
     <div className="seat-body">
       <h3>Identity</h3>
-      <div className="form-grid">{txt('name', 'Full name')}{txt('role', 'Role', 'e.g. Commander')}{txt('home', 'Home city')}
-        <label className="field"><span className="lbl">Date of birth</span><input type="date" value={c.dob} onChange={e => set({ dob: e.target.value })} /></label>
-        {sel('sex', 'Sex', ['Female', 'Male', 'Other'])}{txt('nationality', 'Nationality')}{list('languages', 'Languages', 'comma separated')}{txt('agency', 'Agency')}
-        {num('flights', 'Previous flights')}{num('days_in_space', 'Days in space before')}
-        <label className="field"><span className="lbl">First PIN (4 digits)</span><input inputMode="numeric" maxLength={4} value={c.pin} onChange={e => set({ pin: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></label></div>
+      <div className="form-grid">{txt('name', 'Full name', { hint: '2 to 60 characters', max: 60 })}{txt('role', 'Role', { ph: 'e.g. Commander', hint: '2 to 60 characters', max: 60 })}{txt('home', home[1], { max: home[2] })}
+        <Field form={form} name={n('dob')} label="Date of birth" type="date" hint={`Age ${SEAT_AGE[0]}–${SEAT_AGE[1]} at launch`} />
+        {sel('sex', 'Sex', SEX)}{txt('nationality', nationality[1], { max: nationality[2] })}{list('languages', 'Languages')}{txt('agency', agency[1], { max: agency[2] })}
+        {num('flights', 'Previous flights', v.range(0, 20))}{num('days_in_space', 'Days in space before', v.range(0, 1000, 'days'))}
+        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each seat" inputMode="numeric" maxLength={4} autoComplete="off" /></div>
       <h3>Body</h3>
-      <div className="form-grid">{num('height_cm', 'Height (cm)')}{num('weight_kg', 'Weight (kg)')}{sel('blood_type', 'Blood type', BLOOD)}{sel('skin_type', 'Skin type (Fitzpatrick)', SKIN)}
-        {sel('handedness', 'Dominant hand', ['Right', 'Left'])}{txt('vision', 'Vision', 'e.g. No correction')}</div>
+      <div className="form-grid">{num('height_cm', 'Height (cm)', v.range(140, 210, 'cm'))}{num('weight_kg', 'Weight (kg)', v.range(40, 150, 'kg'))}{sel('blood_type', 'Blood type', BLOOD)}{sel('skin_type', 'Skin type (Fitzpatrick)', SKIN, true)}
+        {sel('handedness', 'Dominant hand', HAND, true)}{txt('vision', vision[1], { ph: 'e.g. No correction', max: vision[2] })}</div>
+      <h3>EVA and radiation</h3>
+      <div className="form-grid"><Field form={form} name={n('eva')} label="EVA role" as="select" hint="Sets which NASA aerobic limit applies">{EVA.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Field>
+        <Field form={form} name={n('prior_dose_msv')} label="Dose from earlier flights (mSv)" optional inputMode="decimal" autoComplete="off" hint={priorHint(str(form.values[n('days_in_space')]), str(form.values[n('prior_dose_msv')]), issRate)} /></div>
       <h3>Medical</h3>
-      <div className="form-grid">{list('allergies', 'Allergies', 'comma separated')}{list('medications', 'Medications', 'comma separated')}{list('conditions', 'Conditions', 'comma separated')}
-        {txt('diet', 'Diet')}{txt('vaccinations', 'Vaccinations')}{txt('emergency_contact', 'Emergency contact', 'name, relation, through family support')}</div>
+      <div className="form-grid">{list('allergies', 'Allergies')}{list('medications', 'Medications')}{list('conditions', 'Conditions')}
+        {txt('diet', diet[1], { max: diet[2] })}{txt('vaccinations', vaccinations[1], { max: vaccinations[2] })}{txt('emergency_contact', emergency[1], { ph: 'name, relation, through family support', max: emergency[2] })}</div>
     </div>
   )
 }
@@ -235,20 +342,25 @@ function SeatFields({ c, set }: { c: SeatForm; set: (p: Partial<SeatForm>) => vo
 function ControlMessages({ delay }: { delay: string }) {
   const { bump } = useSession()
   const { data } = useApi(() => api.messages(), [])
-  const [text, setText] = useState('')
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || m.sender === 'mission-control'), [data])
+  const form = useForm({
+    initial: { text: '' },
+    validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
+    submit: async f => { await api.send('mission-control', 'medical', f.text.trim()); form.reset({ text: '' }); bump() },
+  })
   return (
     <div className="grid g2 rise">
-      <form className="col" style={{ gap: 12 }} onSubmit={async e => { e.preventDefault(); await api.send('mission-control', 'medical', text); setText(''); bump() }}>
+      <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
         <h2>Message the ship's medical team</h2>
         <p className="small muted">It reaches the medical console after the signal delay ({delay === 'Live' ? 'live right now' : `${delay} each way`}, 20× faster in the demo).</p>
-        <textarea required rows={5} value={text} onChange={e => setText(e.target.value)} className="in" placeholder="e.g. Please confirm the crew is in the storm shelter." />
-        <button className="btn pri" style={{ alignSelf: 'flex-start' }} disabled={!text.trim()}><Icon name="send" size={15} />Send</button>
+        <Field form={form} name="text" label="Message" as="textarea" rows={5} placeholder="e.g. Please confirm the crew is in the storm shelter." hint={`${form.values.text.length} of 1000 characters`} />
+        <FormError form={form} />
+        <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
       </form>
       <section>
-        <h2 style={{ marginBottom: 12 }}>Traffic with the ship</h2>
+        <h2 className="traffic-h">Traffic with the ship</h2>
         <div className="col" style={{ gap: 12 }}>{traffic.map(m => {
           const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
           const out = m.sender === 'mission-control'
@@ -256,7 +368,7 @@ function ControlMessages({ delay }: { delay: string }) {
             <div key={m.id} className={`msg ${out ? 'out' : 'in'}`}>
               <div className="row small"><b>{out ? 'Mission Control → medical team' : `${m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
                 <span className="num dim right">{eta ? `${out ? 'arrives' : 'arriving'} in ${eta}s` : out ? 'delivered' : 'received'}</span></div>
-              <div className="muted" style={{ whiteSpace: 'pre-line' }}>{m.text.slice(0, 400)}</div>
+              <div className="muted pre-line">{m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
             </div>)
         })}{!traffic.length && <p className="muted">No traffic yet.</p>}</div>
       </section>

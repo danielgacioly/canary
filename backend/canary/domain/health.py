@@ -187,7 +187,10 @@ def _indicator_alert(i: str, d: dict) -> dict:
     p = d["population"]
     std = d.get("standard") or {}
     critical = p["status"] == "critical"
-    why = f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}."
+    if i == "bone":  # the bone row is the % change since launch; say it the way the tile and NASA's limit do
+        why = f"Today {100 + d['value']:.1f} % of your pre-flight density. Your normal is 100 %."
+    else:
+        why = f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}."
     if p["status"] != "in" and (p["low"] is not None or p["high"] is not None):
         lo = "no lower limit" if p["low"] is None else f"from {p['low']:g}"
         hi = "no upper limit" if p["high"] is None else f"up to {p['high']:g}"

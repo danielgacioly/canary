@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS checkins (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL,
   kind TEXT NOT NULL, payload TEXT NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS checkin_photos (
+  checkin_id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, data_url TEXT NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS goal_log (
   crew_id TEXT NOT NULL, day INTEGER NOT NULL, goal_id TEXT NOT NULL, done INTEGER NOT NULL,
   updated_at REAL NOT NULL, PRIMARY KEY (crew_id, day, goal_id));
@@ -136,7 +138,7 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "advice", "care_events", "notices"):
+        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "advice", "care_events", "notices"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
         _forget()

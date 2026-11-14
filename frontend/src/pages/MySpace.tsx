@@ -1,16 +1,23 @@
 // My space: one private page per astronaut. Locked, it only asks "Choose your profile".
 // Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
 // and Settings (photo, PIN, lock).
-import { useRef, useState } from 'react'
+import { useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
-import BodyView, { Blood } from '../components/BodyView'
+import BloodChart from '../components/BloodChart'
+import BodyView, { Guide } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
-import { Icon, LineChart, Loading, Patch, Tabs } from '../components/ui'
+import Trend from '../components/Trend'
+import { Icon, Loading, Patch, Tabs } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
+import { ActionError } from '../components/Field'
+import { bonePctOfPreflight, nasaLine, ORIGIN } from '../lib/health'
+import { squareJpeg } from '../lib/image'
+import { useAction } from '../lib/useAction'
+import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
 type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'info' | 'settings'
@@ -76,7 +83,7 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
             <div className="goal-group-head">
               <h2>{a === 'physical' ? 'Physical' : 'Mental'}</h2>
               <span className="sub">{n} of {list.length}</span>
-              <span className="bar-track"><i style={{ width: `${(100 * n) / Math.max(1, list.length)}%`, background: a === 'physical' ? 'var(--physical)' : 'var(--mental)' }} /></span>
+              <span className="bar-track"><i className={`a-${a}`} style={{ width: `${(100 * n) / Math.max(1, list.length)}%` }} /></span>
             </div>
             <div className="goal-list">{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} />)}</div>
           </section>
@@ -94,8 +101,9 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
 function SuggestionsTab({ me }: { me: string }) {
   const { bump, toast } = useSession()
   const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
+  const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
-  const accept = async (sid: string) => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') }
+  const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
   return (
     <div className="suggest">
       <div className="slot-line rise">
@@ -105,11 +113,7 @@ function SuggestionsTab({ me }: { me: string }) {
       <div className="suggest-list">
         {data.items.map((s, i) => (
           <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
-            <div className="row" style={{ gap: 10 }}>
-              <span className="area-dot" style={{ background: s.area === 'mental' ? 'var(--mental)' : 'var(--physical)' }} />
-              <span className="small muted">{s.area === 'mental' ? 'Mental' : 'Physical'}</span>
-            </div>
-            <h2>{s.title}</h2>
+            <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
             <p className="muted">{s.why}</p>
             <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
             {s.goal && (
@@ -139,7 +143,7 @@ function PatchesTab({ me }: { me: string }) {
       <div className="patches big">{p.badges.map((b, i) => (
         <div key={b.id} className={`patch rise ${b.earned ? '' : 'off'}`} style={{ ['--d' as string]: i }}>
           <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
-          {b.earned ? <span className="small" style={{ color: 'var(--gold)' }}>Earned</span> : (
+          {b.earned ? <span className="small gold-text">Earned</span> : (
             <span className="patch-progress"><span className="bar-track"><i style={{ width: `${(100 * b.progress) / b.need}%` }} /></span><span className="small dim num">{b.progress}/{b.need}</span></span>
           )}
         </div>))}</div>
@@ -148,52 +152,96 @@ function PatchesTab({ me }: { me: string }) {
 }
 
 /* ---------------------------------------------------------------- dashboard: every chart in one place */
+const GROUPS: [string, string[]][] = [
+  ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
+  ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
+]
+
 function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
-  const groups: [string, string[]][] = [
-    ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
-    ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
-  ]
+  const { catalog } = useSession()
+  const guide = catalog?.guide ?? {}
   return (
     <>
-      <p className="muted rise">Last 30 days against your own normal (dashed line). Readings are simulated in this prototype; the blood counts are real NASA data.</p>
-      {groups.map(([name, ids], gi) => (
+      <p className="muted rise">Last 30 days against your own normal. Readings are simulated in this prototype; the blood values are real NASA data.</p>
+      {GROUPS.map(([name, ids], gi) => (
         <section key={name} className="rise" style={{ ['--d' as string]: gi + 1 }}>
           <div className="section-head"><h2>{name}</h2></div>
-          <div className="charts">
+          <div className="charts" style={chartCols(ids.filter(k => d.indicators[k]).length)}>
             {ids.filter(k => d.indicators[k]).map(k => {
               const i = d.indicators[k]
+              const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
+              const pts: [number, number][] = bone ? d.trends[k].map(([x, y]) => [x, 100 + y]) : d.trends[k]
+              const lim = nasaLine(k, i)
+              const normal = bone ? 100 : i.baseline
               return (
                 <figure key={k} className={`chart-card s${i.level}`}>
-                  <figcaption><span className="dot" /><b>{i.name}</b><span className="num muted">{i.value.toFixed(i.dp)} {i.unit}</span></figcaption>
-                  <LineChart series={[{ pts: d.trends[k], color: name === 'Mental' ? 'var(--mental)' : 'var(--physical)' }]} refY={i.baseline} refLabel="your normal" w={360} h={150} />
-                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text} · NASA-STD-3001 {i.standard.item}</p>}
+                  <figcaption>
+                    <span className="dot" /><b>{i.name}</b>
+                    <span className="tag">{ORIGIN[i.origin]}</span>
+                    <span className="num">{bone ? `${bonePctOfPreflight(i).toFixed(1)} % of pre-flight` : `${i.value.toFixed(i.dp)} ${i.unit}`}</span>
+                  </figcaption>
+                  <p className="small muted legend">
+                    <span><i className="key normal" />Your normal {bone ? '100 %' : `${i.baseline.toFixed(i.dp)} ${i.unit}`}</span>
+                    {lim && <span><i className="key limit" />NASA limit {lim.text} · <a className="item" href={lim.url} target="_blank" rel="noreferrer">{lim.item}</a></span>}
+                    {bone && <span>7-day average over daily values</span>}
+                  </p>
+                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal} limit={lim?.y}
+                    minSpan={bone ? 4 : i.spread * 4} avg={bone ? 7 : undefined} label={`${i.name}, last ${pts.length} days`} />
+                  {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text}</p>}
+                  {guide[k] && <Guide g={guide[k]} />}
                 </figure>
               )
             })}
           </div>
         </section>
       ))}
-      {g && (
-        <section className="rise" style={{ ['--d' as string]: 3 }}>
-          <div className="section-head"><h2>Goals done, last 14 days</h2></div>
-          <div className="day-bars">
-            {g.profile.daily_done.map(([day, n, total]) => (
-              <div key={day} title={`Day ${day}: ${n} done`}><i style={{ height: `${Math.min(100, (100 * n) / Math.max(1, total))}%` }} /><span className="num">{day}</span></div>
-            ))}
-          </div>
-        </section>
-      )}
+      {g && <GoalsStrip days={g.profile.daily_done} />}
       <section className="rise" style={{ ['--d' as string]: 4 }}>
-        <div className="section-head"><h2>Blood</h2><span className="sub">Lymphocytes from NASA OSD-569 (Inspiration4), the first cells to drop after radiation</span></div>
-        <div style={{ maxWidth: 560 }}><Blood d={d} /></div>
+        <div className="section-head"><h2>Blood</h2></div>
+        <BloodChart d={d} />
       </section>
     </>
   )
 }
 
+/** Columns that divide the charts evenly; whatever is left over, the last chart stretches over. */
+function chartCols(count: number): CSSProperties {
+  const cols = [3, 2].find(k => count % k === 0) ?? 3
+  const rest = count % cols
+  return { ['--cols' as string]: cols, ['--last-span' as string]: rest ? cols - rest + 1 : 1 } as CSSProperties
+}
+
+/** Goals done on each of the last 14 days: fixed-width bars. With fewer than 3 days of data, only the number. */
+function GoalsStrip({ days }: { days: [number, number, number][] }) {
+  const done = days.reduce((s, x) => s + x[1], 0)
+  const slots = Array.from({ length: Math.max(0, 14 - days.length) }, () => null as [number, number, number] | null).concat(days.slice(-14))
+  const top = Math.max(1, ...days.map(x => x[2]))
+  return (
+    <section className="rise" style={{ ['--d' as string]: 3 }}>
+      <div className="section-head"><h2>Goals done, last 14 days</h2></div>
+      {days.length < 3 ? (
+        <p className="big-num">{done}<small>{done === 1 ? 'goal' : 'goals'} done{days.length ? ` since day ${days[0][0]}` : ''}</small></p>
+      ) : (
+        <div className="day-strip" role="img" aria-label={`${done} goals done in ${days.length} days`}>
+          {slots.map((s, i) => (
+            <div key={i} title={s ? `Day ${s[0]}: ${s[1]} of ${s[2]} done` : undefined}>
+              <div className="bar">
+                {s && <span className="num n">{s[1]}</span>}
+                <i className={s ? '' : 'empty'} style={{ height: s ? Math.max(2, Math.round((84 * s[1]) / top)) : 2 }} />
+              </div>
+              <span className="num d">{s && (slots.length - 1 - i) % 3 === 0 ? s[0] : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 /* ---------------------------------------------------------------- my information: the record Mission Control registered */
 const SKIN: Record<string, string> = { I: 'Always burns, never tans', II: 'Burns easily, tans little', III: 'Sometimes burns, tans gradually', IV: 'Rarely burns, tans well', V: 'Very rarely burns', VI: 'Never burns' }
+const EVA_ROLE: Record<string, string> = { surface: 'Surface EVAs', microgravity: 'Microgravity EVAs', none: 'No EVA' }
 function InfoTab({ me }: { me: string }) {
   const { data: r } = useApi<PersonalRecord>(() => api.record(me), [me])
   if (!r) return <Loading what="your information" />
@@ -203,7 +251,7 @@ function InfoTab({ me }: { me: string }) {
     ['Identity', [['Full name', r.name], ['Date of birth', dob], ['Age', `${r.age}`], ['Sex', r.sex], ['Nationality', r.nationality], ['Home', r.home], ['Languages', r.languages.join(', ')]]],
     ['Body', [['Height', `${r.height_cm} cm`], ['Weight', `${r.weight_kg} kg`], ['Body mass index', `${r.bmi}`], ['Blood type', r.blood_type], ['Skin type', `${r.skin_type} (Fitzpatrick) · ${SKIN[r.skin_type] ?? ''}`], ['Dominant hand', r.handedness], ['Vision', r.vision]]],
     ['Medical', [['Allergies', list(r.allergies)], ['Medications', list(r.medications)], ['Conditions', list(r.conditions)], ['Diet', r.diet], ['Vaccinations', r.vaccinations]]],
-    ['Mission', [['Role', r.role], ['Agency', r.agency], ['Previous flights', `${r.flights}`], ['Days in space before this mission', `${r.days_in_space}`], ['Emergency contact', r.emergency_contact]]],
+    ['Mission', [['Role', r.role], ['Agency', r.agency], ['Previous flights', `${r.flights}`], ['Days in space before this mission', `${r.days_in_space}`], ['EVA role', EVA_ROLE[r.eva] ?? r.eva], ['Dose from earlier flights', `${r.prior_dose.msv} mSv${r.prior_dose.estimate ? ' (estimated from days in space)' : ''}`], ['Emergency contact', r.emergency_contact]]],
   ]
   return (
     <div className="info">
@@ -227,12 +275,19 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
   const file = useRef<HTMLInputElement>(null)
   const [pinOpen, setPinOpen] = useState(false)
   const first = d.crew.name.split(' ')[0]
+  const photo = useAction()
+  const [photoErr, setPhotoErr] = useState<string | null>(null)
   const pick = async (f: File | undefined) => {
     if (!f) return
-    try {
-      await api.setPhoto(me, await squareJpeg(f, 256))
+    const bad = imageFile(f)  // PNG, JPEG or WebP, at most 8 MB: said under the buttons, not in a toast
+    setPhotoErr(bad)
+    if (bad) return
+    await photo.run(async () => {
+      let url: string
+      try { url = await squareJpeg(f, 256) } catch { throw new Error('That file could not be read as an image. Pick another photo.') }
+      await api.setPhoto(me, url)
       bump(); toast('Photo updated')
-    } catch (e) { toast(`Could not use that image: ${(e as Error).message}`) }
+    })
   }
   return (
     <div className="settings">
@@ -242,9 +297,10 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
           <Dot p={d.crew} size="lg" />
           <div className="grow"><b>Shown to the crew</b><p className="small muted">Like a name badge: it appears on the crew page and in the top bar. Nothing else about you does.</p></div>
           <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = '' }} />
-          <button className="btn" onClick={() => file.current?.click()}>{photos[me] ? 'Change photo' : 'Add photo'}</button>
-          {photos[me] && <button className="btn ghost" onClick={async () => { await api.deletePhoto(me); bump() }}>Remove</button>}
+          <button className="btn" disabled={photo.busy} onClick={() => file.current?.click()}>{photo.busy ? 'Saving…' : photos[me] ? 'Change photo' : 'Add photo'}</button>
+          {photos[me] && <button className="btn ghost" disabled={photo.busy} onClick={() => { setPhotoErr(null); photo.run(async () => { await api.deletePhoto(me); bump() }) }}>Remove</button>}
         </div>
+        <ActionError error={photoErr ?? photo.error} />
       </section>
       <section className="set-group rise" style={{ ['--d' as string]: 1 }}>
         <h2>Security</h2>
@@ -268,24 +324,6 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
   )
 }
 
-/** Center-crop and shrink an image to a small JPEG data URL. */
-function squareJpeg(f: File, size: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    const url = URL.createObjectURL(f)
-    img.onload = () => {
-      const s = Math.min(img.width, img.height)
-      const c = document.createElement('canvas')
-      c.width = c.height = size
-      c.getContext('2d')!.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size)
-      URL.revokeObjectURL(url)
-      resolve(c.toDataURL('image/jpeg', 0.85))
-    }
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('not an image')) }
-    img.src = url
-  })
-}
-
 /** Three pads in a row: the current PIN (checked by the server), a new one, the new one again. */
 function ChangePin({ me, first, onClose, onDone }: { me: string; first: string; onClose: () => void; onDone: () => void }) {
   const [step, setStep] = useState<'current' | 'new' | 'confirm'>('current')
@@ -295,7 +333,7 @@ function ChangePin({ me, first, onClose, onDone }: { me: string; first: string; 
   const stepNo = { current: 1, new: 2, confirm: 3 }[step]
   return (
     <PinModal onCancel={onClose}>
-      <span className="lbl" style={{ display: 'block', textAlign: 'center', marginBottom: 8 }}>Change PIN, step {stepNo} of 3</span>
+      <span className="lbl pin-step">Change PIN, step {stepNo} of 3</span>
       {step === 'current' && <PinPad key="c" title="Current PIN" subtitle={`${first}, enter the PIN you use now`} onCancel={onClose}
         onSubmit={async pin => { await api.crewSignIn(me, pin); setCurrent(pin); setStep('new') }} />}
       {step === 'new' && <PinPad key="n" title="New PIN" subtitle={mismatch ? 'The two did not match. Choose again.' : 'Choose 4 digits you will remember'} onCancel={onClose}

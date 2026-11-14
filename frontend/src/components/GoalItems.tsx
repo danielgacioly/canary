@@ -1,29 +1,37 @@
 import { api } from '../api/client'
 import type { Goal, TeamGoal } from '../api/types'
 import type { CheckKind } from '../features/Checks'
+import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 import { Icon } from './ui'
 
+/** The one quiet line under a goal: why, or, when it applies, the lightened load for fatigue and the advice check. */
+function goalLine(g: Goal): string {
+  const parts: string[] = []
+  if (g.adjusted) parts.push(`Lightened for fatigue; your team allows up to ${g.adjusted.max_pct}%`)
+  else parts.push(g.why)
+  if (g.advice) parts.push(g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`)
+  return parts.join(' · ')
+}
+
 export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; crewId: string; onCheck?: (k: CheckKind) => void; readOnly?: boolean; compact?: boolean }) {
   const { bump, toast } = useSession()
-  const toggle = async () => {
+  const act = useAction('toast')
+  const toggle = () => {
     if (readOnly) return
     if (!g.done && g.action && onCheck) { onCheck(g.action as CheckKind); return }
-    await api.setGoal(crewId, g.id, !g.done)
-    if (!g.done) toast('Goal done')
-    bump()
+    act.run(async () => {
+      await api.setGoal(crewId, g.id, !g.done)
+      if (!g.done) toast('Goal done')
+      bump()
+    })
   }
   return (
     <div className={`goal ${g.done ? 'done' : ''}`}>
-      <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly}><Icon name="check" size={14} /></button>
+      <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly || act.busy}><Icon name="check" size={14} /></button>
       <div className="grow">
         <div className="gt">{g.title}</div>
-        {!compact && <div className="small dim">{g.why}</div>}
-        {!compact && g.advice && (
-          <div className="small dim">
-            {g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`}
-          </div>
-        )}
+        {!compact && <div className="small dim quiet">{goalLine(g)}</div>}
       </div>
       {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : g.by === 'suggestion' ? 'Your pick' : 'From an alert'}</span>}
     </div>
@@ -34,7 +42,7 @@ export function TeamRow({ t, names }: { t: TeamGoal; names: Record<string, strin
   return (
     <div className="team-row col" style={{ gap: 10 }}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
-        <div className="grow"><div style={{ fontWeight: 600 }}>{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
+        <div className="grow"><div className="goal-title">{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
         {t.done && <span className="status s0"><span className="dot" />Done</span>}
       </div>
       <div className="row">

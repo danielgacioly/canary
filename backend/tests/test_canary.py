@@ -378,6 +378,94 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
 
 
+def _register(c, **mission):
+    demo = client.get("/api/control/demo", headers=c).json()
+    return client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": {**demo["mission"], **mission}})
+
+
+def _legs():
+    return client.get("/api/plan").json()["legs"]
+
+
+def test_the_demo_form_carries_eva_role_and_the_rover_presets():
+    demo = client.get("/api/control/demo", headers=_ctl()).json()
+    assert [p["eva"] for p in demo["crew"]] == ["surface", "none", "surface", "surface"]
+    assert all("prior_dose_msv" in p for p in demo["crew"])  # empty in the demo: the form shows the estimate
+    assert demo["rover_presets"] == ["mars", "moon"] and demo["iss_dose_msv_per_day"] == catalog.LOCATIONS["iss"]["dose_rate"]
+    assert demo["itineraries"]["moon"]["rover"] != demo["itineraries"]["moon"]["plain"] and demo["itineraries"]["iss"]["rover"] == demo["itineraries"]["iss"]["plain"]
+
+
+@pytest.mark.parametrize("preset,rover_place,body", [("moon", "moon_rover", "moon"), ("mars", "mars_rover", "mars")])
+def test_registering_moon_or_mars_with_or_without_the_rover_leg(preset, rover_place, body):
+    c = _ctl()
+    assert _register(c, preset=preset).status_code == 200  # left out: the profile's default, with the rover
+    with_rover = _legs()
+    assert rover_place in [l["location"] for l in with_rover]
+    assert _register(c, preset=preset, rover=True).status_code == 200 and _legs() == with_rover
+
+    assert _register(c, preset=preset, rover=False).status_code == 200
+    without = _legs()
+    assert rover_place not in [l["location"] for l in without]
+    # the traverse days stay on the surface: same first and last day, no gap, no overlap, no two neighbours alike
+    assert (without[0]["start"], without[-1]["end"]) == (with_rover[0]["start"], with_rover[-1]["end"])
+    assert all(b["start"] == a["end"] + 1 and a["location"] != b["location"] for a, b in zip(without, without[1:]))
+    assert client.get("/api/mission/overview").json()["legs"] == without
+    assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 200
+
+
+def test_the_rover_is_refused_for_profiles_without_one_and_nothing_is_saved():
+    c = _ctl()
+    assert "mission.rover" in _fields(_register(c, preset="iss", rover=True))
+    assert client.get("/api/plan").json()["preset"] == "mars" and "mars_rover" in [l["location"] for l in _legs()]  # the demo is still in force
+    assert _register(c, preset="iss", rover=False).status_code == 200
+    assert _register(c, preset="iss").status_code == 200  # left out: no rover, no error
+    assert not any(l["location"].endswith("_rover") for l in _legs())
+    assert "mission.rover" in _fields(_register(c, preset="mars", rover="maybe"))
+
+
+def test_eva_role_and_prior_dose_reach_my_information_and_the_medical_team():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    crew = [dict(p) for p in demo["crew"]]
+    crew[0].update(eva="microgravity", prior_dose_msv=120.5)
+    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
+    r = client.get("/api/crew/h/record", headers=as_("h")).json()
+    assert r["eva"] == "microgravity" and r["prior_dose_msv"] == 120.5 and r["prior_dose"] == {"msv": 120.5, "estimate": False, "source": "personal record"}
+    k = client.get("/api/crew/k/record", headers=as_("k")).json()  # no recorded dose: the estimate from 181 days in space
+    assert k["prior_dose"]["estimate"] and k["prior_dose"]["msv"] == round(181 * catalog.LOCATIONS["iss"]["dose_rate"], 1) and k["eva"] == "none"
+    d = client.get("/api/crew/h", headers=as_("h")).json()
+    assert d["standard_profile"]["eva"] == "microgravity" and d["dose"]["prior_msv"] == 120.5 and not d["dose"]["prior_estimate"]
+
+
+def _rows(x):
+    """Every dict that describes one person (it has initials), at any depth. A place has an id and a name too, and its own `eva`."""
+    if isinstance(x, dict):
+        if "id" in x and "initials" in x:
+            yield x
+        for v in x.values():
+            yield from _rows(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _rows(v)
+
+
+def test_mission_and_control_overviews_carry_no_eva_role_or_prior_dose_per_person():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    crew = [dict(p) for p in demo["crew"]]
+    crew[0].update(eva="microgravity", prior_dose_msv=120.5)  # a marker that would show if it leaked
+    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
+    mission_ov, control_ov = client.get("/api/mission/overview"), client.get("/api/control/overview", headers=c)
+    for name, body in {"mission overview": mission_ov.json(), "control overview": control_ov.json(),
+                       "crew overview": client.get("/api/crew/overview").json()}.items():
+        rows = list(_rows(body))
+        assert rows, name
+        for row in rows:
+            assert not {"eva", "prior_dose_msv", "prior_dose", "prior_msv", "prior_estimate"} & set(row), (name, row)
+    assert not {"eva", "prior_dose_msv", "prior_msv"} & set(_keys(client.get("/api/leaderboard").json()))
+    assert "120.5" not in mission_ov.text and "120.5" not in control_ov.text
+
+
 def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
     at(2)  # transit: 10 minutes each way, 20x faster in the demo = 15 s
     client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Confirm the crew is in the shelter."})
@@ -578,7 +666,8 @@ def test_vitals_outside_what_can_be_typed_are_refused():
     _day(100)
     for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"bp": 0}, {"hr": "fast"}):
         r = _checkin("a", "vitals", bad)
-        assert r.status_code == 400, bad
+        assert r.status_code == 422, bad  # was 400 before every bad input answered with the same {field, message} shape
+        assert r.json()["detail"][0]["field"] in ("hr", "bp", "temp", "spo2")
     assert _checkin("a", "vitals", {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
     latest = {t["id"]: t["latest"] for t in client.get("/api/checkins/a", headers=as_("a")).json()["tests"]}
     assert latest["vitals"]["payload"]["hr"] == 62
@@ -1499,3 +1588,272 @@ def test_the_indicator_guide_maps_to_ids_canary_has():
     readme = (d / "README.md").read_text(encoding="utf-8")
     for ind in set(catalog.INDICATORS) - covered:  # the README names every indicator the guide leaves without text
         assert f"`{ind}`" in readme.split("does not cover")[1], ind
+
+
+# ---------------------------------------------------------------- input checks: every form refuses bad input with {field, message}
+def _fields(r):
+    assert r.status_code == 422, r.text
+    d = r.json()["detail"]
+    assert isinstance(d, list) and all(set(e) == {"field", "message"} for e in d)
+    return {e["field"]: e["message"] for e in d}
+
+
+def _ctl():
+    return {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+
+
+def _tests_count(cid, kind):
+    t = {x["id"]: x for x in client.get(f"/api/checkins/{cid}", headers=as_(cid)).json()["tests"]}
+    return t[kind].get("count", 1 if t[kind]["latest"] else 0)
+
+
+@pytest.mark.parametrize("kind,payload,field,text", [
+    ("vitals", {"hr": 10}, "hr", "Pulse must be between 25 and 250 bpm"),
+    ("vitals", {"bp": 300}, "bp", "between 60 and 260 mmHg"),
+    ("vitals", {"temp": 36.55}, "temp", "decimal place"),
+    ("vitals", {"spo2": 97.5}, "spo2", "whole number"),
+    ("vitals", {"hr": None, "bp": None}, "form", "Type at least one value"),
+    ("vitals", {"hr": "abc"}, "hr", "must be a number"),
+    ("sleep", {"bed": "23:00", "wake": "23:30", "quality": 3}, "wake", "between 1 and 16 h"),
+    ("sleep", {"bed": "", "wake": "07:00"}, "bed", "required"),
+    ("reading", {"title": "  ", "minutes": 20}, "title", "required"),
+    ("reading", {"title": "Dune", "minutes": 601}, "minutes", "between 1 and 600"),
+    ("reading", {"title": "Dune", "minutes": 20, "pages": 2001}, "pages", "between 0 and 2000"),
+    ("journal", {"lines": 0}, "lines", "between 1 and 3"),
+    ("wellbeing", {"answers": [1, 1, -1, 1]}, "answers.2", "needs an answer"),
+    ("symptoms", {"items": ["Headache"], "severity": 0}, "severity", "how strong"),
+    ("symptoms", {"items": ["Toothache"], "severity": 1}, "items", "from the list"),
+    ("mood", {"mood": 5}, "stress", "required"),
+    ("dsst", {"correct": "many"}, "correct", "must be a number"),
+    ("span", {"span": None}, "span", "required"),
+])
+def test_a_bad_check_in_is_refused_with_the_field_and_nothing_is_saved(kind, payload, field, text):
+    _day(100)
+    before = db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"]
+    f = _fields(_checkin("a", kind, payload))
+    assert field in f and text in f[field], f
+    assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before
+
+
+def test_a_valid_check_in_of_each_kind_still_saves():
+    _day(100)
+    ok = {"vitals": {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}, "sleep": {"bed": "23:00", "wake": "07:00", "quality": 4},
+          "reading": {"title": "Dune", "minutes": 25, "pages": None, "absorbing": 4}, "journal": {"lines": 2},
+          "wellbeing": {"answers": [0, 1, 2, 3]}, "symptoms": {"items": [], "severity": 0, "note": ""},
+          "tlx": {"scores": {"mental": 50, "physical": 20}}, "kss": {"level": 3}, "pvt": {"ms": 320}, "amsler": {"distortion": False},
+          "dsst": {"correct": 40, "errors": 2}, "span": {"span": 6}, "mood": {"mood": 4, "stress": 2}}
+    for kind, payload in ok.items():
+        assert _checkin("a", kind, payload).status_code == 200, kind
+
+
+def test_medical_goal_messages_thresholds_and_questions_refuse_bad_input_and_write_nothing():
+    med = _med()
+    goals_before = len(client.get("/api/medical/goals", headers=med).json())
+    base = {"who": "all", "area": "physical", "title": "Walk 30 minutes", "why": "Keeps the legs working.", "days": 7}
+    for patch, field in (({"title": "ab"}, "title"), ({"title": "   "}, "title"), ({"why": "x" * 201}, "why"), ({"days": 0}, "days"),
+                         ({"days": 61}, "days"), ({"days": 2.5}, "days"), ({"who": "zz"}, "who")):
+        assert field in _fields(client.post("/api/medical/goals", json={**base, **patch}, headers=med)), patch
+    assert len(client.get("/api/medical/goals", headers=med).json()) == goals_before
+    assert client.post("/api/medical/goals", json=base, headers=med).status_code == 200
+
+    n = len(client.get("/api/messages").json())
+    for text in ("", "   ", "x" * 1001):
+        assert "text" in _fields(client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": text}))
+    assert len(client.get("/api/messages").json()) == n
+    assert client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Hello"}).status_code == 200
+
+    before = db.get_setting("thresholds")
+    assert "act" in _fields(client.put("/api/medical/thresholds", json={"watch": 2.0, "act": 1.5}, headers=med))
+    assert "watch" in _fields(client.put("/api/medical/thresholds", json={"watch": 9, "act": 3}, headers=med))
+    assert db.get_setting("thresholds") == before  # the refused values were not stored
+    assert client.put("/api/medical/thresholds", json={"watch": 1.0, "act": 2.0}, headers=med).status_code == 200
+    assert db.get_setting("thresholds") == {"watch": 1.0, "act": 2.0} != before
+
+    h = as_("h")
+    asked = len(client.get("/api/assistant/history/h", headers=h).json())
+    for q in ("", "   ", "x" * 501):
+        assert "question" in _fields(client.post("/api/assistant/ask", json={"crew_id": "h", "question": q}, headers=h))
+    assert len(client.get("/api/assistant/history/h", headers=h).json()) == asked
+
+
+def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
+    c = _ctl()
+    demo = client.get("/api/control/demo", headers=c).json()
+    names = [p["name"] for p in client.get("/api/catalog").json()["crew"]]
+    good = {"crew": demo["crew"], "mission": demo["mission"]}
+
+    def bad(seat, **patch):
+        crew = [dict(p) for p in good["crew"]]
+        crew[seat].update(patch)
+        return _fields(client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c))
+
+    assert "crew.1.name" in bad(1, name="K")
+    assert "crew.0.role" in bad(0, role="")
+    assert "crew.2.pin" in bad(2, pin="12a4")
+    assert "already used by seat 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
+    assert "crew.0.dob" in bad(0, dob="2030-01-01") and "crew.0.dob" in bad(0, dob="1900-01-01") and "crew.0.dob" in bad(0, dob="1990-02-31")
+    assert "at least 140" in bad(1, height_cm=100)["crew.1.height_cm"]
+    assert "crew.1.weight_kg" in bad(1, weight_kg=200)
+    assert "crew.2.blood_type" in bad(2, blood_type="Z+") and "crew.2.skin_type" in bad(2, skin_type="VII")
+    assert "crew.0.flights" in bad(0, flights=21) and "crew.0.days_in_space" in bad(0, days_in_space=1001)
+    assert "crew.0.prior_dose_msv" in bad(0, prior_dose_msv=601) and "crew.0.eva" in bad(0, eva="moon")
+    assert set(bad(0, name="", pin="1")) == {"crew.0.name", "crew.0.pin"}  # all at once, not one by one
+    assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names  # nothing was registered
+
+    def bad_mission(**patch):
+        return _fields(client.post("/api/control/register", json={"crew": good["crew"], "mission": {**good["mission"], **patch}}, headers=c))
+
+    assert "mission.callsign" in bad_mission(callsign="K") and "mission.callsign" in bad_mission(callsign="x" * 25)
+    assert "mission.name" in bad_mission(name="  ") and "mission.launch_date" in bad_mission(launch_date="2035-13-40")
+    assert "mission.preset" in bad_mission(preset="venus")
+    assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names
+
+    crew = [dict(p) for p in good["crew"]]
+    crew[0]["name"] = "Ana Lima"
+    assert client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c).status_code == 200
+
+
+def test_auth_errors_keep_their_plain_shape():
+    assert client.get("/api/control/overview").status_code == 401 and isinstance(client.get("/api/control/overview").json()["detail"], str)
+    assert client.get("/api/crew/h/record", headers=as_("k")).status_code == 403
+
+
+def test_nan_and_null_numbers_in_the_raw_json_are_refused_not_saved():
+    _day(100)
+    before = db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"]
+    h = {**as_("a"), "Content-Type": "application/json"}
+    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":NaN}}', headers=h)
+    assert "hr" in _fields(r)
+    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":null,"bp":null,"temp":null,"spo2":null}}', headers=h)
+    assert "form" in _fields(r)
+    assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before
+
+
+# ---------------------------------------------------------------- funnel: personal numbers stay in My space and the medical team's view
+PERSONAL = ("prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit", "standard_profile", "risks", "care", "reason",
+            "until_day", "care_events", "prior_dose", "standard")
+
+
+def _crew_facing():
+    ctl = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    return {"crew overview": client.get("/api/crew/overview").json(), "mission overview": client.get("/api/mission/overview").json(),
+            "leaderboard": client.get("/api/leaderboard").json(), "plan conditions": client.get("/api/plan/conditions").json(),
+            "control overview": client.get("/api/control/overview", headers=ctl).json()}
+
+
+def _keys(x):
+    """Every key of a nested JSON value."""
+    if isinstance(x, dict):
+        for k, v in x.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _keys(v)
+
+
+@pytest.mark.parametrize("step", [0, 2, 3, 4])
+def test_crew_facing_endpoints_never_carry_career_dose_risks_eva_or_care(step):
+    at(step)
+    _close("seizure", "t")  # a care window is open for Tomas: Earth and the crew must not learn why he is restricted
+    for name, body in _crew_facing().items():
+        bad = set(PERSONAL) & set(_keys(body))
+        assert not bad, (name, bad)
+        assert "After Guided Response" not in str(body), name  # the emergency itself is crew-wide; the window after it is not
+    dose = client.get("/api/crew/overview").json()["dose"]
+    assert "career_msv" not in dose and dose["mission_msv"] >= 0  # the mission dose is the same for everyone and stays
+
+
+def test_the_career_dose_reaches_the_person_and_the_medical_team_only():
+    at(3)
+    for cid in "hkat":
+        d = client.get(f"/api/crew/{cid}", headers=as_(cid)).json()
+        assert {"prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit"} <= set(d["dose"]) and "risks" in d and "standard_profile" in d
+        assert client.get(f"/api/crew/{cid}").status_code == 403
+        assert client.get(f"/api/crew/{cid}", headers=as_("k" if cid != "k" else "h")).status_code == 403
+    med = client.get("/api/crew/t", headers=_med())
+    assert med.status_code == 200 and med.json()["dose"]["career_msv"] >= med.json()["dose"]["prior_msv"]
+
+
+def test_the_medical_overview_carries_career_dose_and_red_risks():
+    at(3)
+    assert client.get("/api/medical/overview").status_code == 401
+    for c in client.get("/api/medical/overview", headers=_med()).json()["crew"]:
+        assert c["dose"]["career_msv"] >= c["dose"]["prior_msv"] and c["standard_profile"]["eva"] in ("none", "microgravity", "surface")
+        assert c["risks"] and all({"id", "name", "nasa_red", "level", "trend", "since_day", "data"} == set(r) for r in c["risks"])
+        assert any(r["nasa_red"] for r in c["risks"])  # slim: no evidence text or hazard links here, the person view has those
+
+
+def test_the_catalog_carries_the_indicator_guide_with_its_sources():
+    g = client.get("/api/catalog").json()["guide"]
+    assert {"bp", "hr", "temp", "spo2", "gluc", "exer", "sleep", "mood", "vo2", "grip", "bone", "radiation"} <= set(g)
+    for k, e in g.items():
+        assert e["how"] and e["effect"] and set(e["actions"]) == {"green", "amber", "red"}, k
+        assert not any(w in str(e).lower() for w in ("manguito", "sem gravidade")), k  # English only
+    assert g["bp"]["sources"]["how"] is None and g["vo2"]["sources"]["actions"]  # no source listed -> the app says so
+
+
+# ---------------------------------------------------------------- C2: photo of the display kept with a vitals check-in
+import base64  # noqa: E402
+
+_JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+
+
+def _vitals(cid="h", **extra):
+    return client.post("/api/checkins", headers=as_(cid), json={"crew_id": cid, "kind": "vitals", "payload": {"hr": 62}, **extra})
+
+
+def test_a_vitals_photo_is_kept_apart_and_returned_to_the_person_and_the_medical_team():
+    r = _vitals(photo=_JPEG)
+    assert r.status_code == 200
+    hist = client.get("/api/checkins/h", headers=as_("h")).json()
+    item = hist["recent"][0]
+    assert item["has_photo"] is True and "photo" not in str(item["payload"])
+    url = f"/api/checkins/h/{item['id']}/photo"
+    assert client.get(url, headers=as_("h")).json() == {"data_url": _JPEG}
+    assert client.get(url, headers=_med()).json() == {"data_url": _JPEG}
+    assert client.get(f"/api/checkins/h", headers=_med()).json()["recent"][0]["has_photo"] is True
+    ev = client.get("/api/crew/h", headers=_med()).json()["events"][0]
+    assert ev["has_photo"] is True and _JPEG not in json.dumps(client.get("/api/crew/h", headers=_med()).json())
+    assert client.get(f"/api/checkins/h/{item['id'] + 99}/photo", headers=as_("h")).status_code == 404
+
+
+def test_a_vitals_without_photo_says_so():
+    _vitals()
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"][0]["has_photo"] is False
+
+
+def test_the_photo_is_private_to_the_person_and_the_medical_team():
+    _vitals(photo=_JPEG)
+    cid = client.get("/api/checkins/h", headers=as_("h")).json()["recent"][0]["id"]
+    url = f"/api/checkins/h/{cid}/photo"
+    assert client.get(url).status_code == 403
+    assert client.get(url, headers=as_("k")).status_code == 403
+    assert client.get("/api/checkins/h", headers=as_("k")).status_code == 403
+
+
+@pytest.mark.parametrize("kind,payload", [("mood", {"mood": 3, "stress": 2}), ("kss", {"level": 3})])
+def test_only_vitals_take_a_photo(kind, payload):
+    r = client.post("/api/checkins", headers=as_("h"), json={"crew_id": "h", "kind": kind, "payload": payload, "photo": _JPEG})
+    assert r.status_code == 422 and r.json()["detail"][0]["field"] == "photo"
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"] == []
+
+
+@pytest.mark.parametrize("bad", [
+    "not a data url", "data:text/html;base64,PGI+", "data:image/gif;base64,R0lGODlh", "data:image/jpeg;base64,@@@@",
+    "data:image/jpeg;base64," + base64.b64encode(b"hello world, not a jpeg").decode(),
+    "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + b"\x00" * 600_000).decode(), 7, ""])
+def test_a_bad_photo_is_refused_and_nothing_is_saved(bad):
+    r = _vitals(photo=bad)
+    assert r.status_code == 422 and r.json()["detail"][0]["field"] == "photo"
+    assert client.get("/api/checkins/h", headers=as_("h")).json()["recent"] == []
+
+
+def test_the_photo_never_reaches_crew_mission_or_control_overviews_and_a_reset_clears_it():
+    at(3)
+    _vitals(photo=_JPEG)
+    for name, body in _crew_facing().items():
+        assert "has_photo" not in set(_keys(body)) and "base64" not in json.dumps(body), name
+    assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 1
+    client.post("/api/demo/reset")
+    assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 0

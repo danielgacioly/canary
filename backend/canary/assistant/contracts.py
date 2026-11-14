@@ -26,6 +26,10 @@ ENTRIES_WITH_TOOLS = ("chat",)
 
 # `settings` keys the AI layer may read through domain code but no tool ever returns (schema.md §4).
 SETTINGS_NEVER_RETURNED = ("suggested_goals", "pins", "photos")
+# Fields no tool ever returns, at any depth: the photo of the display kept with a vitals check-in (table
+# `checkin_photos`, served only by GET /api/checkins/{crew}/{id}/photo). Any string that is an image data URL is
+# dropped too, whatever its key.
+FIELDS_NEVER_RETURNED = ("photo", "has_photo", "data_url")
 
 # ---------------------------------------------------------------- source ids (schema.md §2)
 
