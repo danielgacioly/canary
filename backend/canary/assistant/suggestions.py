@@ -3,17 +3,21 @@
 Code gathers the facts (each indicator against the person's own normal, how often each goal was
 done this week, recent self-tests, the next leg of the mission plan). Rules turn them into
 suggestions that carry the numbers behind them. A connected model may only rephrase the "why" of
-each suggestion; guard.unknown_numbers rejects any rewrite that brings a number the facts do not
-contain. With no model, the rule text is shown as it is.
+each suggestion. Each rewrite is checked on its own (guard.unknown_numbers against the facts, non-empty,
+not too long); the ones that pass are used and the rest keep the rule text. The response says how many were
+rewritten and, when the model was not used or only partly used, why (`fallback_reason`). With no model, the
+rule text is shown as it is. Every build is logged in assistant_log with metadata only: the medical audit
+sees that suggestions were built and how, never what they say.
 """
 import json
-from typing import Dict, List
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 
 from .. import db
 from ..domain import advice, goals, health, mission, risk, telemetry
 from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS
-from . import guard
+from . import chat, guard
 from .providers import ProviderRequest, get_provider
 
 LANGUAGE = {"h": "Portuguese", "k": "Japanese", "a": "Yoruba", "t": "Spanish"}
@@ -189,29 +193,73 @@ def candidates(f: dict) -> List[dict]:
     return sorted(out, key=lambda s: -s["priority"])[:6]
 
 
+MAX_WHY = 300  # a rewritten "why" longer than this is not one warm sentence: keep the rule text
+
+
+def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Optional[str], List[str], Any]:
+    """Ask the model to rephrase each "why". Returns (accepted rewrites by id, fallback reason or None,
+    rejected numbers, the ProviderResult or None). Each item is checked on its own."""
+    try:
+        out = provider.complete(ProviderRequest(task="suggestions",
+                                                system="Rephrase each 'why' warmly in one sentence. Use only the numbers given. Never diagnose.",
+                                                question=json.dumps([{"id": s["id"], "why": s["why"]} for s in items]),
+                                                context=[{"facts": f}]))
+    except Exception:  # noqa: BLE001 - a provider bug must not break the page; the rule text stays
+        return {}, "api:error", [], None
+    if not out.ok:
+        return {}, out.guard_exit or ("api:error" if provider.configured else None), [], out
+    try:
+        raw = json.loads(out.answer)
+        pairs = [(r["id"], r["why"]) for r in raw]
+    except (ValueError, KeyError, TypeError):
+        return {}, "parse_error", [], out
+    ids, blob = {s["id"] for s in items}, json.dumps(f)
+    accepted: Dict[str, str] = {}
+    rejected: List[str] = []
+    for sid, why in pairs:
+        if sid not in ids or not isinstance(why, str):
+            continue
+        why = why.strip()
+        if not why or len(why) > MAX_WHY:
+            continue
+        unknown = guard.unknown_numbers(why, blob)
+        if unknown:
+            rejected += unknown
+            continue
+        accepted[sid] = why
+    reason = None
+    if len(accepted) < len(items):
+        reason = "numbers_rejected" if rejected else "model:bad_output"  # else: missing, empty or too long
+    return accepted, reason, list(dict.fromkeys(rejected)), out
+
+
 def build(crew_id: str) -> dict:
+    t0 = time.monotonic()
     f = facts(crew_id)
     items = candidates(f)
     provider = get_provider()
-    mode = "rules"
-    out = provider.complete(ProviderRequest(task="suggestions",
-                                            system="Rephrase each 'why' warmly in one sentence. Use only the numbers given. Never diagnose.",
-                                            question=json.dumps([{"id": s["id"], "why": s["why"]} for s in items]),
-                                            context=[{"facts": f}]))
-    if out.ok and out.answer:
-        try:
-            rewrites = {r["id"]: r["why"] for r in json.loads(out.answer)}
-            blob = json.dumps(f)
-            if all(not guard.unknown_numbers(t, blob) for t in rewrites.values()):
-                for s in items:
-                    s["why"] = rewrites.get(s["id"], s["why"])
-                mode = "ai"
-        except (ValueError, KeyError, TypeError):
-            pass
+    configured = bool(getattr(provider, "configured", False))
+    rewrites, reason, rejected, out = _rewrite(provider, f, items)
+    for s in items:
+        if s["id"] in rewrites:
+            s["why"], s["source"] = rewrites[s["id"]], "ai"
+        else:
+            s["source"] = "rules"
+    n = len(rewrites)
+    mode = "ai" if n else "rules"
+    model = (out.model if out and out.model else getattr(provider, "model", None)) if configured else None
     taken = {g["id"] for g in goals.suggested(crew_id, f["day"])}
     for s in items:
         s["accepted"] = f"sg_{s['id']}" in taken
-    return {"mode": mode, "provider": provider.name, "day": f["day"], "items": items}
+    # The medical audit sees that a build happened and how, never what the suggestions say (astronaut-only).
+    flags = ([reason] if reason else []) + (list(out.notes) if out else [])
+    chat.record(crew_id, chat.SUGGESTIONS_LOG,
+                {"mode": mode, "status": "suggestions", "provider": provider.name, "model": model,
+                 "rewritten": n, "total": len(items), "fallback_reason": reason},
+                provider.name, model, mode, flags, t0,
+                out.input_tokens if out else 0, out.output_tokens if out else 0)
+    return {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
+            "fallback_reason": reason, "rejected_numbers": rejected, "day": f["day"], "items": items}
 
 
 def accept(crew_id: str, sid: str) -> dict:

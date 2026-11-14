@@ -98,17 +98,51 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
 }
 
 /* ---------------------------------------------------------------- suggestions: the AI slot, fed by your own data */
+const FALLBACK_REASONS: Record<string, string> = {
+  numbers_rejected: 'the model used numbers that are not in your data',
+  parse_error: 'the model reply could not be read',
+  'model:bad_output': 'the model reply was not in the expected form',
+  'model:refusal': 'the model declined to rephrase them',
+  'model:max_tokens': 'the model reply was cut off',
+  'api:timeout': 'the AI service did not answer in time',
+  'api:rate_limit': 'the AI service is busy',
+  'api:connection': 'no link to the AI service',
+  'api:status': 'the AI service returned an error',
+  'api:error': 'the AI service could not be used',
+  'loop:timeout': 'the model took longer than the time limit',
+}
+
+function suggestionSlot(d: Suggestions): { tag: string; note: string } {
+  const total = d.items.length
+  const n = d.rewritten ?? (d.mode === 'ai' ? total : 0)
+  const reason = d.fallback_reason ? (FALLBACK_REASONS[d.fallback_reason] ?? 'the model could not be used') : null
+  if (d.mode === 'ai') {
+    const partial = n < total
+    return {
+      tag: `AI · ${d.provider}${partial ? ` · ${n} of ${total} rephrased` : ''}`,
+      note: partial
+        ? `A model rephrased ${n} of them and every number was checked; the rest keep the rule text${reason ? ` because ${reason}` : ''}.`
+        : 'A model rephrased them; every number was checked.',
+    }
+  }
+  if (d.configured) {
+    return { tag: 'Model connected · rule text kept', note: `The rule text is shown${reason ? ` because ${reason}` : ''}.` }
+  }
+  return { tag: 'No model connected', note: 'Until a model is connected, rules write them from the same data.' }
+}
+
 function SuggestionsTab({ me }: { me: string }) {
   const { bump, toast } = useSession()
   const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
   const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
   const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
+  const slot = suggestionSlot(data)
   return (
     <div className="suggest">
       <div className="slot-line rise">
-        <span className="tag">{data.mode === 'ai' ? `AI · ${data.provider}` : 'AI slot · no model connected'}</span>
-        <span className="small muted">Built from your numbers against your own normal, your goals this week, your tests and the next leg of the plan. {data.mode === 'ai' ? 'A model rephrased them; every number was checked.' : 'Until a model is connected, rules write them from the same data.'} Only you see them.</span>
+        <span className="tag">{slot.tag}</span>
+        <span className="small muted">Built from your numbers against your own normal, your goals this week, your tests and the next leg of the plan. {slot.note} Only you see them.</span>
       </div>
       <div className="suggest-list">
         {data.items.map((s, i) => (
