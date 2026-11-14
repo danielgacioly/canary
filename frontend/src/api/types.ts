@@ -103,11 +103,15 @@ export type AssistantStatusValue = 'supported' | 'insufficient_evidence' | 'out_
 export interface Observation { statement: string; source_ids: string[] }
 export type Explanation = Observation
 export interface RecommendedAction { id: string; label: string }
-export interface GuardReport { dropped_claims: number; rejected_numbers: string[]; reason: string | null }
+export interface DroppedClaim { field: string; statement: string; rule_id: string }
+// `guard` key of an answer: what the guard removed and which rule ids fired (guard.postcheck report).
+export interface GuardReport { dropped_claims: DroppedClaim[]; rejected_numbers: string[]; reason: string | null; rule_ids?: string[] }
 export interface AssistantAnswer {
   id: number; mode: AssistantMode; provider: string; provider_error?: string | null
   answer: string; claims: Claim[]; sources: string[]; tools_used: { tool: string; args: Record<string, string> }[]; dropped: number
   question?: string
+  model?: string | null            // model id when the answer came from a provider
+  prompt_version?: string          // e.g. system_v1
   status?: AssistantStatusValue
   observations?: Observation[]   // facts from data (telemetry, status, checkin, goals, summary, nasa)
   explanations?: Explanation[]   // possible explanations from approved knowledge (kb:)
@@ -116,7 +120,7 @@ export interface AssistantAnswer {
   guard?: GuardReport
   source_meta?: Record<string, SourceMeta>   // title, version and excerpt for each kb: id cited this turn
 }
-export interface SourceMeta { title: string; version: string; text?: string }
+export interface SourceMeta { title: string; version: number | null; text?: string | null }
 // GET /api/medical/assistant-audit (medical token): one row per assistant turn, no answer text.
 export interface AssistantAuditEntry {
   id: number; crew_id: string; question: string; created_at: number

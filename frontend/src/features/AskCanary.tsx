@@ -55,7 +55,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   }
   const hover = (id: string) => {
     const sm = meta[id]
-    if (sm) return [`Approved knowledge · ${sm.title} · version ${sm.version}`, sm.text ? excerpt(sm.text) : ''].filter(Boolean).join('\n')
+    if (sm) return [`Approved knowledge · ${sm.title}${sm.version != null ? ` · version ${sm.version}` : ''}`, sm.text ? excerpt(sm.text) : ''].filter(Boolean).join('\n')
     const m = KB_RE.exec(id)
     if (m) return `Approved knowledge · ${m[1]} · version ${m[2]} · section ${m[3]}`
     if (id.startsWith('card:')) return `Body system card · ${id}`
@@ -83,7 +83,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
   }
   const guardNote = (g?: GuardReport) => g?.reason ? (
     <p className="ask-guard small">Guard: {g.reason}
-      {!!g.dropped_claims && ` · ${g.dropped_claims} claim${g.dropped_claims > 1 ? 's' : ''} removed`}
+      {!!g.dropped_claims.length && ` · ${g.dropped_claims.length} claim${g.dropped_claims.length > 1 ? 's' : ''} removed`}
       {!!g.rejected_numbers.length && ` · numbers not in the data: ${g.rejected_numbers.join(', ')}`}</p>
   ) : null
   return (
@@ -116,7 +116,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
                 </div>
                 {a.observations || a.explanations ? (
                   <>
-                    {a.answer && <p style={{ marginTop: 6 }}>{a.answer}</p>}
+                    {/* Rule-based answers join the same claims shown below, so only the model's summary is repeated here. */}
+                    {a.answer && (a.mode === 'ai' || !(a.observations?.length || a.explanations?.length)) && <p style={{ marginTop: 6 }}>{a.answer}</p>}
                     {group('Observed', a.observations ?? [])}
                     {group('Possible explanations', a.explanations ?? [])}
                   </>

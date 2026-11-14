@@ -95,7 +95,7 @@ function AssistantAudit({ audit, ov }: { audit: AssistantAuditEntry[] | null; ov
           <div key={t.id} className="audit-row small">
             <span className="q"><b>{name(t.crew_id)}</b> <span className="muted">{t.question}</span></span>
             <span className="num dim">{new Date(t.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="dim">{t.mode}{t.status ? ` · ${t.status.replace(/_/g, ' ')}` : ''}{t.provider ? ` · ${t.provider}` : ''}{t.kb_version ? ` · kb ${t.kb_version}` : ''}{t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}</span>
+            <span className="dim">{t.mode}{t.status ? ` · ${t.status.replace(/_/g, ' ')}` : ''}{t.provider ? ` · ${t.provider}` : ''}{t.kb_version ? ` · kb ${t.kb_version.slice(0, 8)}` : ''}{t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}</span>
             <span className="dim">{t.tools.length ? t.tools.join(', ') : 'no tools'}</span>
             {!!t.guard_flags.length && <div className="audit-flags">{t.guard_flags.map(f => <span key={f} className="audit-flag">{f}</span>)}</div>}
           </div>))}</div>
