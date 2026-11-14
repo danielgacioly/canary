@@ -114,6 +114,14 @@ export interface AssistantAnswer {
   limitations?: string[]
   recommended_action?: RecommendedAction | null
   guard?: GuardReport
+  source_meta?: Record<string, SourceMeta>   // title, version and excerpt for each kb: id cited this turn
+}
+export interface SourceMeta { title: string; version: string; text?: string }
+// GET /api/medical/assistant-audit (medical token): one row per assistant turn, no answer text.
+export interface AssistantAuditEntry {
+  id: number; crew_id: string; question: string; created_at: number
+  mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
+  tools: string[]; guard_flags: string[]; latency_ms: number | null
 }
 export interface AssistantStatus { provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
 export interface Briefing { id: number; crew_id: string; day: number; status: string; text: string; mode: string; bytes: number; created_at: number; deliver_at: number | null }

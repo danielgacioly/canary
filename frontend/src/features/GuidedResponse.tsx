@@ -1,5 +1,5 @@
 // Guided Response: deterministic, step-by-step first response. No AI on this path.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { Emergency, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
@@ -7,8 +7,11 @@ import { useSession } from '../state/session'
 
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
 
-export default function GuidedResponse({ onClose }: { onClose: () => void }) {
-  const { me, mission, catalog, bump, toast, prefs } = useSession()
+/** `initialProtocol` opens that protocol directly; an unknown id falls back to the chooser. Without the prop, a protocol
+ * id passed to `setEmergency(id)` is used. */
+export default function GuidedResponse({ onClose, initialProtocol }: { onClose: () => void; initialProtocol?: string }) {
+  const { me, mission, catalog, bump, toast, prefs, emergency } = useSession()
+  const initial = initialProtocol ?? (typeof emergency === 'string' ? emergency : undefined)
   const [P, setP] = useState<Protocols | null>(null)
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -25,6 +28,21 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
     const t = setInterval(() => setNow(Date.now()), 250)
     return () => { clearInterval(t); try { speechSynthesis.cancel() } catch { /* no speech */ } }
   }, [me])
+
+  // Open the requested protocol once the list is loaded; log it once the emergency record exists.
+  const opened = useRef(false)
+  const unlogged = useRef<string | null>(null)
+  useEffect(() => {
+    if (!P || opened.current) return
+    opened.current = true
+    if (initial && P.protocols[initial]) { setPid(initial); setI(0); setStepAt(Date.now()); unlogged.current = initial }
+  }, [P, initial])
+  useEffect(() => {
+    const id = unlogged.current
+    if (!em || !P || !id) return
+    unlogged.current = null
+    api.emergencyEvent(em.id, { text: `Protocol: ${P.protocols[id].name}`, protocol: id }).then(setEm)
+  }, [em, P, pid])
 
   const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm) }
   const proto = pid && P ? P.protocols[pid] : null

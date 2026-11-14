@@ -17,8 +17,9 @@ interface Session {
   bump: () => void
   setStep: (i: number) => Promise<void>
   setLocation: (loc: string | null) => Promise<void>
-  emergency: boolean
-  setEmergency: (v: boolean) => void
+  /** true opens Guided Response on the chooser; a protocol id opens that protocol directly. */
+  emergency: boolean | string
+  setEmergency: (v: boolean | string) => void
   askOpen: boolean
   setAskOpen: (v: boolean) => void
   toast: (t: string) => void
@@ -45,7 +46,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // A remembered person without a session token is not signed in.
   const [me, setMeState] = useState<string | null>(load('canary.viewer') ? load('canary.me') : null)
   const [rev, setRev] = useState(0)
-  const [emergency, setEmergency] = useState(false)
+  const [emergency, setEmergency] = useState<boolean | string>(false)
   const [askOpen, setAskOpen] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; t: string }[]>([])
   const tid = useRef(0)

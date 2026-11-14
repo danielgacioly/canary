@@ -1,31 +1,10 @@
 // Medical console: the only signed-in mode. Flight surgeons and the crew medical officer.
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
+import type { AssistantAuditEntry, Briefing, MedGoal, MedicalOverview } from '../api/types'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
 import { useApi, useSession } from '../state/session'
-
-/* ---------------------------------------------------------------------------------------------
- * PLACEHOLDER (AI layer Phase 6): the audit route and its type are not in api/client.ts / api/types.ts yet.
- * Expected: GET /api/medical/assistant-audit?limit=30 (medical token) -> AssistantAuditEntry[].
- * Replace with api.assistantAudit() once Wave 3 adds it. Any error (404, 401, network) shows the empty state.
- * ------------------------------------------------------------------------------------------- */
-interface AssistantAuditEntry {
-  id: number; crew_id: string; question: string; created_at: number
-  mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
-  tools: string[]; guard_flags: string[]; latency_ms: number | null
-}
-async function fetchAssistantAudit(limit = 30): Promise<AssistantAuditEntry[]> {
-  let token: string | null = null
-  try { token = sessionStorage.getItem('canary.med') } catch { /* storage blocked */ }
-  try {
-    const r = await fetch(`/api/medical/assistant-audit?limit=${limit}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-    if (!r.ok) return []
-    const j: unknown = await r.json()
-    return Array.isArray(j) ? (j as AssistantAuditEntry[]) : []
-  } catch { return [] }
-}
 
 const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
 
@@ -75,7 +54,8 @@ function Triage({ ov }: { ov: MedicalOverview }) {
   const inds = Object.keys(ov.crew[0].indicators)
   const { rev } = useSession()
   const [audit, setAudit] = useState<AssistantAuditEntry[] | null>(null)
-  useEffect(() => { fetchAssistantAudit().then(setAudit) }, [rev])
+  // Any error (404 before the route exists, 401, network) shows the empty state.
+  useEffect(() => { api.assistantAudit(30).then(a => setAudit(Array.isArray(a) ? a : [])).catch(() => setAudit([])) }, [rev])
   const turnsOf = (id: string) => (audit ?? []).filter(t => t.crew_id === id)
   return (
     <>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { AssistantAnswer, AssistantStatus, AssistantStatusValue, GuardReport, Observation, RecommendedAction } from '../api/types'
+import type { AssistantAnswer, AssistantStatus, AssistantStatusValue, GuardReport, Observation, RecommendedAction, SourceMeta } from '../api/types'
 import { Icon } from '../components/ui'
 import { useSession } from '../state/session'
 
@@ -17,8 +17,9 @@ const modeOf = (m: string): [string, string] => MODE[m] ?? [m, 's1']
 const STATUS: Record<AssistantStatusValue, [string, string]> = {
   supported: ['Supported by your data', 's0'], insufficient_evidence: ['Insufficient evidence', 's1'], out_of_scope: ['Out of scope', 's1'],
 }
-// kb:CARD-BRAIN@1#summary -> document, version, section (schema.md §6). Title and chunk text are not in the answer yet.
+// kb:CARD-BRAIN@1#summary -> document, version, section (schema.md §6). `source_meta` adds title and excerpt when sent.
 const KB_RE = /^kb:([A-Z0-9-]+)@(\d+)#([a-z0-9-]+)$/
+const excerpt = (t: string, n = 180) => { const x = t.replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1).trimEnd()}…` : x }
 const SUGGEST = ['How am I doing today?', 'Why is my sleep off?', 'What does space do to my bones?', 'Is my pulse normal?', 'Should I take melatonin?']
 
 export default function AskCanary({ onClose }: { onClose: () => void }) {
@@ -41,6 +42,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
     setBusy(true); setQ('')
     try { const r = await api.ask(me, text); setItems(x => [...x, { ...r, question: text }]) } finally { setBusy(false) }
   }
+  // Title, version and excerpt for every kb: id the backend described, across the whole conversation.
+  const meta: Record<string, SourceMeta> = Object.assign({}, ...items.map(a => a.source_meta ?? {}))
   const label = (id: string) => {
     const [kind, a, b] = id.split(':')
     if (kind === 'telemetry') return catalog?.indicators[b]?.name ?? b
@@ -51,6 +54,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
     return kind
   }
   const hover = (id: string) => {
+    const sm = meta[id]
+    if (sm) return [`Approved knowledge · ${sm.title} · version ${sm.version}`, sm.text ? excerpt(sm.text) : ''].filter(Boolean).join('\n')
     const m = KB_RE.exec(id)
     if (m) return `Approved knowledge · ${m[1]} · version ${m[2]} · section ${m[3]}`
     if (id.startsWith('card:')) return `Body system card · ${id}`
@@ -67,7 +72,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
     const [kind, arg] = ra.id.split(':')
     const btn = (onClick: () => void) => <button className="btn sm pri ask-action" onClick={onClick}>{ra.label}</button>
     if (kind === 'goal') return btn(() => { onClose(); navigate('/me/goals') })
-    if (kind === 'protocol') return btn(() => { onClose(); setEmergency(true) })
+    if (kind === 'protocol') return btn(() => { onClose(); setEmergency(arg || true) })
     if (kind === 'send_briefing' && me) return btn(async () => {
       try { await api.briefing(me); toast('Briefing draft prepared. Review it in the medical console before it is queued for Earth.') }
       catch { toast('Could not prepare the briefing right now.') }
