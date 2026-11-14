@@ -1,0 +1,149 @@
+"""The advice loop: every advice the person accepts becomes a small experiment.
+
+trigger (an alert or a suggestion) -> action (a goal) -> check (the indicator it should move, after N days)
+-> outcome ("improved", "same" or "worse", against the person's own normal).
+
+Nothing here uses a clock: an outcome is a function of the mission day asked about, so the demo can jump anywhere
+and the same day always gives the same answer. Rows are written only by routes that change something (ticking a
+goal, accepting a suggestion), never by a GET.
+
+Two rounds in a row without improvement for the same risk escalate: a different suggestion for the person, and one
+message for the crew medical officer (or the substitute), once. Canary never prescribes: the alternatives below are
+the same kind of everyday step the suggestions already offer.
+"""
+import time
+from typing import Dict, List, Optional
+
+from .. import db
+from . import risk, telemetry
+from .catalog import CREW_BY_ID
+
+# Prototype assumptions (no published rule says how much a number must move for an advice to have "worked").
+MARGIN = 0.5  # personal spreads: the average deviation must move by at least this much to count as improved / worse: bad moves by at least this much = improved / worse, less = same
+SOURCE = {"source": "prototype assumption", "verified": False}
+
+ALTERNATIVES: Dict[str, List[dict]] = {
+    "fatigue": [
+        {"title": "Change one thing in your day, not three", "area": "mental",
+         "steps": ["Pick the one habit most likely to help (lights-out time, a rest block, or a meal with the crew)",
+                   "Keep it for 5 days before judging it", "Tell the medical officer which one you picked"],
+         "goal": "Keep one change in your day for 5 days", "verify": {"indicator": "sleep", "after_days": 5}},
+        {"title": "Add short rest breaks between tasks", "area": "mental",
+         "steps": ["Five minutes, eyes away from screens, between long tasks", "Same times each day",
+                   "Log how sleepy you feel at the end of the shift"],
+         "goal": "Five-minute rest breaks between tasks today", "verify": {"indicator": "kss", "after_days": 5}},
+        {"title": "Ask for your workload to be reviewed", "area": "mental",
+         "steps": ["Write down the three tasks that cost the most energy", "Talk to the medical officer and the commander about them",
+                   "Agree what can wait this week"],
+         "goal": "Talk about your workload with the medical officer", "verify": {"indicator": "tlx", "after_days": 5}},
+    ],
+}
+
+
+def _bad(crew_id: str, ind: str, day: int) -> float:
+    """How far the indicator is from the person's normal around `day`, in personal spreads (higher is worse):
+    the mean of the last three days' values, so one noisy day cannot decide an outcome."""
+    from . import health
+    vals = [health.indicator(crew_id, ind, risk._day_ms(d))["bad"] for d in (day, day - 1, day - 2)]
+    return sum(vals) / len(vals)
+
+
+def risk_of(indicator: str) -> Optional[str]:
+    """The risk an indicator feeds, if any (for now only fatigue)."""
+    return "fatigue" if indicator in risk.FATIGUE["weights"] else None
+
+
+def start(crew_id: str, goal_id: str, origin: str, verify: Optional[dict], day: int) -> Optional[int]:
+    """Open an advice the first time the person ticks an alert goal or accepts a suggestion. One active row per goal."""
+    if not verify:
+        return None
+    if db.q("SELECT id FROM advice WHERE crew_id=? AND goal_id=? AND start_day<=? AND check_day>?", (crew_id, goal_id, day, day)):
+        return None
+    ind = verify["indicator"]
+    return db.x("INSERT INTO advice(crew_id,goal_id,origin,indicator,risk,start_day,check_day,start_bad,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (crew_id, goal_id, origin, ind, risk_of(ind), day, day + int(verify["after_days"]), _bad(crew_id, ind, day), time.time()))
+
+
+def outcome(row: dict, day: int) -> str:
+    """pending until check_day; then improved / same / worse from how far the indicator moved by check_day."""
+    if day < row["check_day"]:
+        return "pending"
+    delta = _bad(row["crew_id"], row["indicator"], row["check_day"]) - row["start_bad"]
+    return "improved" if delta <= -MARGIN else "worse" if delta >= MARGIN else "same"
+
+
+def _item(row: dict, day: int) -> dict:
+    st = outcome(row, day)
+    out = {"goal_id": row["goal_id"], "origin": row["origin"], "indicator": row["indicator"], "risk": row["risk"],
+           "start_day": row["start_day"], "check_day": row["check_day"], "start_bad": round(row["start_bad"], 2), "status": st}
+    if st != "pending":
+        out["bad_at_check"] = round(_bad(row["crew_id"], row["indicator"], row["check_day"]), 2)
+    return out
+
+
+def rows(crew_id: str, day: int) -> List[dict]:
+    """Advice that had started by `day` (the demo clock may move back), oldest first."""
+    return db.q("SELECT * FROM advice WHERE crew_id=? AND start_day<=? ORDER BY start_day, id", (crew_id, day))
+
+
+def for_crew(crew_id: str, day: int) -> dict:
+    items = [_item(r, day) for r in rows(crew_id, day)]
+    return {"active": [i for i in items if i["status"] == "pending"], "done": [i for i in items if i["status"] != "pending"]}
+
+
+def by_goal(crew_id: str, day: int) -> Dict[str, dict]:
+    """Latest advice per goal id, for the goal list: {goal_id: {status, check_day}}."""
+    out: Dict[str, dict] = {}
+    for r in rows(crew_id, day):
+        out[r["goal_id"]] = {"status": outcome(r, day), "check_day": r["check_day"]}
+    return out
+
+
+def _rounds(crew_id: str, rid: str, day: int) -> List[dict]:
+    """Concluded advice for one risk, grouped by the day it started (one round = what was tried together)."""
+    groups: Dict[int, List[dict]] = {}
+    for r in rows(crew_id, day):
+        if r["risk"] == rid and r["check_day"] <= day:
+            groups.setdefault(r["start_day"], []).append(r)
+    out = []
+    for start_day, rs in groups.items():
+        sts = [outcome(r, day) for r in rs]
+        out.append({"start_day": start_day, "check_day": max(r["check_day"] for r in rs),
+                    "improved": "improved" in sts, "indicators": sorted({r["indicator"] for r in rs}),
+                    "results": dict(zip([r["indicator"] for r in rs], sts))})
+    return sorted(out, key=lambda g: (g["check_day"], g["start_day"]))
+
+
+def escalation(crew_id: str, day: int) -> List[dict]:
+    """Risks whose last two concluded rounds both brought no improvement. Pure: a function of the day."""
+    out = []
+    for rid in sorted(ALTERNATIVES):
+        last = _rounds(crew_id, rid, day)[-2:]
+        if len(last) == 2 and not any(g["improved"] for g in last):
+            key = f"{rid}:{last[1]['check_day']}"
+            alts = ALTERNATIVES[rid]
+            pick = alts[int(telemetry.h01(f"alt:{crew_id}:{key}") * len(alts)) % len(alts)]
+            out.append({"risk": rid, "key": key, "rounds": last, "alternative": {**pick, "id": f"alt_{rid}"}})
+    return out
+
+
+def sync(crew_id: str, day: int) -> None:
+    """Tell the medical officer, once per escalation. Called only by routes that write (never by a GET)."""
+    from . import privacy
+    done = db.get_setting("advice_escalated", [])
+    new = [e for e in escalation(crew_id, day) if f"{crew_id}:{e['key']}" not in done]
+    for e in new:
+        to = privacy.SUBSTITUTE if crew_id == privacy.MEDICAL_OFFICER else privacy.MEDICAL_OFFICER
+        now = time.time()
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             ("canary", to, "advice", f"Advice review for {CREW_BY_ID[crew_id]['name'].split(' ')[0]}: two rounds of advice in a row did not move the numbers. "
+                                      "A different step was offered. Details are in the medical console.", now, now))
+        done.append(f"{crew_id}:{e['key']}")
+    if new:
+        db.set_setting("advice_escalated", done)
+
+
+def sync_all(day: int) -> None:
+    from .catalog import CREW
+    for c in CREW:
+        sync(c["id"], day)
