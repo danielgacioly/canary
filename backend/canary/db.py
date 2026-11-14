@@ -35,8 +35,32 @@ CREATE TABLE IF NOT EXISTS briefings (
   sent_at REAL, deliver_at REAL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
-  response TEXT NOT NULL, created_at REAL NOT NULL);
+  response TEXT NOT NULL, created_at REAL NOT NULL,
+  provider TEXT, model TEXT, kb_version TEXT, outcome TEXT, guard_flags TEXT,
+  latency_ms INTEGER, input_tokens INTEGER, output_tokens INTEGER);
+CREATE TABLE IF NOT EXISTS assistant_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, log_id INTEGER NOT NULL REFERENCES assistant_log(id) ON DELETE CASCADE,
+  step INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, sources TEXT NOT NULL, ok INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS assistant_turns_log ON assistant_turns(log_id);
 """
+
+# Columns added to existing tables after their first release. CREATE TABLE IF NOT EXISTS does not add
+# columns to a table that already exists, so migrate() adds any that are missing (see docs/ai/schema.md §4).
+ADDED_COLUMNS = {
+    "assistant_log": [
+        ("provider", "TEXT"), ("model", "TEXT"), ("kb_version", "TEXT"), ("outcome", "TEXT"),
+        ("guard_flags", "TEXT"), ("latency_ms", "INTEGER"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER"),
+    ],
+}
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent: add every column in ADDED_COLUMNS that the table does not have yet (all nullable)."""
+    for table, cols in ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, typ in cols:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
 
 _lock = threading.RLock()
 _conn: Optional[sqlite3.Connection] = None
@@ -49,6 +73,7 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             _conn = sqlite3.connect(path or settings.db_path, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            migrate(_conn)
             _conn.commit()
         return _conn
 
@@ -78,6 +103,6 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log"):
+        for t in ("settings", "checkins", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
