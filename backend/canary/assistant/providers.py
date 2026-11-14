@@ -14,6 +14,7 @@ suggestions.py check numbers and sources. A failure of any kind (API error, time
 comes back as ok=False with `guard_exit` naming what fired, so the caller can use its grounded fallback.
 """
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 from ..config import settings
 from . import contracts, tools
 from .contracts import ToolContext, ToolResult
+
+log = logging.getLogger("canary.assistant")
 
 
 @dataclass
@@ -112,6 +115,8 @@ def default_schema(task: str) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------- shared tool loop and provider adapters
 
 MAX_TOKENS = 2000
+# HTTP statuses that mean "try again shortly": 503 unavailable (both APIs), 529 overloaded (Anthropic).
+RETRY_STATUS = (503, 529)
 REPEAT_NOTE = "Repeated call: this is the same result as before. Use it instead of calling again."
 BUDGET_NOTE = "Tool budget used up for this question: answer from the results you already have."
 
@@ -141,7 +146,11 @@ class ToolCallingProvider:
 
     @property
     def model(self) -> str:
-        return settings.llm_model or getattr(settings, self.model_setting)
+        # The global override applies only to an explicitly selected provider: under "auto" the key decides the
+        # provider, so a CANARY_LLM_MODEL meant for one provider must never be sent to the other.
+        if settings.llm_model and settings.llm_provider == self.name:
+            return settings.llm_model
+        return getattr(settings, self.model_setting)
 
     def _post(self, url: str, body: dict, headers: dict, timeout: float) -> dict:
         import httpx
@@ -153,9 +162,9 @@ class ToolCallingProvider:
                 if remaining <= 0:
                     raise httpx.TimeoutException("AI request deadline exhausted")
                 response = client.post(url, json=body, headers=headers, timeout=remaining)
-                if response.status_code != 503 or attempt == 2:
+                if response.status_code not in RETRY_STATUS or attempt == 2:
                     return response
-                # Retry only an explicit unavailable response, never an ambiguous timeout.
+                # Retry only an explicit unavailable/overloaded response, never an ambiguous timeout.
                 delay = 2 ** attempt
                 retry_after = response.headers.get("retry-after", "")
                 if retry_after.isdigit():
@@ -187,8 +196,8 @@ class ToolCallingProvider:
             code = e.response.status_code
             if code == 429:
                 return "api:rate_limit", "AI service rate limit"
-            if code == 503:
-                return "api:status", "AI service temporarily unavailable (503)"
+            if code in RETRY_STATUS:
+                return "api:status", f"AI service temporarily unavailable ({code})"
             if code in (408, 504):
                 return "api:timeout", "AI service timed out"
             return "api:status", f"AI service error {code}"
@@ -199,6 +208,9 @@ class ToolCallingProvider:
     def complete(self, req: ProviderRequest) -> ProviderResult:
         deadline = req.deadline if req.deadline is not None else time.monotonic() + settings.llm_timeout_s
         out = ProviderResult(ok=False, model=self.model)
+        if not self.configured:  # no key and no injected client: never attempt a request
+            out.error, out.guard_exit = GUARD_EXITS["api:error"], "api:error"
+            return out
         if req.task not in contracts.AI_ENTRIES:
             out.error, out.guard_exit = f"unknown task {req.task!r}", "api:error"
             return out
@@ -314,6 +326,14 @@ class ToolCallingProvider:
             messages.append(self._user_message(results))
 
 
+def gemini_thinking(model: str, effort: str) -> Optional[Dict[str, str]]:
+    """thinkingConfig for Gemini 3 models only (older ids reject thinkingLevel). Gemini accepts LOW or HIGH:
+    "high" maps to HIGH, any other effort to LOW."""
+    if not model.lower().startswith("gemini-3"):
+        return None
+    return {"thinkingLevel": "HIGH" if effort.strip().lower() == "high" else "LOW"}
+
+
 class GeminiProvider(ToolCallingProvider):
     """Gemini Developer API, with credentials only in the request header."""
     name = "gemini"
@@ -323,8 +343,10 @@ class GeminiProvider(ToolCallingProvider):
     def _call(self, req: ProviderRequest, messages: List[dict], with_tools: bool, timeout: float) -> Any:
         from urllib.parse import quote
 
-        config = {"maxOutputTokens": MAX_TOKENS,
-                  "thinkingConfig": {"thinkingLevel": settings.llm_effort.upper()}}
+        config: Dict[str, Any] = {"maxOutputTokens": MAX_TOKENS}
+        thinking = gemini_thinking(self.model, settings.llm_effort)
+        if thinking:
+            config["thinkingConfig"] = thinking
         schema = req.output_schema or default_schema(req.task)
         if schema:
             config.update(responseMimeType="application/json", responseJsonSchema=schema)
@@ -465,7 +487,24 @@ class LocalProvider:
 _PROVIDERS = {"none": NullProvider, "gemini": GeminiProvider, "anthropic": AnthropicProvider, "local": LocalProvider}
 
 
+_warned: set = set()
+
+
+def selection_warning() -> Optional[str]:
+    """A message when CANARY_LLM_PROVIDER holds an unknown value (the assistant then runs offline)."""
+    if settings.llm_provider == "auto" or settings.llm_provider in _PROVIDERS:
+        return None
+    return (f"Unknown CANARY_LLM_PROVIDER {settings.llm_provider!r}: using offline rules. "
+            f"Expected one of: auto, {', '.join(_PROVIDERS)}.")
+
+
 def get_provider() -> LLMProvider:
+    warning = selection_warning()
+    if warning:
+        if settings.llm_provider not in _warned:
+            _warned.add(settings.llm_provider)
+            log.warning(warning)
+        return NullProvider()
     if settings.llm_provider == "auto":
         # Deterministic priority if both keys are set. Never switch providers after an API failure.
         for name in ("gemini", "anthropic"):
@@ -473,7 +512,7 @@ def get_provider() -> LLMProvider:
             if provider.configured:
                 return provider
         return NullProvider()
-    return _PROVIDERS.get(settings.llm_provider, NullProvider)()
+    return _PROVIDERS[settings.llm_provider]()
 
 
 def status() -> dict:
@@ -481,6 +520,7 @@ def status() -> dict:
     return {"provider": p.name, "configured": p.configured, "available": list(_PROVIDERS),
             "model": getattr(p, "model", None),
             "selection": settings.llm_provider,
+            "warning": selection_warning(),
             "entries": list(contracts.AI_ENTRIES),
             "limits": {"max_steps": settings.llm_max_steps, "max_tool_calls": settings.llm_max_tool_calls,
                        "timeout_s": settings.llm_timeout_s},

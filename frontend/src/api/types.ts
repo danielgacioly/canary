@@ -197,7 +197,7 @@ export interface AssistantAuditEntry {
   mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
   tools: string[]; guard_flags: string[]; latency_ms: number | null
 }
-export interface AssistantStatus { provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
+export interface AssistantStatus { provider: string; configured: boolean; available: string[]; warning?: string | null; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
 export interface Briefing { id: number; crew_id: string; day: number; status: string; text: string; mode: string; bytes: number; created_at: number; deliver_at: number | null }
 export interface SpaceWeather {
   mode: string; window: string; sep_events: number; kp_max: number; fast_cmes: number; flares: number

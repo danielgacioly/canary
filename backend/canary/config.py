@@ -9,9 +9,20 @@ from dotenv import load_dotenv
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# Load the repository-root file regardless of the process working directory.
-# Explicit process variables (including isolated test paths) take precedence.
-load_dotenv(ROOT / ".env", override=False)
+
+
+def load_env_file(path: pathlib.Path = ROOT / ".env") -> bool:
+    """Load the repository-root .env regardless of the process working directory.
+
+    Explicit process variables (including isolated test paths) take precedence. CANARY_SKIP_DOTENV=1 skips the
+    file entirely: the test suite sets it so a developer's .env (real keys, slow timeouts) never leaks into tests.
+    """
+    if os.environ.get("CANARY_SKIP_DOTENV", "").strip() == "1":
+        return False
+    return load_dotenv(path, override=False)
+
+
+load_env_file()
 
 
 PIN_RE = re.compile(r"^\d{4}$")
@@ -54,12 +65,15 @@ class Settings:
     live_space_weather: bool = os.environ.get("CANARY_LIVE_SPACE_WEATHER", "0") == "1"
     # Auto selects the configured API key (Gemini first when both are present); none forces offline.
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "auto").strip().lower()
-    # Optional global override; normally each provider uses its own model to allow key-only switching.
+    # Optional global model override. It applies only when CANARY_LLM_PROVIDER names a provider explicitly;
+    # with "auto" each provider uses its own model below, so switching by API key never sends one provider's
+    # model id to the other.
     llm_model: str = os.environ.get("CANARY_LLM_MODEL", "").strip()
-    gemini_model: str = os.environ.get("CANARY_GEMINI_MODEL", "gemini-3.8-flash")
+    # Flash-Lite passed the live tool-calling smoke test (docs/ai/plan.md); keep in sync with env.example.
+    gemini_model: str = os.environ.get("CANARY_GEMINI_MODEL", "gemini-3.1-flash-lite")
     anthropic_model: str = os.environ.get("CANARY_ANTHROPIC_MODEL", "claude-sonnet-5-5")
     llm_effort: str = os.environ.get("CANARY_LLM_EFFORT", "low")
-    # After this many seconds the answer falls back to grounded rules.
+    # After this many seconds the answer falls back to grounded rules. Raise it locally for slow networks.
     llm_timeout_s: float = float(os.environ.get("CANARY_LLM_TIMEOUT_S", "15"))
     # Tool-calling rounds per question, and tool calls per question across all rounds.
     llm_max_steps: int = int(os.environ.get("CANARY_LLM_MAX_STEPS", "3"))

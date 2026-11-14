@@ -4,10 +4,11 @@
 > sharing `ToolCallingProvider` (budgets, validation, tool execution, audit and fallback).
 > `CANARY_LLM_PROVIDER=auto` is the default: select the configured API key; Gemini wins if both are set;
 > neither key means offline rules. Explicit `gemini`, `anthropic`, or `none` overrides automatic selection.
-> Defaults: `CANARY_GEMINI_MODEL=gemini-3.8-flash`, `CANARY_ANTHROPIC_MODEL=claude-sonnet-5-5`.
-> Leave `CANARY_LLM_MODEL` unset for key-only switching; it remains an optional global override.
+> Defaults: `CANARY_GEMINI_MODEL=gemini-3.1-flash-lite`, `CANARY_ANTHROPIC_MODEL=claude-sonnet-5-5`.
+> `CANARY_LLM_MODEL` overrides the model only when `CANARY_LLM_PROVIDER` names that provider explicitly;
+> under `auto` it is ignored. An unknown provider value logs a warning and shows it in `/api/assistant/status`.
 > Both use the existing `httpx` dependency. Native model messages retain thinking signatures.
-> HTTP 503 responses get up to two retries per round within the question deadline; other errors are not retried.
+> HTTP 503 (and Anthropic 529 overloaded) responses get up to two retries per round within the question deadline; other errors are not retried.
 > Persistent API failures fall back to deterministic rules, never another provider. The real eval uses the selected provider.
 > The original wave descriptions below record the initial Anthropic implementation.
 > Verified: `make test` passes (428 backend tests + frontend typecheck); dry eval passes 34/34.
@@ -46,8 +47,9 @@ Environment checked: the project venv runs Python 3.13 and its SQLite (3.54) has
 
    | Variable | Default | Meaning |
    | --- | --- | --- |
-   | `CANARY_LLM_PROVIDER` | `none` | existing |
-   | `CANARY_LLM_MODEL` | `claude-sonnet-5-5` | model id |
+   | `CANARY_LLM_PROVIDER` | `auto` | Gemini key first, then Anthropic, else offline rules |
+   | `CANARY_GEMINI_MODEL` / `CANARY_ANTHROPIC_MODEL` | `gemini-3.1-flash-lite` / `claude-sonnet-5-5` | per-provider model id |
+   | `CANARY_LLM_MODEL` | empty | override, only with an explicit provider |
    | `CANARY_LLM_EFFORT` | `low` | keeps answers fast and tool use short; raise only if the eval shows a quality gap |
    | `CANARY_LLM_TIMEOUT_S` | `15` | after this the answer falls back to grounded rules |
    | `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
@@ -143,7 +145,7 @@ question
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| `model` | `CANARY_LLM_MODEL` (`claude-sonnet-5-5`) | fast, capable enough to pick tools and explain; cheaper than Opus |
+| `model` | `CANARY_ANTHROPIC_MODEL` (`claude-sonnet-5-5`) | fast, capable enough to pick tools and explain; cheaper than Opus |
 | `thinking` | `{type: "adaptive"}` | `disabled` returns 400 on Sonnet 5.5; at `low` effort the model thinks little and calls fewer tools |
 | `output_config` | `{effort: "low", format: <AssistantResponse JSON Schema>}` | `low` means fewer, consolidated tool calls and short answers, which is what avoids delays and loops; the final message must be valid JSON in our shape |
 | `tools` | `anthropic_tools()` with `strict: true` | arguments always match the schema |
@@ -431,7 +433,7 @@ In a Claude Code session in this repo, after Wave 0:
 
 | Question | Default in this plan | Alternative |
 | --- | --- | --- |
-| Model for the demo | `claude-sonnet-5-5` at `low` effort (decided) | `medium` effort if the eval shows weak answers; `claude-haiku-5-5` if it is still too slow |
+| Model for the demo | `auto`: `gemini-3.1-flash-lite` (Gemini key) or `claude-sonnet-5-5` (Anthropic key), `low` effort | `medium` effort if the eval shows weak answers; `claude-haiku-5-5` if it is still too slow |
 | Embedding model | `bge-small-en-v1.5` (local) | larger local model; better recall, slower start |
 | Where `kb.db` comes from | built at `make setup` | shipped prebuilt in the repo |
 | Who reviews `guard_rules.json` and protocols | the team, marked `illustrative` | a flight surgeon, before any real use |

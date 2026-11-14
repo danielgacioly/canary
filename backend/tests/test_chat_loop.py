@@ -3,7 +3,7 @@
 Covers the manual tool loop (validate -> run_tool -> log -> all results in one message), every loop guard
 (rounds, tool budget, repeats, deadline), every exit to the grounded fallback (guard hard fail, refusal,
 max_tokens, bad output, API errors, timeout), the briefing and suggestions entries, the request settings
-sent to the Gemini API, and the medical audit route.
+sent to the Gemini API, Anthropic tool_result errors, and the medical audit route.
 """
 import json
 import os
@@ -120,7 +120,7 @@ def test_request_settings(monkeypatch):
     kw = p.api_calls[0]
     config = kw["generationConfig"]
     assert config["maxOutputTokens"] == 2000
-    assert config["thinkingConfig"] == {"thinkingLevel": settings.llm_effort.upper()}
+    assert settings.llm_effort == "low" and config["thinkingConfig"] == {"thinkingLevel": "LOW"}
     assert config["responseMimeType"] == "application/json"
     assert set(config["responseJsonSchema"]["properties"]) >= {"status", "observations", "recommended_action_id"}
     assert kw["toolConfig"] == {"functionCallingConfig": {"mode": "AUTO"}}
@@ -160,7 +160,9 @@ def test_failed_tool_gets_is_error_and_is_logged(monkeypatch):
                              final(good_answer())])
     results = p.api_calls[1]["contents"][2]["parts"]
     assert "must be one of" in results[0]["functionResponse"]["response"]["error"]
-    assert "is_error" not in results[1]
+    # Gemini has no is_error flag: the successful call must carry a null error and real data.
+    ok = results[1]["functionResponse"]["response"]
+    assert ok["error"] is None and ok["data"] and ok["sources"]
     turns = db.q("SELECT tool,ok FROM assistant_turns WHERE log_id=? ORDER BY id", (r["id"],))
     assert [t["ok"] for t in turns] == [0, 1]
     assert r["mode"] == "ai"
@@ -474,11 +476,54 @@ def test_gemini_configuration(monkeypatch):
     assert providers.get_provider().configured
 
 
-def test_gemini_missing_key_uses_fallback_answer(monkeypatch):
+@pytest.mark.parametrize("cls", [providers.GeminiProvider, providers.AnthropicProvider])
+def test_gemini_missing_key_uses_fallback_answer(monkeypatch, cls):
+    import httpx
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    use(monkeypatch, providers.GeminiProvider())
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    attempted = []
+
+    def no_request(*args, **kwargs):
+        attempted.append(args)
+        raise AssertionError("a request was attempted without an API key")
+    monkeypatch.setattr(httpx, "Client", no_request)
+    monkeypatch.setattr(cls, "_post", no_request)
+    p = use(monkeypatch, cls())
+    assert not p.configured
     r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": QUESTION}, headers=as_("h")).json()
     assert r["mode"] == "fallback" and r["claims"]
+    assert attempted == []
+    assert r["guard"]["reason"].startswith("api:error") and r["provider_error"] == providers.GUARD_EXITS["api:error"]
+
+
+def test_anthropic_failed_tool_gets_is_error(monkeypatch):
+    """Anthropic tool_result blocks: is_error only on the failed call, all results in one user turn."""
+    import httpx
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    calls = []
+    asked = [{"type": "thinking", "thinking": "", "signature": "sig-a"},
+             {"type": "tool_use", "id": "bad", "name": "get_indicator", "input": {"ind": "nope"}},
+             {"type": "tool_use", "id": "good", "name": "get_indicator", "input": {"ind": "sleep"}}]
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        usage = {"input_tokens": 1, "output_tokens": 1}
+        if len(calls) == 1:
+            return httpx.Response(200, json={"stop_reason": "tool_use", "content": asked, "usage": usage})
+        return httpx.Response(200, json={"stop_reason": "end_turn", "usage": usage,
+                                         "content": [{"type": "text", "text": json.dumps(good_answer())}]})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+        out = providers.AnthropicProvider(client=transport).complete(
+            providers.ProviderRequest(task="chat", system="s", question=QUESTION, ctx=ctx()))
+    assert out.ok and len(calls) == 2
+    second = calls[1]["messages"]
+    assert [m["role"] for m in second] == ["user", "assistant", "user"] and second[1]["content"] == asked
+    results = second[2]["content"]
+    assert [b["type"] for b in results] == ["tool_result", "tool_result"]
+    assert [b["tool_use_id"] for b in results] == ["bad", "good"]
+    assert results[0]["is_error"] is True and "must be one of" in json.loads(results[0]["content"])["error"]
+    assert "is_error" not in results[1] and json.loads(results[1]["content"])["error"] is None
 
 
 def test_gemini_ignores_thought_text(monkeypatch):
