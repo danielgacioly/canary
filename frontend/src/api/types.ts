@@ -29,6 +29,8 @@ export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number
   value: number; baseline: number; delta: number; z: number; bad: number; level: Level; source: string
   origin: 'user' | 'simulated' | 'real'; last_measured_day: number | null; age_days: number | null
+  /** last day of the care window that tightens this person's thresholds */
+  sensitive_until?: number
   spread: number; baseline_from: 'preflight' | 'catalog'; baseline_n: number
   population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical'; source: string; verified: boolean }
 }
@@ -92,9 +94,18 @@ export interface CrewDetail {
   trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
   events: { kind: string; day: number; payload: Record<string, unknown> }[]
   system_info: Record<string, { space: string; hazard: string }>
-  ops: Ops; care_by: string; access: 'self' | 'medical'
+  ops: Ops; care_by: string; access: 'self' | 'medical'; care_events: CareEvent[]
 }
-export interface Ops { key: 'full' | 'limited' | 'rest'; label: string; level: Level }
+export interface CareEvent {
+  emergency_id: number; protocol: string; name: string; outcome: string; day: number; until_day: number
+  ops: 'full' | 'limited' | 'rest'; origin: 'user'; source: string
+}
+export interface Ops {
+  key: 'full' | 'limited' | 'rest'; label: string; level: Level
+  /** inside the care window of a closed emergency: why, and the last restricted day */
+  reason?: string; until_day?: number; care?: { protocol: string; name: string; ops: 'full' | 'limited' | 'rest'; day: number; until_day: number }
+}
+export interface Notice { crew_id: string; name: string; alert_id: string; title: string; since_day: number; day: number; level: Level; to: string; to_name: string }
 export interface Person {
   id: string; name: string; role: string; initials: string; home: string
   today: { done: number; total: number; streak: number }
@@ -117,8 +128,8 @@ export interface CrewOverview {
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
 export interface Leaderboard { rows: Profile[]; team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
 export interface Step { i: number; t?: string; q?: string; yes?: number | string; no?: number | string; timer?: number; metro?: number; breath?: number; end?: number; variant?: string | null }
-export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; steps: Step[]; source: string }
-export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean }
+export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; after_items: { title: string; days: number }[]; window_days: number; ops: 'full' | 'limited' | 'rest'; steps: Step[]; source: string }
+export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean; care_note?: { source: string; verified: boolean; note: string } }
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
 export interface Claim { text: string; source_ids: string[] }
@@ -137,7 +148,8 @@ export interface SpaceWeather {
 export interface Rad { quietMean: number; quiet: [number, number][]; storm: [number, number][]; unit: string; det: string; peak: number; ratio: number }
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
-  crew: { id: string; name: string; role: string; level: Level; ops: Ops; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
+  notices: Notice[]; care_sensitivity: { factor: number; source: string; verified: boolean }
+  crew: { id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[] }[]
 }
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
 export interface TestResult { kind: string; day: number; at: number; summary: string; payload: Record<string, unknown> }
