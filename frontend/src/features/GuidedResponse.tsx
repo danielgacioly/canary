@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, errorText } from '../api/client'
 import type { Emergency, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
+import { speakWithChirp, stepSpeech, useEnglishVoice } from '../lib/voice'
 import { useSession } from '../state/session'
 
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
@@ -30,15 +31,12 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
 
+  const eng = useEnglishVoice()
+  // With no English voice the step stays silent: an English text read by a foreign voice is worse than none.
   useEffect(() => {
-    if (!voice || !step) return
-    try {
-      speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance([step.t, step.variant, step.q].filter(Boolean).join(' '))
-      u.lang = 'en-US'
-      speechSynthesis.speak(u)
-    } catch { /* no speech */ }
-  }, [voice, step])
+    if (!voice || !step || !proto || !eng.voice) return
+    return speakWithChirp(stepSpeech(i, proto.steps.length, [step.t, step.variant, step.q]), eng.voice)
+  }, [voice, step, proto, i, eng.voice])
 
   const pick = (id: string) => {
     setPid(id); setI(0); setStepAt(Date.now())
@@ -70,7 +68,10 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
         <div><span className="lbl">Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
         <div className="right row" style={{ gap: 22 }}>
           <span className="small muted">{mission?.place.reply === 'Live' ? 'Earth sees this live' : `Earth sees this ${mission?.place.reply} later`}</span>
-          <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)}>Voice {voice ? 'on' : 'off'}</button>
+          <div className="er-voice">
+            <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)} title={eng.voice ? `${eng.voice.name} (${eng.voice.lang})` : undefined} data-voice={eng.voice?.name ?? ''}>Voice {voice ? 'on' : 'off'}</button>
+            {eng.checked && !eng.voice && <span className="small dim">No English voice on this device</span>}
+          </div>
           <button className="btn er-btn" onClick={onClose}><Icon name="close" size={18} />Close</button>
         </div>
       </div>
