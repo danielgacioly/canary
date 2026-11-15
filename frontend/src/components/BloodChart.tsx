@@ -20,7 +20,8 @@ export default function BloodChart({ d }: { d: CrewDetail }) {
   const b = d.blood
   const keys = Object.keys(b.analytes)
   const [k, setK] = useState(keys.includes('lym') ? 'lym' : keys[0])
-  const a: Analyte = b.analytes[k]
+  if (!keys.length) return <p className="small muted">{b.note}</p>
+  const a: Analyte = b.analytes[k] ?? b.analytes[keys[0]]
   const unit = UNIT[a.unit] ?? a.unit
   const src = catalog?.sources.find(s => s.id === a.source)
   const pts = a.values.map((v, i) => ({ i, v, out: a.status[i] === 'out' })).filter((p): p is { i: number; v: number; out: boolean } => p.v !== null)

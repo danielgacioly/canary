@@ -125,7 +125,8 @@ export interface Analyte {
   unit: string; range: { min: number; max: number } | null; values: (number | null)[]; status: ('in' | 'out' | null)[]
   panel?: 'cbc' | 'cmp'; source?: string
 }
-export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' }
+/** Lab results registered for the person; with none, `analytes` is empty and `origin` is null. */
+export interface Blood { subject: string | null; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number } | null; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' | null }
 export interface CrewDetail {
   crew: CrewInfo; mission: Mission; indicators: Record<string, Indicator>; systems: Record<string, SystemState>
   alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
