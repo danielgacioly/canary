@@ -506,6 +506,11 @@ function ControlMessages({ delay }: { delay: string }) {
   const { data: accounts } = useApi(() => api.accountsPublic(), [])
   const mccIds = useMemo(() => new Set((accounts?.ground ?? []).filter(g => g.role === 'mcc').map(g => g.id)), [accounts])
   const [, tick] = useState(0)
+  useEffect(() => {  // the signal arrived: fetch the text (at most every 2 s, in case the clocks differ)
+    if (!data?.some(m => m.in_transit && m.deliver_at <= Date.now() / 1000)) return
+    const t = setTimeout(bump, 2000)
+    return () => clearTimeout(t)
+  }, [data, bump])
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || mccIds.has(m.sender)), [data, mccIds])
   const form = useForm({

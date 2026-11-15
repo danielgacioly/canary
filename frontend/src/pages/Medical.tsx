@@ -280,6 +280,11 @@ function Messages() {
   const { data: accounts } = useApi(() => api.accountsPublic(), [])
   const nameOf = (id: string) => accounts?.crew.find(c => c.id === id)?.name ?? accounts?.ground.find(g => g.id === id)?.name ?? id
   const [, tick] = useState(0)
+  useEffect(() => {  // the signal arrived: fetch the text (at most every 2 s, in case the clocks differ)
+    if (!data?.some(m => m.in_transit && m.deliver_at <= Date.now() / 1000)) return
+    const t = setTimeout(bump, 2000)
+    return () => clearTimeout(t)
+  }, [data, bump])
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   const form = useForm({
     initial: { to: 'crew', text: '' },
