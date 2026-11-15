@@ -5,3 +5,5 @@ start_day,end_day,location,label
 210,299,mars,"Surface stay, Gale crater"
 300,313,mars_rover,Pressurized rover traverse to Mount Sharp
 314,720,mars,"Surface stay, Gale crater"
+721,930,transit,Return cruise to Earth
+931,1000,earth,"Landing, recovery and rehabilitation"

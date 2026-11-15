@@ -12,7 +12,7 @@
     },
     "test": {
       "label": "Test in the app",
-      "how": "A short task on the tablet: a one-minute reaction test, a digit-symbol and a digit-span task, a grip-strength reading from a Bluetooth dynamometer. The app times the answers itself, so nothing is typed. Bone density has no scanner on board: the bone row is a model estimate until an onboard measurement exists."
+      "how": "A short task on the tablet: a one-minute reaction test, a digit-symbol and a digit-span task, a grip-strength reading from a Bluetooth dynamometer. The app times the answers itself, so nothing is typed. Bone density is a DXA scan taken before launch and after landing, not on board; in flight the engine infers it and labels it an estimate."
     },
     "blood": {
       "label": "Onboard blood analyser",
@@ -252,9 +252,12 @@
       "gaps": 0.02,
       "source": "prototype assumption",
       "verified": false,
-      "assumption": "Fictional baseline and spread from catalog.py; +12 bpm that fades over the 30 days after arriving in partial gravity, and a hydration effect (-12 bpm per unit) chosen for the demo story."
+      "assumption": "Fictional baseline and spread from catalog.py; +12 bpm that fades over the 30 days after arriving in partial gravity, and a hydration effect (-12 bpm per unit) chosen for the demo story. Every row is a resting reading (context activity=rest); readings taken during exercise are kept apart and never enter a baseline.",
+      "context": {
+        "activity": "rest"
+      }
     },
-    "bp": {
+    "sbp": {
       "unit": "mmHg",
       "method": "manual",
       "decimals": 0,
@@ -273,7 +276,34 @@
       "gaps": 0.05,
       "source": "prototype assumption",
       "verified": false,
-      "assumption": "Fictional baseline and spread from catalog.py; -14 mmHg that fades over the 30 days after arriving in partial gravity. Daily, not every few days: the alert engine blends three days, and with a cuff reading every 3 days the demo's day-222 alerts changed."
+      "assumption": "Systolic pressure. Fictional baseline and spread from catalog.py; -14 mmHg that fades over the 30 days after arriving in partial gravity. Daily, not every few days: the alert engine blends three days, and with a cuff reading every 3 days the demo's day-222 alerts changed. Seated readings (context position=seated).",
+      "context": {
+        "position": "seated"
+      }
+    },
+    "dbp": {
+      "unit": "mmHg",
+      "method": "manual",
+      "decimals": 0,
+      "baseline": {
+        "kind": "catalog"
+      },
+      "sd": "catalog",
+      "regravity": {
+        "days": 30,
+        "delta": -9
+      },
+      "frequency": {
+        "every": 1,
+        "label": "daily"
+      },
+      "gaps": 0.05,
+      "source": "prototype assumption",
+      "verified": false,
+      "assumption": "Diastolic pressure. Fictional baseline and spread from catalog.py; -9 mmHg that fades over the 30 days after arriving in partial gravity (about 0.65 of the systolic change, a prototype choice). Seated readings (context position=seated).",
+      "context": {
+        "position": "seated"
+      }
     },
     "spo2": {
       "unit": "%",
@@ -422,33 +452,42 @@
       "assumption": "Aerobic capacity (VO2max). Fictional baselines from catalog.py; a slow loss in 0 g of 0.015 mL/kg/min a day, a slower gain in partial gravity and a recovery on Earth, never more than 10 below the baseline. NASA-STD-3001 notes that aerobic capacity can be about 10% to 30% lower after flight (rationale of V1 4004); the daily rate here is a prototype choice."
     },
     "bone": {
-      "unit": "%",
+      "unit": "g/cm²",
       "method": "test",
-      "decimals": 2,
+      "decimals": 3,
       "baseline": {
         "kind": "crew",
         "values": {
-          "h": 0,
-          "k": 0,
-          "a": 0,
-          "t": 0
+          "h": 0.96,
+          "k": 1.08,
+          "a": 1.02,
+          "t": 1.12
         }
       },
-      "sd": 0.1875,
-      "sd_pre": 0.25,
-      "noise_key": "b{crew}{day}",
+      "sd": 0.012,
+      "relative": "bone_loss",
       "states": {
         "bone_loss": -1
       },
-      "row_note": "model estimate, no scanner on board",
-      "frequency": {
-        "every": 1,
-        "label": "daily"
+      "schedule": {
+        "preflight": [
+          -45,
+          -10
+        ],
+        "postflight": [
+          1,
+          30
+        ]
       },
-      "gaps": 0.05,
-      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "row_note": "DXA scan of the hip and spine, before launch and after landing only",
+      "frequency": {
+        "every": 365,
+        "label": "DXA scan before launch and after landing (not measurable on board)"
+      },
+      "gaps": 0.0,
+      "source": "NASA-STD-3001 Vol 1 [V1 4027] sets the limit; the scan values are simulated",
       "verified": false,
-      "assumption": "Estimated % change of weight-bearing bone density since launch from the bone_loss state, plus 0.3 % of measurement noise (0.4 % before launch). The catalog's sd of 1.5 is the alert scale, not this noise. Daily because it is a model estimate, not a scan."
+      "assumption": "Total-hip bone mineral density in g/cm². Fictional baselines per person; the post-flight value is the baseline reduced by the cumulative bone_loss state (about 1% a month without countermeasures, NASA HRP order of magnitude, less with exercise) plus 0.012 g/cm² of scan precision. Bone density cannot be measured on board: there is no daily in-flight row, the in-flight value is inferred by the engine from exercise and time in microgravity and labelled an estimate."
     },
     "dsst": {
       "unit": "correct/60s",
@@ -619,9 +658,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "lym": {
       "unit": "cells/uL",
@@ -639,9 +678,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "neu": {
       "unit": "cells/uL",
@@ -659,9 +698,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "hgb": {
       "unit": "g/dL",
@@ -679,9 +718,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "hct": {
       "unit": "percent",
@@ -699,9 +738,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "plt": {
       "unit": "10^3/uL",
@@ -719,9 +758,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "rbc": {
       "unit": "10^6/uL",
@@ -739,9 +778,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd569",
-      "verified": true,
-      "assumption": ""
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-569)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 blood count (NASA OSDR OSD-569, Costes et al. 2024): origin simulated, never real."
     },
     "creatinine": {
       "unit": "mg/dL",
@@ -762,9 +801,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd575",
-      "verified": true,
-      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread. The hydration effect (-0.12 mg/dL per unit) is a prototype choice."
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-575)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 metabolic panel and CRP (NASA OSDR OSD-575, Costes et al. 2024): origin simulated, never real."
     },
     "potassium": {
       "unit": "mmol/L",
@@ -782,9 +821,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd575",
-      "verified": true,
-      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread."
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-575)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 metabolic panel and CRP (NASA OSDR OSD-575, Costes et al. 2024): origin simulated, never real."
     },
     "crp": {
       "unit": "mg/L",
@@ -806,9 +845,9 @@
         0.05,
         200
       ],
-      "source": "nasa:osd575",
-      "verified": true,
-      "assumption": "C-reactive protein, real Inspiration4 values (OSD-575 cardiovascular multiplex, pg/mL converted to mg/L); between collections, simulated rows around the person's real pre-flight mean and spread, never below 0.05 mg/L."
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-575)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 metabolic panel and CRP (NASA OSDR OSD-575, Costes et al. 2024): origin simulated, never real."
     },
     "calcium": {
       "unit": "mg/dL",
@@ -826,9 +865,9 @@
         "label": "every 30 days (blood panel)"
       },
       "gaps": 0.03,
-      "source": "nasa:osd575",
-      "verified": true,
-      "assumption": "Real Inspiration4 values (OSD-575) on the 7 collections; between them, simulated rows around the person's real pre-flight mean and spread, flat on purpose because the body keeps serum calcium stable while bone and urine change."
+      "source": "modelled on Inspiration4 (NASA OSDR OSD-575)",
+      "verified": false,
+      "assumption": "Simulated for the demo crew on the pattern of the Inspiration4 metabolic panel and CRP (NASA OSDR OSD-575, Costes et al. 2024): origin simulated, never real."
     },
     "cortisol": {
       "unit": "ug/dL",
