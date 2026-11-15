@@ -172,16 +172,34 @@ def _streak(days: dict, today: int) -> int:
     return n
 
 
+def crew_quorum(n: Optional[int] = None) -> int:
+    """How many people make a crew day: three quarters of the crew, rounded up (3 of 4, and everybody in a crew of one to three)."""
+    n = len(CREW) if n is None else n
+    return max(1, -(-3 * n // 4))
+
+
+def team_target(t: dict, n: Optional[int] = None) -> int:
+    """The week's target of a crew goal for a crew of n (default: the registered crew). A count goal scales with the crew."""
+    n = max(1, len(CREW) if n is None else n)
+    return t["per_person"] * n if "per_person" in t else t["target"]
+
+
+def _team_title(t: dict, target: int) -> str:
+    return t["title"].format(target=target, hours=f"{target / 60:g}") if "{" in t["title"] else t["title"]
+
+
 def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, window_end: Optional[int] = None) -> List[dict]:
     histories = histories or {c["id"]: _history(c["id"], today) for c in CREW}
     end = today if window_end is None else window_end
     days = list(range(end - 6, end + 1))  # a day before someone's history counts as nothing done
     done_on = lambda cid, d: histories[cid][d]["done"] if d in histories[cid] else []  # noqa: E731
     out = []
+    quorum = crew_quorum()
     for t in TEAM_GOALS:
         kind, _, gid = t["metric"].partition(":")
-        if kind == "all_done":  # a crew day: at least 3 of the 4 did it
-            val = sum(1 for d in days if sum(gid in done_on(c["id"], d) for c in CREW) >= 3)
+        target = team_target(t)
+        if kind == "all_done":  # a crew day: at least 3 of the 4 did it (three quarters of the crew)
+            val = sum(1 for d in days if sum(gid in done_on(c["id"], d) for c in CREW) >= quorum)
         elif kind == "count":
             val = sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         else:  # count20
@@ -190,8 +208,8 @@ def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, windo
         # Each person's part: how many times they ticked the routine goal. Routine goals only, so a goal added by an
         # alert or the medical team never shows here.
         contrib = {c["id"]: sum(1 for d in days if gid in done_on(c["id"], d)) for c in CREW}
-        out.append({**t, "value": val, "pct": min(100, round(100 * val / t["target"])), "done": val >= t["target"],
-                    "contrib": contrib})
+        out.append({**{k: v for k, v in t.items() if k != "per_person"}, "title": _team_title(t, target), "target": target,
+                    "value": val, "pct": min(100, round(100 * val / target)), "done": val >= target, "contrib": contrib})
     return out
 
 
@@ -229,10 +247,14 @@ def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = Non
 
 
 def crew_streak(today: int, histories: Dict[str, dict]) -> int:
-    """Shared streak: consecutive days on which at least 3 of the 4 kept their routine."""
+    """Shared streak: consecutive days on which at least three quarters of the crew (3 of 4) kept their routine."""
+    if not CREW:
+        return 0
+    quorum = crew_quorum()
+
     def ok(d: int) -> bool:
         return sum(1 for c in CREW if d in histories[c["id"]] and histories[c["id"]][d]["total"]
-                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= 3
+                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= quorum
     n = 1 if ok(today) else 0
     d = today - 1
     while ok(d):

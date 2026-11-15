@@ -255,15 +255,17 @@ PERSONAL_GOALS: List[dict] = [
 ]
 PERSONAL_BY_ID = {g["id"]: g for g in PERSONAL_GOALS}
 
-# Weekly crew missions. `metric` says how progress is counted from the last 7 days.
+# Weekly crew missions. `metric` says how progress is counted from the last 7 days. A count goal has `per_person`: its target
+# is that times the number of people (6 exercise sessions each, so 24 for a crew of four). A `all_done` goal needs most of the
+# crew (goals.crew_quorum) on each of its days.
 TEAM_GOALS: List[dict] = [
     # Counts the routine exercise goal ticked, never the measured exercise minutes: those are health data.
-    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 24 sessions this week", "target": 24, "unit": "sessions", "metric": "count:exercise"},
+    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: {target} sessions this week", "per_person": 6, "unit": "sessions", "metric": "count:exercise"},
     {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social"},
     {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood"},
     {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure"},
-    {"id": "team_mind", "area": "mental", "title": "Crew mind: 20 meditation sessions", "target": 20, "unit": "sessions", "metric": "count:meditate"},
-    {"id": "team_books", "area": "mental", "title": "Book club: 10 hours of reading", "target": 600, "unit": "min", "metric": "count20:read"},
+    {"id": "team_mind", "area": "mental", "title": "Crew mind: {target} meditation sessions", "per_person": 5, "unit": "sessions", "metric": "count:meditate"},
+    {"id": "team_books", "area": "mental", "title": "Book club: {hours} hours of reading", "per_person": 150, "unit": "min", "metric": "count20:read"},
     {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "unit": "days", "metric": "all_done:water"},
 ]
 
