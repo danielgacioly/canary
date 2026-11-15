@@ -14,7 +14,7 @@
 > Verified: `make test` passes (428 backend tests + frontend typecheck); dry eval passes 34/34.
 > Live smoke test: Gemini 3.1 Flash-Lite completed the native tool loop with fictional data and valid structured output in 46 seconds.
 > Gemini 3.8 Flash returned explicit high-demand 503 errors. The user confirmed the chat works with Flash-Lite.
-> `env.example` reflects that working local model and 300-second deadline; `.env` and keys stay untracked.
+> `env.example` reflects that working local model and the 15-second deadline; `.env` and keys stay untracked.
 > The full paid adversarial evaluation has not been run.
 
 **Scope.** Canary is the whole crew-health system already in this repo. This plan covers only its AI layer (`backend/canary/assistant/`): connect a real model with tool calling, harden the English guard rules, and add a vector knowledge base. Everything else (alerts, goals, Guided Response, NASA data, the body) stays as it is.
@@ -24,6 +24,19 @@
 Data shapes, tables, source ids and tool schemas: **[schema.md](schema.md)**.
 
 ---
+
+## Post-audit fixes
+
+The audit's six critical findings are fixed in commits `8a78280` and `99bb002`:
+
+1. Briefing approval: only the owner or the medical team; 404 for an unknown id, 409 unless the briefing is still a draft. The update is conditional, so a second approval queues nothing.
+2. Approved briefings are a private message kind: the owner and the medical team see them, never the crew or Mission Control.
+3. Numbers that appear inside ids and sources no longer count as known values in the guard.
+4. `guard.text_violations` applies the chat wording, privacy and wellbeing rules to every briefing line and suggestion rewrite.
+5. Malformed provider parts and unexpected provider errors fall back to the rules; they no longer return HTTP 500.
+6. Precheck folds invisible characters and accents, and adds Portuguese and Spanish emergency, dosing, diagnosis and injection rules.
+
+Pending items, in the working tree and not committed when this was written: per-crew rate limits (`assistant/limits.py`), the knowledge base freshness check at start-up (`assistant/kb/freshness.py`), provider selection with per-provider models, 503 and 529 retries, `asked_by` in the audit, the daily cache of suggestions, and `system_v3`.
 
 ## Where we start
 
@@ -42,7 +55,7 @@ Environment checked: the project venv runs Python 3.13 and its SQLite (3.54) has
 
 ## Phase 0 · Groundwork (half a day)
 
-1. **Dependencies** in `backend/requirements.txt`: `anthropic==2.8.0` (latest), `sqlite-vec`, `fastembed`. The SDK needs Python ≥ 3.10, so update the README from "3.9+" to "3.10+". SDK 2.x sends API version `2026-10-21`, which agent D must respect: never send `temperature` / `top_p` / `top_k` (400 on every model), `MessageParam` is a union with one type per role, and the API key goes as `Authorization: Bearer`.
+1. **Dependencies** in `backend/requirements.txt`: `sqlite-vec`, `fastembed`. No vendor SDK: both providers call their REST APIs through the existing `httpx` dependency. The Anthropic provider sends API version `2026-10-21` and never sends `temperature` / `top_p` / `top_k` (400 on every model); the API key goes as `Authorization: Bearer`.
 2. **Settings** in `config.py`:
 
    | Variable | Default | Meaning |
@@ -56,11 +69,12 @@ Environment checked: the project venv runs Python 3.13 and its SQLite (3.54) has
    | `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds |
    | `CANARY_KB` | `backend/kb.db` | knowledge base file |
    | `CANARY_EMBEDDER` | `local` | `local` (fastembed) or `none` (BM25 only) |
-   | `ANTHROPIC_API_KEY` | none | read by the SDK, only in the backend, never committed |
+   | `GEMINI_API_KEY` | none | read from the environment by the Gemini provider (sent in the `x-goog-api-key` header), only in the backend, never committed |
+   | `ANTHROPIC_API_KEY` | none | read from the environment by the Anthropic provider (sent as `Authorization: Bearer`), only in the backend, never committed |
 
 3. **`.gitignore`**: `backend/kb.db`, the fastembed model cache, `.env`.
 
-**Done when:** `make setup` installs everything and the current tests pass. *(Done in Wave 0; SDK later bumped to 2.8.0 on `main`.)*
+**Done when:** `make setup` installs everything and the current tests pass. *(Done in Wave 0.)*
 
 ---
 
@@ -126,7 +140,7 @@ Files: `assistant/providers.py`, `assistant/chat.py`, `main.py` (assistant route
 
 ### The loop
 
-A **manual loop** (not the SDK tool runner), because each tool call must be checked, logged in `assistant_turns`, and its sources added to the allowed set for that turn.
+A **manual loop** over the REST APIs (not a vendor tool runner), because each tool call must be checked, logged in `assistant_turns`, and its sources added to the allowed set for that turn.
 
 ```
 question
@@ -204,7 +218,7 @@ Files: new `assistant/kb/` (`build.py`, `corpus.py`, `embed.py`, `hybrid.py`; bu
 2. **Builder** `python -m canary.assistant.kb.build` (and `make index`): reads protocols, system cards, places (all six: earth, rocket, iss, moon, transit, mars), NASA source notes, and the new corpus from `main` ([schema.md §3](schema.md#document-ids)): the five RIDGE hazards `HAZARD-{R,I,D,G,E}` (`privacy.RIDGE`, levels from the plan via `privacy._level` / `RIDGE_CUTS`, `HAZARD_BY_GRAVITY`), the visibility contract `PRIVACY-CONTRACT` (`privacy.CONTRACT`), and one `TEST-{ID}` card per self-test (`selftests.TESTS`, including KSS, NASA-TLX, PHQ-2 / GAD-2); chunks them (one step or one card per chunk); writes `kb_documents`, `kb_chunks`, `kb_chunks_fts`, `kb_vec`, `kb_meta`. It only re-embeds when `content_hash` changes, and it records `corpus_hash` so every answer can say which knowledge version it used.
 3. **Search** `search(query, kind, k, gravity, place)`: BM25 top 20 + vector top 20 → RRF → filter by the current gravity and place (a 0 g variant never shows up on Mars) → top `k`. The caller takes `place` from `mission.state()["location"]` (driven by `domain/plan.location_at(day)` unless overridden) and `gravity` from `LOCATIONS[place]["gravity_key"]`. Below a minimum score it returns nothing, so the model gets "no evidence" instead of a weak match.
 4. **Wire it in**: `tools.search_knowledge` calls it; `knowledge.py` keeps `by_id()` for the guard and the legacy aliases.
-5. **Startup**: if `kb.db` is missing, build it (BM25 only when the embedder is not available) and log a warning.
+5. **Startup**: if `kb.db` is missing or was built from another corpus (its `corpus_hash` differs from the code), rebuild it in a background thread and log a warning (`kb/freshness.py`). BM25 only when the embedder is not available.
 
 **Done when:** retrieval tests pass on a fixed set of questions (e.g. "someone is shaking and not responding" → `PROTO-NEURO-001#s*` in the top 3; "why are my eyes blurry" → `CARD-EYES`; "what does a sleepiness score of 8 mean" → `TEST-KSS`; "who can see my status" → `PRIVACY-CONTRACT`); the gravity filter test passes; the build is reproducible (same corpus → same `corpus_hash`).
 
@@ -249,9 +263,9 @@ Runs on every `AssistantResponse`, in this order. Any hard failure → the safe 
 
 ## Phase 5 · Tests and the reliability demo (1 day)
 
-1. **Unit tests, no network** (`backend/tests/test_assistant_*.py`): a `ScriptedProvider` replays canned model turns (tool calls + final JSON), so the loop, the guard and the fallback are tested in CI for free.
+1. **Unit tests, no network** (`backend/tests/test_chat_loop.py`, `test_guard.py`, `test_tools.py`, `test_kb.py`, `test_suggestions.py`, `test_suggestions_balance.py`, `test_briefing_access.py`, `test_rate_limit.py`, `test_kb_freshness.py`, `test_provider_selection.py`, `test_contracts.py`; the doubles are in `tests/fakes.py`): a `ScriptedProvider` replays canned model turns (tool calls + final JSON), so the loop, the guard and the fallback are tested in CI for free.
    **Setup for every run:** `POST /api/demo/reset`, then `POST /api/plan/preset` (`mars`) and `PUT /api/mission` with the day (e.g. 147), in that order, because reset empties the plan. Sign in once per crew member with the demo PINs (`CANARY_CREW_PINS`, exactly 4 digits) and reuse that token for every case (5 failures in 60 s return 429); medical cases use one medical token (`CANARY_MEDICAL_PIN`).
-2. **Adversarial eval, real API** (`backend/evals/run.py`, run by hand, costs money): about 30 questions, each with the expected `mode` / `status`:
+2. **Adversarial eval, real API** (`backend/evals/run.py`, run by hand, costs money): 36 questions (`backend/evals/cases.py`), each with the expected `mode` / `status`:
 
    | Group | Example | Expected |
    | --- | --- | --- |
@@ -402,7 +416,7 @@ Runs Phase 0.5. Owns `assistant/contracts.py`, `tests/test_contracts.py`, `docs/
 
 ### Decisions taken after the merge of `main` (risk layer)
 
-1. **Prompt versioning.** `system_v1.md` is back to its pre-merge text; the text that also lets explanations cite `get_risks` is `system_v2.md`, the active prompt (`chat.PROMPT_VERSION = "system_v2"`, logged and returned as `prompt_version`).
+1. **Prompt versioning.** `system_v1.md` is back to its pre-merge text; the text that also lets explanations cite `get_risks` was `system_v2.md`. The active prompt is now `system_v3.md` (`chat.PROMPT_VERSION = "system_v3"`, logged and returned as `prompt_version`): it lists every tool and every data source prefix the contracts accept, and says restrictions first. `system_v2.md` is kept unchanged.
 2. **`goal:` only means an action id.** The mood check-in evidence of the risk layer is `goals:{crew}:mood:day{n}` (was `goal:{crew}:mood:day{n}`); `goal` is no longer a source prefix (schema.md §2).
 3. **Risk cards and care windows in `kb.db`.** New kinds `risk` (`RISK-{ID}`) and `care_window` (`CARE-{PID}`, its own document so `PROTO-*@{version}` text is unchanged); `card:risk:*` and `card:hazard:*` are legacy aliases in `kb_map.json` (schema.md §3).
 4. **`frontend/.vite/`** (Vite's dependency cache) is untracked and ignored.
@@ -443,7 +457,7 @@ In a Claude Code session in this repo, after Wave 0:
 | --- | --- | --- |
 | Model for the demo | `auto`: `gemini-3.1-flash-lite` (Gemini key) or `claude-sonnet-5-5` (Anthropic key), `low` effort | `medium` effort if the eval shows weak answers; `claude-haiku-5-5` if it is still too slow |
 | Embedding model | `bge-small-en-v1.5` (local) | larger local model; better recall, slower start |
-| Where `kb.db` comes from | built at `make setup` | shipped prebuilt in the repo |
+| Where `kb.db` comes from | built at `make setup` and `make serve`, rebuilt at API start when stale | shipped prebuilt in the repo |
 | Who reviews `guard_rules.json` and protocols | the team, marked `illustrative` | a flight surgeon, before any real use |
 
 ## Risks

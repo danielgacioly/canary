@@ -36,7 +36,7 @@ Two SQLite files on purpose:
 | File | Who writes | Reset by `/api/demo/reset` | Why separate |
 | --- | --- | --- | --- |
 | `backend/canary.db` | the app, at runtime | yes | What people do on board |
-| `backend/kb.db` | `make index`, at build time | no | Approved knowledge. Read-only at runtime, versioned, can be shipped as one file |
+| `backend/kb.db` | `make index` (also `make setup` and `make serve`), or at API start when missing or stale (`kb/freshness.py`) | no | Approved knowledge. Read-only for requests, versioned by `corpus_hash`, can be shipped as one file |
 
 ---
 
@@ -215,12 +215,15 @@ The place and gravity filters read `mission.state()["location"]`, which follows 
 | `response` | TEXT (JSON) | existing | the `AssistantResponse` below |
 | `created_at` | REAL | existing | |
 | `provider` | TEXT | **new** | `none`, `gemini`, `anthropic`, `local` (resolved provider, never `auto`) |
-| `model` | TEXT | **new** | e.g. `gemini-3.8-flash` |
+| `model` | TEXT | **new** | e.g. `gemini-3.1-flash-lite` |
 | `kb_version` | TEXT | **new** | `kb_meta.corpus_hash` used to answer |
-| `outcome` | TEXT | **new** | `ai`, `grounded`, `unknown`, `refused`, `emergency`, `fallback` |
+| `outcome` | TEXT | **new** | the chat `mode`: `ai`, `fallback`, `grounded`, `unknown`, `refused`, `emergency`. A suggestions build stores `ai` or `rules`; a briefing build stores `ai` or `template` |
 | `guard_flags` | TEXT (JSON) | **new** | what the guard dropped or rejected, and why |
 | `latency_ms` | INTEGER | **new** | |
 | `input_tokens` / `output_tokens` | INTEGER | **new** | cost tracking |
+| `asked_by` | TEXT | **new** | `self` (the astronaut asked) or `medical` (the medical team asked about them, shown to the astronaut as "Asked by the medical team"); NULL for rows before the column. Set only by `chat.ask`; suggestion and briefing builds leave it NULL |
+
+Suggestion and briefing builds write one metadata row each (`question` `suggestions` or `briefing`). Their `response` holds counts and ids only (`mode`, `status`, `provider`, `model`, `rewritten`, `total`, `fallback_reason`, `rejected_rules` for suggestions; `briefing_id`, `rule_ids` for briefings), never the text. `guard_flags` holds rule ids and provider exits. They write no `assistant_turns`.
 
 ### `assistant_turns` · new
 
@@ -246,9 +249,10 @@ One row per tool call, for audit and for the demo ("show me what Canary looked a
 
 | Tool | Arguments (JSON Schema, `strict: true`) | Returns | Status |
 | --- | --- | --- | --- |
-| `get_status` | `{}` | readiness scores, top 3 alerts | existing (drop `crew_id`) |
-| `get_indicator` | `{ind: enum[sleep, react, mood, stress, social, hr, bp, temp, spo2, gluc, exer, water, grip, bone]}` | value, baseline, delta, level, 14-day trend | existing (drop `crew_id`) |
+| `get_status` | `{}` | readiness scores, top 3 alerts (each with its first goal and protocol); for the person and the medical team also `duty` (the operational status: key, label, and inside a care window `reason`, `until_day`, `care`) and `care` (the active care window or null); sources `status:{crew}:day{n}`, and `emergency:{id}` when a window is active | existing (drop `crew_id`); duty and care **new** (item 4) |
+| `get_indicator` | `{ind: enum[sleep, react, mood, stress, social, dsst, span, kss, tlx, hr, bp, spo2, temp, gluc, water, exer, grip, bone, vo2]}` | value, baseline, delta, level, 14-day trend | existing (drop `crew_id`) |
 | `explain_system` | `{sys: enum[brain, eyes, heart, lungs, skeleton, muscles, gut, kidneys, immune, skin]}` | status, note, what space does | existing (drop `crew_id`) |
+| `get_risks` | `{}` | every risk (`fatigue`, `radiation`, `sans`, `nutrition`, `renal`, `immune`, `cardio`, `bone_muscle`) with level, trend, start day, evidence (no scoring points), data origin and the hazards that are possible factors; sources `risk:{crew}:day{n}`, the evidence ids, `card:risk:*` and `card:hazard:*` | existing (drop `crew_id`) |
 | `get_protocol` | `{pid: enum[cpr, seizure, choke, chest, allergy, bleed, eye, crisis, rad, triage]}` | name, sign, kit, first step (never the full flow) | existing |
 | `list_goals` | `{}` | today's goals (`id`, `area`, `title`, `by`: routine · alert · medical · suggestion) and whether done; no XP, levels or points | existing (drop `crew_id`) |
 | `get_checkins` | `{kind: enum[pvt, dsst, span, mood, kss, tlx, wellbeing, vitals, amsler, symptoms, sleep, reading, journal, any], days: integer 1..14}` | test and log history (journal: line count only) | **new** |
@@ -312,10 +316,10 @@ Allowed actions (the model picks one, it never invents one):
 | `answer`, `claims`, `sources`, `tools_used`, `dropped`, `provider`, `provider_error`, `id` | existing | `claims` = observations + explanations that survived the guard |
 | `status`, `observations`, `explanations`, `limitations`, `recommended_action` | **new** | from `AssistantResponse`; `recommended_action` is resolved to `{id, label}` |
 | `guard` | **new** | `{dropped_claims: [{field, statement, rule_id}], rejected_numbers: string[], reason, rule_ids: string[]}` for the reliability demo; `reason` is a rule id (precheck), a postcheck reason, or a loop/API exit such as `loop:max_steps: …` |
-| `model`, `prompt_version` | **new** | model id that answered (null without a provider) and the system prompt version (`system_v2`; `system_v1` is the pre-risk-layer prompt) |
+| `model`, `prompt_version` | **new** | model id that answered (null without a provider) and the system prompt version (`system_v3`; `system_v2` is the same prompt without the restriction-first and emergency-action wording; `system_v1` is the pre-risk-layer prompt) |
 | `source_meta` | **new** | `{kb id: {title, version (int), text}}` for every `kb:` id `search_knowledge` returned this turn and the answer cites |
 
-`mode` values: `ai` (model answer that passed postcheck) · `grounded` (no provider set, or the provider is not configured: rule answer from `route()`) · `fallback` (a set provider failed, hit a loop guard, or its answer failed postcheck: rule answer from `route()`) · `unknown` (no provider and `route()` found nothing) · `refused` / `emergency` (precheck, no model call).
+`mode` values: `ai` (model answer that passed postcheck) · `grounded` (no provider connected: `CANARY_LLM_PROVIDER=none`, or `auto` with no key: rule answer from `route()`) · `fallback` (a selected provider is unconfigured, failed, hit a loop guard, or its answer failed postcheck: rule answer from `route()`) · `unknown` (no provider connected, and `route()` picked no tool for the question, for example off-topic: `status: insufficient_evidence`, the UNKNOWN text, and `limitations` names that nothing matched). With a model, an off-topic question gets `status` `out_of_scope` or `insufficient_evidence` in mode `ai`; a failed model answer with no matching data stays `fallback` · `refused` / `emergency` (precheck, no model call). A refused dose or diagnosis question offers `recommended_action: send_briefing`; an emergency answer offers `protocol:<pid>` for the protocol its words matched; a grounded or fallback answer offers the top alert's goal or protocol when the allow-list allows it.
 
 ### Guard flags (`assistant_log.guard_flags`, audit `guard_flags`)
 
@@ -328,19 +332,23 @@ Rule ids from `data/guard_rules.json` (`G-DOSE-02`, `G-SRC-01`, `G-NUM-01`, `G-P
 | `loop:max_tool_calls` | no | the tool budget was used up; later calls got an `is_error` result and the loop went on |
 | `loop:repeat` | no | a repeated call (same tool and arguments) got the cached result plus a note |
 | `model:refusal`, `model:max_tokens`, `model:bad_output` | yes | stop reason or unparsable JSON |
-| `api:timeout`, `api:rate_limit`, `api:connection`, `api:status`, `api:error` | yes | SDK errors (no SDK retries) |
+| `api:timeout`, `api:rate_limit`, `api:connection`, `api:status`, `api:error` | yes | transport errors from the REST calls (httpx); only 503 and 529 are retried |
 
 ### Audit route
 
-`GET /api/medical/assistant-audit?limit=30` (medical token, `limit` 1..200) returns `AssistantAuditEntry[]`, newest first: `{id, crew_id, question, created_at, mode, status, provider, model, kb_version, tools: string[], guard_flags: string[], latency_ms}`. No answer text. `tools` comes from `assistant_turns`, or from the rule path's `tools_used` when no model ran.
+`GET /api/medical/assistant-audit?limit=30` (medical token, `limit` 1..200) returns `AssistantAuditEntry[]`, newest first: `{id, crew_id, question, created_at, kind, mode, status, provider, model, kb_version, tools: string[], guard_flags: string[], latency_ms, asked_by}`. No answer text. Suggestion and briefing builds appear as metadata rows (`question` `suggestions` or `briefing`); the medical console counts them apart from questions. `tools` comes from `assistant_turns`, or from the rule path's `tools_used` when no model ran.
 
 ### AI entries
 
 | Entry (`ProviderRequest.task`) | Route | Tools | Output | Check |
 | --- | --- | --- | --- | --- |
 | `chat` | `POST /api/assistant/ask` (`require_self`) → `chat.ask(crew_id, question, viewer=main.viewer())` | yes | `AssistantResponse` | `guard.postcheck` |
-| `briefing` | `POST /api/briefings` (`require_self`) | no | `BriefingDraft` (§7) | numbers in `facts`, sources |
-| `suggestions` | `GET /api/suggestions/{crew_id}` (astronaut only, not medical) | no | JSON list `[{id, why}]` rephrasing each `why` | `guard.unknown_numbers(text, facts_blob)`; on failure the rule text stays |
+| `briefing` | `POST /api/briefings` (`require_self`; 3 builds a minute per crew member) | no | `BriefingDraft` (§7) | numbers in `facts`, sources |
+| `suggestions` | `GET /api/suggestions/{crew_id}` (astronaut only, not medical; 6 builds a minute) | no | JSON list `[{id, why}]` rephrasing each `why` | `guard.unknown_numbers(text, facts_blob)`; on failure the rule text stays |
+
+### Rate limits and the suggestions cache
+
+`assistant/limits.py`: a token bucket per crew member and kind (`ask` 10, `briefing` 3, `suggestions` 6 a minute, refilled smoothly). A refused call writes no log row and calls no model; the API answers `429` with `Retry-After` and `{detail: [{field, message}]}` (`field` is `question`, `briefing` or `suggestions`). `GET /api/suggestions/{crew_id}` caches its last build per crew member, keyed by the mission day, the facts, the feedback (accepted and dismissed suggestions), the goals already taken and the provider: a repeat with the same key returns the cached build with no model call, no new `suggestions` log row and no token spent. The limit is checked only before a real build.
 
 ---
 
@@ -362,7 +370,7 @@ The model only rewrites computed facts as prose. Same rules: numbers must exist 
 
 Sections stay in priority order, so the first lines are enough on a slow link. If validation fails, the existing `briefing.template()` text is used (`mode = "template"`).
 
-**Approval and visibility.** `POST /api/briefings/{id}/approve` needs a viewer: the astronaut themself or the medical team (`require_self`), 404 for an unknown id, 409 unless the status is `draft`. Approval updates only a draft and queues one `briefing` message to Earth. A `briefing` message is private like `advice` and `alert` in `GET /api/messages`: only the medical team sees it, never the crew or Mission Control.
+**Approval and visibility.** `POST /api/briefings/{id}/approve` needs a viewer: the astronaut themself or the medical team (`require_self`), 404 for an unknown id, 409 unless the status is `draft`. Approval updates only a draft and queues one `briefing` message to Earth. A `briefing` message is private like `advice` and `alert` in `GET /api/messages`: the astronaut who owns it and the medical team see it, never the crew or Mission Control.
 
 **Wording and privacy on every line.** Each heading, line and list item of a draft, and each suggestion `why`, is checked by `guard.text_violations(text, subject_crew_id=...)`: medication or dose advice (including Portuguese and Spanish), diagnosis wording, "safe" reassurance, wellbeing read as a diagnosis, and another crew member's health. A violating draft keeps the template (`mode = "template"`); a violating suggestion keeps its rule text. The rule ids go to `assistant_log` (question `briefing` or `suggestions`, metadata only) and, for suggestions, to `rejected_rules`.
 
