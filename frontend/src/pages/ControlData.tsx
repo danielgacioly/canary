@@ -5,20 +5,19 @@ import { ApiError, api, type FieldIssue } from '../api/client'
 import type { DataStatus, ImportResult, SpaceEvent } from '../api/types'
 import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
 import { Loading } from '../components/ui'
-import { clockDate, clockLine } from '../lib/clock'
+import { clockDate } from '../lib/clock'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
-const BUNDLED: [string, string][] = [['odyssey1-mars', 'Odyssey 1, Mars'], ['odyssey1-moon', 'Odyssey 1, Moon'], ['odyssey1-iss', 'Odyssey 1, ISS']]
 const MAX_UPLOAD_MB = 120
 const SHOWN_ERRORS = 20
 /** Counts with thousands separators (53,408). */
 const n = (x: number) => x.toLocaleString('en-US')
 
-/** The sentence under the load control: what was stored. */
-const loaded = (r: ImportResult) => `Loaded ${n(r.accepted.observations)} observations, ${n(r.accepted.goal_log)} goal entries, ${n(r.accepted.space_events)} events`
+/** The sentence under the import control: what was stored. */
+const loaded = (r: ImportResult) => `Imported ${n(r.accepted.observations)} observations, ${n(r.accepted.goal_log)} goal entries, ${n(r.accepted.space_events)} events`
 
 export default function ControlData() {
   const { data: status, setData } = useApi<DataStatus>(() => api.controlDataStatus(), [])
@@ -26,7 +25,7 @@ export default function ControlData() {
   const refresh = () => api.controlDataStatus().then(setData).catch(() => undefined)
   return (
     <>
-      <Package status={status} onLoaded={refresh} />
+      <MissionData status={status} onLoaded={refresh} />
       <ClockRow />
       <Ingest on={status.ingest_configured} />
       <Readings status={status} />
@@ -35,8 +34,8 @@ export default function ControlData() {
   )
 }
 
-/* ---------------------------------------------------------------- mission package */
-function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => void }) {
+/* ---------------------------------------------------------------- mission data import */
+function MissionData({ status, onLoaded }: { status: DataStatus; onLoaded: () => void }) {
   const { bump } = useSession()
   const [result, setResult] = useState<{ text: string } | null>(null)
   const [rowErrors, setRowErrors] = useState<FieldIssue[]>([])
@@ -55,11 +54,6 @@ function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => voi
     }
   }
 
-  const pkg = useForm({
-    initial: { package: 'odyssey1-mars' },
-    validate: f => ({ package: v.oneOf('Package', BUNDLED.map(b => b[0]))(f.package) }),
-    submit: f => run({ package: f.package }, ['package']),
-  })
   const up = useForm<{ files: File[] }>({
     initial: { files: [] },
     validate: f => ({ files: uploadError(f.files) }),
@@ -69,26 +63,20 @@ function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => voi
 
   return (
     <section className="set-group rise">
-      <div className="section-head"><h2>Mission package</h2><span className="sub">{status.package ? `Loaded: ${status.package}` : 'No package loaded'} · {n(status.counts.observations)} readings, {n(status.counts.goal_entries)} goal entries, {n(status.counts.events)} events, {n(status.counts.scenes)} scenes</span></div>
-      <form className="set-row ctl-data-row" noValidate onSubmit={pkg.submit}>
-        <div className="grow"><b>Load a bundled package</b><p className="small muted">Adds the people, plan, readings, goal history, events and scenes of a bundled mission. Readings already stored are not stored twice.</p></div>
-        <Field form={pkg} name="package" label="Package" as="select">{BUNDLED.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Field>
-        <SubmitButton form={pkg} busyLabel="Loading…" className="btn">Load package</SubmitButton>
-      </form>
-      <FormError form={pkg} />
+      <div className="section-head"><h2>Mission data</h2><span className="sub">{n(status.counts.observations)} readings, {n(status.counts.goal_entries)} goal entries, {n(status.counts.events)} events</span></div>
       <form className="set-row ctl-data-row" noValidate onSubmit={up.submit}>
-        <div className="grow"><b>Upload your own</b><p className="small muted">One .zip, or CSV files named like the package files (mission.csv, crew.csv, observations.csv, goal_log.csv, space_events.csv, scenes.csv). Nothing is written if any row is wrong.</p></div>
+        <div className="grow"><b>Upload mission data</b><p className="small muted">One .zip, or CSV files (mission, crew, observations, goal log, space events). Nothing is stored if any row is wrong.</p></div>
         <FieldGroup form={up} name="files" label="Files">
           <input ref={file} type="file" multiple accept=".zip,.csv,text/csv,application/zip" aria-label="Files to upload" className="in"
             onChange={e => { up.set('files', Array.from(e.target.files ?? [])); up.touch('files') }} />
         </FieldGroup>
-        <SubmitButton form={up} busyLabel="Loading…" className="btn">Upload and load</SubmitButton>
+        <SubmitButton form={up} busyLabel="Importing…" className="btn">Import</SubmitButton>
       </form>
       <FormError form={up} />
       {result && <p className="small ok-text" role="status">{result.text}</p>}
       {rowErrors.length > 0 && (
         <div className="form-summary" role="alert">
-          <b>Nothing was loaded: {rowErrors.length === 1 ? '1 problem' : `${rowErrors.length} problems`}</b>
+          <b>Nothing was imported: {rowErrors.length === 1 ? '1 problem' : `${rowErrors.length} problems`}</b>
           <ul>{rowErrors.slice(0, SHOWN_ERRORS).map((e, i) => <li key={i}>{e.field !== 'form' && <span className="tnum">{e.field}: </span>}{e.message}</li>)}</ul>
           {rowErrors.length > SHOWN_ERRORS && <p className="small dim">and {rowErrors.length - SHOWN_ERRORS} more</p>}
         </div>
@@ -101,7 +89,7 @@ function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => voi
 function uploadError(files: File[]): string | null {
   if (!files.length) return 'Choose a .zip or one or more .csv files'
   const names = files.map(f => f.name.toLowerCase())
-  if (names.some(n => !n.endsWith('.zip') && !n.endsWith('.csv'))) return 'Only a .zip or .csv files can be loaded'
+  if (names.some(n => !n.endsWith('.zip') && !n.endsWith('.csv'))) return 'Only a .zip or .csv files can be imported'
   if (names.some(n => n.endsWith('.zip')) && files.length > 1) return 'Send one .zip on its own, or CSV files without a zip'
   const big = files.find(f => f.size > MAX_UPLOAD_MB * 1024 * 1024)
   return big ? `${big.name} is ${(big.size / 1048576).toFixed(0)} MB; the limit is ${MAX_UPLOAD_MB} MB` : null
@@ -120,16 +108,16 @@ function ClockRow() {
   if (!clock) return null
   return (
     <section className="set-group rise" style={{ ['--d' as string]: 1 }}>
-      <div className="section-head"><h2>Mission clock</h2><span className="sub">{clock.mode === 'simulated' ? 'Simulated' : 'Real'} · {clockDate(clock.date)}, {clock.time}</span></div>
+      <div className="section-head"><h2>Mission clock</h2><span className="sub">{clock.mode === 'simulated' ? 'Set by Mission Control' : 'Real date (UTC)'} · {clockDate(clock.date)}, {clock.time}</span></div>
       <form className="set-row ctl-data-row" noValidate onSubmit={form.submit}>
-        <div className="grow"><b>Set the date</b><p className="small muted">Mission day is this date minus the launch date. {mission ? `Now ${mission.day_label}, ${clockLine(clock)}.` : ''}</p></div>
+        <div className="grow"><b>Set the date</b><p className="small muted">{mission ? `Now ${mission.day_label}.` : 'Mission day counts from the launch date.'}</p></div>
         <Field form={form} name="date" label="Date" type="date" hint="1990 to 2200" />
         <Field form={form} name="time" label="Time" type="time" hint="24 hours" />
         <SubmitButton form={form} className="btn">Set the clock</SubmitButton>
       </form>
       <FormError form={form} />
       <div className="set-row">
-        <div className="grow"><b>Use the real date</b><p className="small muted">The mission follows today's date in UTC.</p></div>
+        <div className="grow"><b>Use the real date</b><p className="small muted">Follows today's date in UTC.</p></div>
         <button type="button" className="btn" disabled={real.busy || clock.mode === 'real'} onClick={() => real.run(async () => { setMission(await api.controlSetClock({ real: true })); bump() })}>{real.busy ? 'Saving…' : 'Use real date'}</button>
       </div>
       <ActionError error={real.error} />
@@ -145,7 +133,7 @@ function Ingest({ on }: { on: boolean }) {
       <div className="set-row">
         <div className="grow">
           <b>{on ? 'Sensor ingest is configured' : 'Sensor ingest is off (set CANARY_INGEST_KEY)'}</b>
-          <p className="small muted">{on ? 'Sensors, wearables and labs send readings to POST /api/observations with the key in the X-Canary-Key header. The key is never shown here.' : 'Readings can still arrive through a mission package.'}</p>
+          <p className="small muted">{on ? 'Sensors, wearables and labs send readings to POST /api/observations with the key in the X-Canary-Key header. The key is never shown here.' : 'Readings can still be imported as mission data.'}</p>
         </div>
       </div>
     </section>
@@ -182,7 +170,7 @@ function Readings({ status }: { status: DataStatus }) {
 
 /* ---------------------------------------------------------------- space weather events */
 const KINDS: [string, string][] = [['sep', 'Solar particle event'], ['mars', 'Mars surface radiation event']]
-const ORIGINS: [string, string][] = [['simulated', 'Simulated'], ['real', 'Real']]
+const ORIGINS: [string, string][] = [['real', 'Measured'], ['simulated', 'Modelled']]
 const kindName = (k: string) => KINDS.find(x => x[0] === k)?.[1] ?? k
 
 function SpaceEvents() {
@@ -190,7 +178,7 @@ function SpaceEvents() {
   const { data, setData } = useApi<{ events: SpaceEvent[] }>(() => api.controlSpaceEvents(), [])
   const places = catalog?.locations ?? {}
   const form = useForm({
-    initial: { kind: 'sep', start_day: '', end_day: '', locations: [] as string[], extra_dose_msv: '0', origin: 'simulated', note: '' },
+    initial: { kind: 'sep', start_day: '', end_day: '', locations: [] as string[], extra_dose_msv: '0', origin: 'real', note: '' },
     validate: f => {
       const start = v.number('Start day', { min: -3650, max: 36500, integer: true, unit: 'day' })(f.start_day)
       const end = v.number('End day', { min: -3650, max: 36500, integer: true, unit: 'day', optional: true })(f.end_day)
@@ -215,7 +203,7 @@ function SpaceEvents() {
   const toggle = (id: string) => form.set('locations', form.values.locations.includes(id) ? form.values.locations.filter(x => x !== id) : [...form.values.locations, id])
   return (
     <section className="set-group rise" style={{ ['--d' as string]: 4 }}>
-      <div className="section-head"><h2>Space weather events</h2><span className="sub">Storms and surface radiation events that add dose. They also come from the mission package.</span></div>
+      <div className="section-head"><h2>Space weather events</h2><span className="sub">Storms and surface radiation events that add dose</span></div>
       {!data ? <Loading what="events" /> : data.events.length === 0 ? <p className="muted">No events.</p> : (
         <div className="scroll"><table className="t">
           <thead><tr><th>Kind</th><th>Days</th><th>Places</th><th className="r">Extra dose</th><th>Origin</th></tr></thead>
@@ -225,7 +213,7 @@ function SpaceEvents() {
               <td className="tnum">{e.start_day === e.end_day ? `day ${e.start_day}` : `day ${e.start_day} to ${e.end_day}`}</td>
               <td>{e.locations.map(l => places[l]?.name ?? l).join(', ')}</td>
               <td className="tnum r">{e.extra_dose_msv} mSv</td>
-              <td>{e.origin}</td>
+              <td>{ORIGINS.find(o => o[0] === e.origin)?.[1] ?? e.origin}</td>
             </tr>
           ))}</tbody>
         </table></div>

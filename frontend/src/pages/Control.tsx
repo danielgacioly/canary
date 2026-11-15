@@ -50,7 +50,7 @@ function ControlGate({ onOk }: { onOk: () => void }) {
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
       <div className="control-gate-body">
         <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
-        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="Demo PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
       </div>
     </div>
   )
@@ -139,7 +139,7 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
       </section>
 
       <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
-        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Every crew terminal shows "Waiting for Mission Control" until you register again. A demo reset brings the demo back.</p></div>
+        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again.</p></div>
         {confirm
           ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
           : <button className="btn" onClick={() => setConfirm(true)}>Clear crew and mission</button>}
@@ -247,12 +247,6 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
       if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) setStep(1)
     },
   })
-  const fill = () => {
-    if (!demo) return
-    const crew = demo.crew.slice(0, MAX_PEOPLE)
-    setCount(Math.max(1, crew.length)); setOpen(0)
-    form.reset(toValues(crew.length ? crew : [emptySeat()], demo.mission))
-  }
   const addPerson = () => {
     if (count >= MAX_PEOPLE) return
     form.setValues(f => ({ ...f, ...seatToValues(emptySeat(), count) }))
@@ -279,7 +273,6 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
         <div className="stepper">{['Crew', 'Mission', 'Review and save'].map((t, i) => (
           <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
-        <button type="button" className="btn right" onClick={fill} disabled={!demo}><Icon name="plus" />Fill with the demo crew</button>
       </div>
       {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
       {step < 2 && <FormSummary form={form} describe={seatNo} />}
@@ -391,7 +384,7 @@ function ControlMessages({ delay }: { delay: string }) {
     <div className="grid g2 rise">
       <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
         <h2>Message the ship's medical team</h2>
-        <p className="small muted">It reaches the medical console after the signal delay ({delay === 'Live' ? 'live right now' : `${delay} each way`}, 20× faster in the demo).</p>
+        <p className="small muted">It reaches the medical console after the signal delay ({delay === 'Live' ? 'live right now' : `${delay} each way`}).</p>
         <Field form={form} name="text" label="Message" as="textarea" rows={5} placeholder="e.g. Please confirm the crew is in the storm shelter." hint={`${form.values.text.length} of 1000 characters`} />
         <FormError form={form} />
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>

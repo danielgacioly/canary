@@ -1,4 +1,4 @@
-// The mission date the clock shows next to the mission day, quietly: "26 Oct 2035, simulated".
+// The mission date the clock shows next to the mission day: "26 Oct 2035".
 import type { Clock } from '../api/types'
 
 export function clockDate(iso: string): string {
@@ -6,4 +6,4 @@ export function clockDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
-export const clockLine = (c: Clock): string => `${clockDate(c.date)}${c.mode === 'simulated' ? ', simulated' : ''}`
+export const clockLine = (c: Clock): string => clockDate(c.date)
