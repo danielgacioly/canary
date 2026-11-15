@@ -63,6 +63,9 @@ class Settings:
     token_ttl_s: int = int(os.environ.get("CANARY_TOKEN_TTL", "3600"))
     # Communication delay runs this many times faster than real time in the demo.
     delay_speedup: float = float(os.environ.get("CANARY_DELAY_SPEEDUP", "1" if MODE == "flight" else "20"))
+    # A critical (level 2) alert the crew medical officer has not acknowledged within this many minutes goes up one step: first to
+    # the commander, then to the flight surgeon. The demo runs it `delay_speedup` times faster, like the communication delay.
+    escalate_minutes: float = float(os.environ.get("CANARY_ESCALATE_MINUTES", "10"))
     # NASA DONKI live space weather. DEMO_KEY works with low rate limits.
     nasa_api_key: str = os.environ.get("NASA_API_KEY", "DEMO_KEY")
     live_space_weather: bool = os.environ.get("CANARY_LIVE_SPACE_WEATHER", "0") == "1"

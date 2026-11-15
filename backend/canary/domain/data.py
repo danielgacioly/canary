@@ -26,7 +26,7 @@ import time
 import uuid
 import zipfile
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .. import auth, db
@@ -53,13 +53,16 @@ LAUNCH_YEARS = (2025, 2100)
 
 
 # ---------------------------------------------------------------- the data version and the in-memory table
-_state: Dict[str, Any] = {"epoch": -1, "version": 0, "key": None, "table": None}
+_state: Dict[str, Any] = {"epoch": -1, "version": 0, "key": None, "table": None, "launch": None, "lw": None}
+# The engine's words for where a reading came from: it knows `real` (measured) and `simulated`. Device, manual and lab readings
+# are all measured; `sample` readings never reach the engine.
+ENGINE_ORIGIN = {"device": "real", "manual": "real", "lab": "real", "real": "real", "simulated": "simulated"}
 
 
 def version() -> int:
     """Counter bumped by every write to observations, space_events or scenes. Cheap: read from memory."""
     if _state["epoch"] != db.epoch:  # a new connection or a reset: start from what the database says
-        _state.update(epoch=db.epoch, version=int(db.get_setting("data_version", 0)), key=None, table=None)
+        _state.update(epoch=db.epoch, version=int(db.get_setting("data_version", 0)), key=None, table=None, launch=None, lw=None)
     return _state["version"]
 
 
@@ -68,14 +71,44 @@ def token() -> tuple:
     return (db.epoch, version())
 
 
+def _launch() -> str:
+    """The launch date readings are counted from, read again only after something was written."""
+    stamp = (db.epoch, db.writes)
+    if _state["lw"] != stamp:
+        _state.update(lw=stamp, launch_text=registry.launch_date())
+    return _state["launch_text"]
+
+
 def table() -> simdata.Table:
-    """The observation table, rebuilt from the database only when the data version changed."""
-    key = token()
-    if _state["key"] != key:
+    """The observation table the engine searches, rebuilt from the database only when the data version or the launch date changed.
+    The day of a reading is worked out here from `measured_at` and the launch date (a reading with only a day keeps its day), so a
+    change of launch date moves every reading with it. Readings a correction replaced and `sample` readings are left out."""
+    key, launch = token(), _launch()
+    if _state["key"] != key or _state["table"] is None or _state["launch"] not in (None, launch):
+        t0 = date.fromisoformat(launch)
+        days: Dict[str, int] = {}
+        out = []
         with db._lock:
             rows = db.connect().execute(
-                "SELECT crew_id,day,indicator,value,unit,origin,method,source,note FROM observations ORDER BY day, measured_at, id").fetchall()
-        _state.update(key=key, table=simdata.Table(rows))
+                "SELECT crew_id,day,indicator,value,unit,origin,method,source,note,measured_at,id FROM observations "
+                "WHERE superseded_by IS NULL AND origin!='sample'").fetchall()
+        stamped = []
+        for r in rows:
+            m = r[9]
+            if m:
+                d = days.get(m[:10])
+                if d is None:
+                    d = days[m[:10]] = (date.fromisoformat(m[:10]) - t0).days
+                at = m
+            else:  # only a day was sent: it counts on that day, after the timed readings of the 08:00 stamps it ties with
+                d = r[1]
+                at = (t0 + timedelta(days=d)).isoformat() + "T08:00:00Z"
+            stamped.append((at, r[10], (r[0], d, r[2], r[3], r[4], ENGINE_ORIGIN.get(r[5], "real"), r[6], r[7], r[8])))
+        stamped.sort(key=lambda t: (t[0], t[1]))
+        out = [t[2] for t in stamped]
+        _state.update(key=key, table=simdata.Table(out), launch=launch)
+    elif _state["launch"] is None:
+        _state["launch"] = launch
     return _state["table"]
 
 
@@ -201,17 +234,73 @@ def loaded_package() -> Optional[dict]:
 
 
 # ---------------------------------------------------------------- observations (POST /api/observations)
-def _obs_context() -> V.ObsContext:
-    return V.ObsContext([c["id"] for c in catalog.CREW], registry.launch_date())
+def _obs_context(api: bool = False, now: Optional[datetime] = None, flight: bool = False, bound_crew: Optional[str] = None) -> V.ObsContext:
+    return V.ObsContext([c["id"] for c in catalog.CREW], registry.launch_date(), api=api, now=now, flight=flight, bound_crew=bound_crew)
 
 
-def add_observations(rows: Any) -> dict:
-    """Store a batch of measurements. Validates every row first; one bad row stores nothing (ValidationFailure).
-    A reading already stored (same person, indicator, time and source) is not stored twice. Returns the counts."""
-    good = V.observation_rows(rows, _obs_context())
+class Conflict(ValueError):
+    """A reading that differs from the one already stored under the same key, sent without `supersedes` (HTTP 409)."""
+
+    def __init__(self, errors: List[dict]):
+        self.errors = errors
+        super().__init__("; ".join(e["message"] for e in errors))
+
+
+def _same(a: float, b: float) -> bool:
+    return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
+
+
+def add_observations(rows: Any, device: Optional[dict] = None, now: Optional[datetime] = None, flight: bool = False) -> dict:
+    """Store a batch of measurements sent by a device (`device`: {id, crew_id}). Validates every row first; one bad row stores
+    nothing (ValidationFailure, or Conflict for a changed value). The server stamps `device_id` and `received_at`.
+    A plain duplicate (same person, indicator, time, source and value) is stored once. A row with `supersedes` and `reason` replaces
+    the reading it names for every calculation: the old row stays, marked `superseded_by`.
+    Returns {accepted, duplicates, corrected, crew} (`crew`: who the new readings are about, for the evaluation that follows)."""
+    dev = device or {"id": None, "crew_id": None}
+    # A device sends through the API: the rules of the API apply (origin required, no invented time, the future refused). Internal
+    # callers (no device) keep the lenient rules of a package file.
+    good = V.api_rows(rows, _obs_context(device is not None, now, flight, dev.get("crew_id")))
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    accepted = duplicates = corrected = 0
+    crew: set = set()
+    conflicts: List[dict] = []
     with _transaction() as c:
-        accepted = _insert_observations(c, good)
-    return {"accepted": accepted, "duplicates": len(good) - accepted}
+        for i, (row, sup, reason) in enumerate(good):
+            cid, day, ind, value, unit, origin, method, source, note, measured = row
+            if measured is not None:
+                found = c.execute("SELECT id,value FROM observations WHERE crew_id=? AND indicator=? AND measured_at=? AND source=? AND superseded_by IS NULL",
+                                  (cid, ind, measured, source)).fetchone()
+            else:
+                found = c.execute("SELECT id,value FROM observations WHERE crew_id=? AND indicator=? AND day=? AND source=? AND measured_at IS NULL AND superseded_by IS NULL",
+                                  (cid, ind, day, source)).fetchone()
+            cols = (cid, day, ind, value, unit, origin, method, source, note, measured, stamp, dev["id"])
+            q = ("INSERT INTO observations(crew_id,day,indicator,value,unit,origin,method,source,note,measured_at,received_at,device_id,supersedes,reason) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            if sup is not None:
+                old = c.execute("SELECT id,crew_id,indicator,superseded_by FROM observations WHERE id=?", (sup,)).fetchone()
+                if old is None or old["crew_id"] != cid or old["indicator"] != ind:
+                    raise FieldError(f"rows.{i}.supersedes", "supersedes must name an earlier reading of the same person and indicator")
+                if old["superseded_by"] is not None:
+                    conflicts.append({"field": f"rows.{i}.supersedes", "message": "that reading was already corrected"})
+                    continue
+                c.execute("UPDATE observations SET superseded_by=0 WHERE id=?", (sup,))  # frees its key for the new row
+                new_id = c.execute(q, (*cols, sup, reason)).lastrowid
+                c.execute("UPDATE observations SET superseded_by=? WHERE id=?", (new_id, sup))
+                corrected += 1
+                crew.add(cid)
+            elif found is not None:
+                if _same(found["value"], value):
+                    duplicates += 1
+                else:
+                    conflicts.append({"field": f"rows.{i}", "message": "A different value is already stored for this person, indicator, time and source: use supersedes to correct a reading",
+                                      "existing_id": found["id"]})
+            else:
+                c.execute(q, (*cols, None, None))
+                accepted += 1
+                crew.add(cid)
+        if conflicts:
+            raise Conflict(conflicts)  # the transaction rolls back: a batch with a conflict stores nothing
+    return {"accepted": accepted, "duplicates": duplicates, "corrected": corrected, "crew": sorted(crew)}
 
 
 def _insert_observations(c, good: Sequence[tuple], package: Optional[str] = None) -> int:
@@ -649,7 +738,7 @@ def import_package(source: Source, name: Optional[str] = None, bundled: bool = F
     if was_empty and p["observations"] and accepted == len(p["observations"]):
         # The table holds exactly these rows: reuse the one built from them (a reset reloads the same package again and again).
         if "_table" not in p:
-            p["_table"] = simdata.Table(p["observations"])
+            p["_table"] = simdata.Table([(*r[:5], ENGINE_ORIGIN.get(r[5], "real"), *r[6:9]) for r in p["observations"] if r[5] != "sample"])
         _state.update(key=token(), table=p["_table"])
     return _counts(p, accepted)
 

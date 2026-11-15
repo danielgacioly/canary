@@ -3,6 +3,7 @@
 Run:  uvicorn canary.main:app --reload --port 8000   (from backend/)
 Docs: http://localhost:8000/docs
 """
+import hashlib
 import hmac
 import json
 import logging
@@ -24,9 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import __version__, auth, db
 from .assistant import briefing, chat, protocol_match, providers, suggestions, tools
 from .config import check_mode, settings
-from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
+from .domain import advice, audit, care, data, devices, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
 from .domain import simdata
-from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
+from .domain.catalog import CABIN_ID as CABIN, CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
 def _warm_story() -> None:
     """Compute every crew member's health on the days of the scenes once, in the background, so the first click on each
@@ -41,16 +42,25 @@ def _warm_story() -> None:
         pass
 
 
+ESCALATION_TICK_S = 30  # how often the background loop looks for critical alerts that nobody acknowledged
+
+
 def _day_sync_loop(stop) -> None:
     """Every `day_sync_seconds`: bring in live space weather (when on) and, when the mission day changed, run the sync a
-    new day triggers. Whatever happens, the loop goes on and the API stays up."""
+    new day triggers. Every `ESCALATION_TICK_S` seconds it also climbs the critical alerts nobody acknowledged (notify.escalate).
+    Whatever happens, the loop goes on and the API stays up."""
+    last_sync = 0.0
     while True:
         try:
-            live.import_donki()
-            mission.safe_sync_day()
+            if time.monotonic() - last_sync >= settings.day_sync_seconds or not last_sync:
+                last_sync = time.monotonic()
+                live.import_donki()
+                if mission.safe_sync_day():  # a write the system made on its own: it is in the audit trail
+                    audit.record(audit.SYSTEM, "mission.day_sync", "mission", after={"day": mission.state()["day"]})
+            notify.escalate(time.time())
         except Exception:  # noqa: BLE001
             logging.getLogger("canary").exception("day sync loop")
-        if stop.wait(settings.day_sync_seconds):
+        if stop.wait(min(ESCALATION_TICK_S, settings.day_sync_seconds)):
             return
 
 
@@ -129,6 +139,11 @@ def _unprocessable(errors: list) -> JSONResponse:
 @app.exception_handler(RequestValidationError)
 async def _on_request_validation(_req: Request, exc: RequestValidationError):
     return _unprocessable([{"field": _field_of(e["loc"]), "message": _friendly(e)} for e in exc.errors()])
+
+
+@app.exception_handler(data.Conflict)
+async def _on_conflict(_req: Request, exc: data.Conflict):
+    return JSONResponse(status_code=409, content={"detail": exc.errors})
 
 
 @app.exception_handler(validation.ValidationFailure)
@@ -262,7 +277,12 @@ def _tell_cmo(text: str) -> None:
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)", ("canary", to, "security", text, now, now))
 
 
-def _attempt(request: Request, account_id: Optional[str], name: str, ok: bool) -> None:
+def _roles_text(account_id: Optional[str]) -> str:
+    acct = registry.account(account_id) if account_id else None
+    return "+".join(acct["roles"]) if acct else "unknown"
+
+
+def _attempt(request: Request, account_id: Optional[str], name: str, ok: bool, action: str = "auth.signin") -> None:
     """One PIN check with lockout. A wait is kept per account and per client address (SQLite: it survives a restart); after every
     5 wrong PINs it grows 1, 5, 15, then 60 minutes. Raises 429 while paused, 401 for a wrong PIN."""
     ip = "ip:" + (request.client.host if request.client else "unknown")
@@ -270,13 +290,17 @@ def _attempt(request: Request, account_id: Optional[str], name: str, ok: bool) -
     wait = auth.remaining(ip, *([key] if key else []))
     if wait:
         raise HTTPException(429, f"Too many wrong PINs. Sign-in is paused; try again in {max(1, -(-wait // 60))} min.", headers={"Retry-After": str(wait)})
+    who = {"id": account_id or "unknown", "role": _roles_text(account_id)}
     if ok:
         if key:
             auth.succeed(key)
+        audit.record(who, action, key or ip)
         return
     auth.fail(ip)
     locked_min = auth.fail(key) if key else None
+    audit.record({"id": who["id"], "role": "unauthenticated"}, action + "_failed", key or ip, after={"ip": ip})  # never the PIN
     if locked_min:
+        audit.record({"id": who["id"], "role": "unauthenticated"}, "auth.lockout", key or ip, after={"minutes": locked_min, "ip": ip})
         _tell_cmo(f"Repeated wrong PIN for {name}'s account; sign-in paused for {locked_min} min.")
     raise HTTPException(401, "wrong PIN or account")
 
@@ -318,7 +342,12 @@ def control_session(body: ControlPinIn, request: Request):
 def logout(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
            x_canary_control: Optional[str] = Header(None)):
     """End the sessions these headers carry: each token is revoked at once and stops working everywhere."""
-    n = sum(1 for t in (x_canary_viewer, (authorization or "").replace("Bearer ", "", 1), x_canary_control) if auth.revoke(t))
+    n = 0
+    for t in (x_canary_viewer, (authorization or "").replace("Bearer ", "", 1), x_canary_control):
+        c = auth._parse(t)
+        if auth.revoke(t):
+            n += 1
+            audit.record({"id": c["id"], "role": c["kind"]}, "auth.logout", f"{c['kind']}:{c['id']}")
     if not n:
         raise HTTPException(401, "no session to end")
     return {"revoked": n}
@@ -341,8 +370,9 @@ def crew_pin(crew_id: str, body: PinChangeIn, request: Request, v: dict = Depend
     c = _crew(crew_id)
     if v["id"] != crew_id:
         raise HTTPException(403, "only you can change your PIN")
-    _attempt(request, crew_id, c["name"], auth.check_pin(crew_id, body.current))
-    auth.set_pin(crew_id, body.new)  # AUDIT: a person changed their own PIN (actor v["id"])
+    _attempt(request, crew_id, c["name"], auth.check_pin(crew_id, body.current), "auth.pin_check")
+    auth.set_pin(crew_id, body.new)
+    audit.record(v["actor"], "auth.pin_change", crew_id)  # the fact that it changed, never a PIN
     return {"crew_id": crew_id, "changed": True}
 
 
@@ -376,7 +406,8 @@ class MissionIn(BaseModel):
 @app.put("/api/mission", tags=["mission"])
 def put_mission(body: MissionIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """Demo only: the story step, the simulated day and the place. Needs Canary Control."""
-    # AUDIT: simulated mission state changed by actor["id"] (step / day / location)
+    audit.record(actor, "mission.set", "mission", before={k: mission.state()[k] for k in ("day", "location")},
+                 after=body.model_dump(exclude_defaults=True))
     if body.step is not None:
         mission.set_step(body.step)
     if body.day is not None or body.clear_day:
@@ -394,8 +425,8 @@ def put_mission(body: MissionIn, _demo: None = Depends(demo_only), actor: dict =
 def demo_reset(_demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
     An empty setting starts with no data at all. Demo only (404 in flight mode); wipes the database, so it needs Canary Control."""
-    # AUDIT: the whole database wiped and the demo reloaded by actor["id"]
-    _start_over(settings.mission_package)
+    _start_over(settings.mission_package)  # wipes the audit log too: the reset is the first entry of the new one
+    audit.record(actor, "demo.reset", "database", after={"package": settings.mission_package or None})
     return mission.state()
 
 
@@ -457,7 +488,8 @@ class PlanIn(BaseModel):
 @app.put("/api/plan", tags=["mission"])
 def put_plan(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     _locked()
-    # AUDIT: the mission plan saved by actor["id"]
+    audit.record(actor, "plan.save", "plan", before={"name": plan.get()["name"], "legs": len(plan.get()["legs"])},
+                 after={"name": body.name, "legs": len(body.legs)})
     try:
         plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
     except ValueError as e:
@@ -484,7 +516,7 @@ class PresetIn(BaseModel):
 @app.post("/api/plan/preset", tags=["mission"])
 def plan_preset(body: PresetIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     _locked()
-    # AUDIT: the mission plan set to a preset by actor["id"]
+    audit.record(actor, "plan.preset", "plan", before={"name": plan.get()["name"]}, after={"preset": body.preset})
     try:
         plan.use_preset(body.preset)
     except ValueError as e:
@@ -498,7 +530,7 @@ def plan_preset(body: PresetIn, _demo: None = Depends(demo_only), actor: dict = 
 def mission_setup(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """First-run mission setup (demo only): validate and save the plan, mark setup done and start the mission clock over."""
     _locked()
-    # AUDIT: first-run plan setup by actor["id"]
+    audit.record(actor, "plan.setup", "plan", after={"name": body.name, "legs": len(body.legs)})
     try:
         plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
     except ValueError as e:
@@ -608,6 +640,7 @@ def crew_photo(crew_id: str, body: PhotoIn, v: dict = Depends(viewer)):
         privacy.set_photo(crew_id, body.data_url)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    audit.record(v["actor"], "crew.photo_set", crew_id)
     return privacy.photos()
 
 
@@ -617,6 +650,7 @@ def crew_photo_delete(crew_id: str, v: dict = Depends(viewer)):
     if v["id"] != crew_id:
         raise HTTPException(403, "only the astronaut changes their photo")
     privacy.set_photo(crew_id, None)
+    audit.record(v["actor"], "crew.photo_delete", crew_id)
     return privacy.photos()
 
 
@@ -640,6 +674,7 @@ def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)
     require_self(crew_id, v)
     ms = mission.state()
     goals.set_done(crew_id, goal_id, ms["day"], body.done)
+    audit.record(v["actor"], "goal.set", f"{crew_id}:{goal_id}", after={"done": body.done, "day": ms["day"]})
     if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
         g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
         if g:
@@ -705,6 +740,7 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     p = selftests.normalise(body.kind, body.payload)
     cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
                (body.crew_id, day, body.kind, json.dumps(p), time.time()))
+    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None})  # no values
     if photo:  # never part of the payload: the payload feeds events, charts and the assistant
         db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
     g = selftests.goal_for(body.kind, p)
@@ -789,10 +825,10 @@ class EmergencyIn(BaseModel):
 def emergency_start(body: EmergencyIn, actor: dict = Depends(require_onboard)):
     """Open Guided Response. On board only: a crew member, or the crew medical officer in the medical console."""
     ms = mission.state()
-    # AUDIT: emergency opened by actor["id"]
     eid = db.x("INSERT INTO emergencies(protocol,patient,responder,location,day,started_at,log) VALUES(?,?,?,?,?,?,?)",
                (body.protocol, body.patient, body.responder or actor["id"], ms["location"], ms["day"], time.time(),
                 json.dumps([[0, "Guided Response opened. Crew alerted."]])))
+    audit.record(actor, "emergency.open", f"emergency:{eid}", after={"protocol": body.protocol, "patient": body.patient, "day": ms["day"]})
     delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
     db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
          (actor["id"], "earth", "emergency", f"EMERGENCY opened on {ms['day_label']} at {LOCATIONS[ms['location']]['name']}.",
@@ -811,7 +847,9 @@ class EmergencyEvent(BaseModel):
 @app.post("/api/emergencies/{eid}", tags=["guided response"])
 def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(require_onboard)):
     e = _emergency(eid)
-    # AUDIT: emergency log / protocol / patient / close by actor["id"]
+    audit.record(actor, "emergency.close" if body.close else "emergency.update", f"emergency:{eid}",
+                 after={"protocol": body.protocol, "patient": body.patient, "outcome": body.outcome, "close": body.close,
+                        "log_entry": bool(body.text)})  # the text of a log entry is not copied here
     log = e["log"]
     t = round(time.time() - e["started_at"])
     if body.protocol:
@@ -877,7 +915,7 @@ def send_message(body: MessageIn, v: dict = Depends(viewer)):
     if v["actor"] is None:
         raise HTTPException(401, "sign-in required")
     sender = _sender_of(v["actor"])
-    # AUDIT: message sent by sender (the token's account)
+    audit.record(v["actor"], "message.send", f"{sender}->{body.recipient}", after={"chars": len(body.text)})  # the text stays in messages
     ms = mission.state()
     delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
     now = time.time()
@@ -1002,6 +1040,7 @@ def briefing_approve(bid: int, v: dict = Depends(viewer)):
         raise HTTPException(404, "no such briefing")
     if v["id"] != b["crew_id"]:
         raise HTTPException(403, "only the astronaut approves their briefing")
+    audit.record(v["actor"], "briefing.approve", f"briefing:{bid}", after={"crew_id": b["crew_id"]})
     return briefing.approve(bid)
 
 
@@ -1034,9 +1073,11 @@ class CareSensitivityIn(BaseModel):
 
 @app.put("/api/medical/care-sensitivity", tags=["medical"])
 def put_care_sensitivity(body: CareSensitivityIn, actor: dict = Depends(require_medical)):
-    # AUDIT: medical write by actor["id"] (put_care_sensitivity)
-    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change)."""
-    db.set_setting("care_sensitivity", {"factor": body.factor})
+    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change). Every change is a
+    new version in `medical_settings_history`; the earlier ones stay."""
+    before = care.sensitivity()
+    v = audit.set_versioned("care_sensitivity", {"factor": body.factor}, actor)
+    audit.record(actor, "medical.care_sensitivity", "settings:care_sensitivity", before=before, after={"factor": body.factor, "version": v})
     return care.sensitivity()
 
 
@@ -1053,9 +1094,11 @@ class ExerciseAdjustIn(BaseModel):
 
 @app.put("/api/medical/exercise-adjust", tags=["medical"])
 def put_exercise_adjust(body: ExerciseAdjustIn, actor: dict = Depends(require_medical)):
-    # AUDIT: medical write by actor["id"] (put_exercise_adjust)
-    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct."""
-    db.set_setting("exercise_adjust", {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}})
+    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct. Versioned like every setting."""
+    before = goals.exercise_adjust()
+    new = {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}}
+    v = audit.set_versioned("exercise_adjust", new, actor)
+    audit.record(actor, "medical.exercise_adjust", "settings:exercise_adjust", before=before, after={**new, "version": v})
     return goals.exercise_adjust()
 
 
@@ -1071,11 +1114,18 @@ class ThresholdsIn(BaseModel):
 
 @app.put("/api/medical/thresholds", tags=["medical"])
 def put_thresholds(body: ThresholdsIn, actor: dict = Depends(require_medical)):
-    # AUDIT: medical write by actor["id"] (put_thresholds)
     if body.act <= body.watch:
         raise validation.FieldError("act", f"Act ({body.act}) must be above watch ({body.watch})")
-    db.set_setting("thresholds", {"watch": body.watch, "act": body.act})
+    before = health.thresholds()
+    v = audit.set_versioned("thresholds", {"watch": body.watch, "act": body.act}, actor)  # a new version; the earlier ones stay
+    audit.record(actor, "medical.thresholds", "settings:thresholds", before=before, after={"watch": body.watch, "act": body.act, "version": v})
     return health.thresholds()
+
+
+@app.get("/api/medical/settings-history", tags=["medical"], dependencies=[Depends(require_medical)])
+def settings_history(key: Optional[str] = None):
+    """Every version of the medical settings (thresholds, care sensitivity, exercise adjustment), oldest first. The last one is current."""
+    return audit.history(key)
 
 
 class MedGoalIn(BaseModel):
@@ -1089,25 +1139,110 @@ class MedGoalIn(BaseModel):
 
 @app.post("/api/medical/goals", tags=["medical"])
 def add_med_goal(body: MedGoalIn, actor: dict = Depends(require_medical)):
-    # AUDIT: medical write by actor["id"] (add_med_goal)
     if body.who != "all" and body.who not in CREW_BY_ID:
         raise validation.FieldError("who", "Pick a crew member or the whole crew")
     day = mission.state()["day"]
-    db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-         (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
+    gid = db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
+               (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
+    audit.record(actor, "medical.goal_add", f"medical_goal:{gid}", after={"who": body.who, "area": body.area, "from_day": day, "to_day": day + body.days - 1})
     return med_goals()
 
 
 @app.get("/api/medical/goals", tags=["medical"], dependencies=[Depends(require_medical)])
-def med_goals():
-    return db.q("SELECT * FROM medical_goals ORDER BY id DESC")
+def med_goals(include_voided: bool = False):
+    """The goals the medical team prescribed. A voided goal is kept (with who voided it and why) and shown only on request."""
+    return db.q("SELECT * FROM medical_goals " + ("" if include_voided else "WHERE voided_at IS NULL ") + "ORDER BY id DESC")
+
+
+class VoidIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    reason: str = Field(min_length=3, max_length=200)
 
 
 @app.delete("/api/medical/goals/{gid}", tags=["medical"])
-def del_med_goal(gid: int, actor: dict = Depends(require_medical)):
-    # AUDIT: medical write by actor["id"] (del_med_goal)
-    db.x("DELETE FROM medical_goals WHERE id=?", (gid,))
+def del_med_goal(gid: int, body: Optional[VoidIn] = Body(None), actor: dict = Depends(require_medical)):
+    """Void a goal. Health records are never deleted: the goal stays, marked `voided_at`, `voided_by` and `void_reason`, and the
+    crew no longer sees it. A reason in the body ({"reason": "..."}) is required (422 without it)."""
+    if body is None:
+        raise validation.FieldError("reason", "Reason is required")
+    rows = db.q("SELECT * FROM medical_goals WHERE id=?", (gid,))
+    if not rows:
+        raise HTTPException(404, "no such goal")
+    if rows[0]["voided_at"]:
+        raise HTTPException(409, "that goal is already voided")
+    at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.x("UPDATE medical_goals SET voided_at=?, voided_by=?, void_reason=? WHERE id=?", (at, actor["id"], body.reason, gid))
+    audit.record(actor, "medical.goal_void", f"medical_goal:{gid}", before={"who": rows[0]["who"], "area": rows[0]["area"], "title": rows[0]["title"]},
+                 after={"voided_at": at, "reason": body.reason})
     return med_goals()
+
+
+# ---------------------------------------------------------------- audit trail
+def _audit_reader(authorization: Optional[str] = Header(None), x_canary_control: Optional[str] = Header(None)) -> dict:
+    """Who may read the audit trail: an MCC account (health values redacted) or a flight surgeon (everything)."""
+    ctl, med = _control_actor(x_canary_control), _medical_actor(authorization)
+    if med and med["role"] == "flight_surgeon":
+        return {**med, "redacted": False}
+    if ctl and ctl["role"] == "mcc":
+        return {**ctl, "redacted": True}
+    raise HTTPException(401 if not (ctl or med) else 403, "audit trail: sign in as flight surgeon or MCC" if not (ctl or med) else "only a flight surgeon or an MCC account reads the audit trail")
+
+
+@app.get("/api/audit", tags=["audit"])
+def get_audit(limit: int = 50, before_id: Optional[int] = None, reader: dict = Depends(_audit_reader)):
+    """The audit trail, newest first, `limit` entries (max 200) from `before_id` back; `next` is the `before_id` of the following page.
+    Canary Control sees the same entries with any health value (keys value, values, readings, vitals, log) redacted."""
+    return audit.entries(limit, before_id, reader["redacted"])
+
+
+@app.get("/api/audit/verify", tags=["audit"])
+def verify_audit(reader: dict = Depends(_audit_reader)):
+    """Walk the hash chain: {ok, broken_at} with the id of the first entry that was altered or removed."""
+    broken = audit.verify()
+    return {"ok": broken is None, "broken_at": broken}
+
+
+# ---------------------------------------------------------------- alert events
+def _alert_viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
+                  x_canary_control: Optional[str] = Header(None)) -> dict:
+    """{actor, scope}: `all` (crew medical officer, flight surgeon), `own` (a crew member), `ids` (Canary Control: no values)."""
+    crew, med, ctl = _crew_actor(x_canary_viewer), _medical_actor(authorization), _control_actor(x_canary_control)
+    if med:
+        return {"actor": med, "scope": "all"}
+    if crew:
+        return {"actor": crew, "scope": "all" if crew["role"] == "cmo" else "own"}
+    if ctl and ctl["role"] == "mcc":
+        return {"actor": ctl, "scope": "ids"}
+    raise HTTPException(401, "sign-in required")
+
+
+@app.get("/api/alerts/events", tags=["alerts"])
+def alert_events(open_only: bool = False, limit: int = 100, who: dict = Depends(_alert_viewer)):
+    """Stored alert events, newest first. The crew medical officer and flight surgeons see every event with what was evaluated; a crew
+    member sees their own; Canary Control sees who, which alert, level, times and acknowledgement, never a value."""
+    own = who["actor"]["id"] if who["scope"] == "own" else None
+    evs = notify.events(own, open_only, max(1, min(limit, 500)))
+    return {"events": [notify.event_dict(e, who["scope"] != "ids") for e in evs], "rules_version": notify.RULES_VERSION,
+            "escalate_after_s": notify.escalate_after_s()}
+
+
+def _acker(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> dict:
+    """The officer on board (medical console or crew sign-in) or a flight surgeon, who may acknowledge an alert."""
+    for a in (_medical_actor(authorization), _crew_actor(x_canary_viewer)):
+        if a and a["role"] in notify.ACK_ROLES:
+            return a
+    raise HTTPException(401 if not (_medical_actor(authorization) or _crew_actor(x_canary_viewer)) else 403,
+                        "sign in as the crew medical officer or a flight surgeon" if not (_medical_actor(authorization) or _crew_actor(x_canary_viewer))
+                        else "only the crew medical officer or a flight surgeon acknowledges an alert")
+
+
+@app.post("/api/alerts/events/{event_id}/ack", tags=["alerts"])
+def alert_event_ack(event_id: int, actor: dict = Depends(_acker)):
+    """Acknowledge an alert event. Stops its escalation. Recorded with who and when, and in the audit trail."""
+    ev = notify.acknowledge(event_id, actor)
+    if ev is None:
+        raise HTTPException(404, "no such alert event")
+    return notify.event_dict(ev)
 
 
 # ---------------------------------------------------------------- mission overview (public) and Canary Control (Mission Control)
@@ -1349,7 +1484,8 @@ def control_register(body: RegisterIn, actor: dict = Depends(require_control)):
     _locked()
     ids = registry.assign_ids([s.seat for s in body.crew], registry.used_ids())
     _check_registration(body, ids)
-    # AUDIT: crew, ground accounts and mission registered by actor["id"]
+    audit.record(actor, "mission.register", "registry", after={"crew": len(body.crew), "ground": len(body.ground), "preset": body.mission.preset,
+                                                                  "launch_date": body.mission.launch_date})  # no PINs, no medical records
     crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
     waiver = {"waiver": {"accepted": True, "by": actor["id"], "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}} if body.mission.dose_waiver else {}
@@ -1372,8 +1508,8 @@ def control_demo_data(_demo: None = Depends(demo_only), actor: dict = Depends(re
     """Demo only: use the demo data: replace everything with the bundled demo mission (crew, ground accounts, itinerary, readings,
     goal history, space events and the demo story), the same state as a fresh start. Only while nothing is registered."""
     _locked()
-    # AUDIT: demo mission loaded by actor["id"]
     _start_over(settings.mission_package or DEMO_PACKAGE)
+    audit.record(actor, "demo.data", "database", after={"package": settings.mission_package or DEMO_PACKAGE})
     return control_overview()
 
 
@@ -1381,26 +1517,125 @@ def control_demo_data(_demo: None = Depends(demo_only), actor: dict = Depends(re
 # Sensors, wearables and labs send readings with a key; Mission Control adds space events and imports mission packages.
 # All of them end in domain/data.py, which validates everything first and writes in one transaction.
 MAX_OBS_BATCH = 5000
+MAX_OBS_BYTES = 2_000_000
 
 
-def require_ingest(x_canary_key: Optional[str] = Header(None)) -> None:
-    """The ingest key (CANARY_INGEST_KEY) in the X-Canary-Key header. Never logged, never returned."""
-    if not settings.ingest_key:
+def require_ingest(x_canary_key: Optional[str] = Header(None)) -> dict:
+    """The device behind the X-Canary-Key header: `{id, crew_id}` of an active device, or of `legacy` (the shared CANARY_INGEST_KEY,
+    demo mode only). The key is never logged and never returned."""
+    if not devices.legacy_on() and not devices.ever_registered():
         raise HTTPException(503, "Ingest is off")
-    if not x_canary_key or not hmac.compare_digest(x_canary_key.encode(), settings.ingest_key.encode()):
+    dev = devices.authenticate(x_canary_key)
+    if dev is None:
         raise HTTPException(401, "A valid X-Canary-Key is required")
+    return dev
 
 
-@app.post("/api/observations", tags=["data"], dependencies=[Depends(require_ingest)])
-def post_observations(body: dict = Body(...)):
-    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note}]}.
-    Up to 5000 rows. One bad row refuses the whole batch (422, `rows.N.field`) and nothing is stored."""
+def _ingest_now() -> datetime:
+    """The 'now' a reading's time is checked against: UTC in flight, the mission clock in the demo (naive UTC either way)."""
+    if settings.mode == "flight":
+        return mission._now().replace(tzinfo=None)
+    h, m = mission.mission_time().split(":")
+    return datetime(mission.mission_date().year, mission.mission_date().month, mission.mission_date().day, int(h), int(m))
+
+
+async def _read_limited(request: Request, limit: int) -> bytes:
+    """The request body, refusing (413) anything over `limit` bytes before it is parsed: by Content-Length, and again while streaming."""
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        raise HTTPException(400, "bad Content-Length")
+    if declared > limit:
+        raise HTTPException(413, f"The request is too large (limit {limit // 1_000_000} MB)")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, f"The request is too large (limit {limit // 1_000_000} MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _ingest(rows: list, device: dict) -> dict:
+    res = data.add_observations(rows, device, _ingest_now(), settings.mode == "flight")
+    audit.record({"id": device["id"], "role": "device"}, "observations.ingest", f"device:{device['id']}",
+                 after={"rows": len(rows), "accepted": res["accepted"], "duplicates": res["duplicates"], "corrected": res["corrected"]})  # counts, never values
+    opened, failed = 0, False
+    who = [c["id"] for c in CREW] if CABIN in res["crew"] else [c for c in res["crew"] if c in CREW_BY_ID]
+    if who:  # the evaluation runs now, so a critical reading reaches the medical officer within this request
+        try:
+            opened = notify.run(mission.state(), who)["opened"]
+        except Exception:  # noqa: BLE001 (the readings are stored; the next sync catches up)
+            logging.getLogger("canary").exception("evaluation after ingest")
+            failed = True
+    return {"accepted": res["accepted"], "duplicates": res["duplicates"], "corrected": res["corrected"], "alerts_opened": opened,
+            **({"evaluation_failed": True} if failed else {})}
+
+
+@app.post("/api/observations", tags=["data"])
+async def post_observations(request: Request, device: dict = Depends(require_ingest), idempotency_key: Optional[str] = Header(None)):
+    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note,
+    supersedes, reason}]}. `origin` is required (device, manual, lab, simulated or sample). Up to 5000 rows and 2 MB. One bad row
+    refuses the whole batch (422, `rows.N.field`) and nothing is stored; a changed value for a stored reading is a 409 (send
+    `supersedes` and `reason` to correct it). Send an `Idempotency-Key` header and a retry with the same body returns the first answer.
+    The answer is {accepted, duplicates, corrected, alerts_opened}: the evaluation has already run."""
+    raw = await _read_limited(request, MAX_OBS_BYTES)
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise validation.FieldError("body", "Send JSON like {\"rows\": [...]}")
     rows = body.get("rows") if isinstance(body, dict) else None
     if not isinstance(rows, list):
         raise validation.FieldError("rows", "Send {\"rows\": [...]}")
     if len(rows) > MAX_OBS_BATCH:
         raise validation.FieldError("rows", f"At most {MAX_OBS_BATCH} readings per request")
-    return data.add_observations(rows)
+    digest = hashlib.sha256(raw).hexdigest()
+    ikey = (idempotency_key or "").strip()[:128]
+    if ikey:
+        old = db.q("SELECT body_hash,response FROM idempotency WHERE device_id=? AND key=?", (device["id"], ikey))
+        if old:
+            if old[0]["body_hash"] != digest:
+                raise HTTPException(409, "This Idempotency-Key was already used with a different body")
+            return json.loads(old[0]["response"])
+    res = await run_in_threadpool(_ingest, rows, device)
+    if ikey:
+        db.x("INSERT OR REPLACE INTO idempotency(device_id,key,body_hash,response,created_at) VALUES(?,?,?,?,?)", (device["id"], ikey, digest, json.dumps(res), time.time()))
+    return res
+
+
+class DeviceIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=60)
+    kind: str = "sensor"
+    crew_id: Optional[str] = None
+
+
+@app.post("/api/control/devices", tags=["control"])
+def control_add_device(body: DeviceIn, actor: dict = Depends(require_control)):
+    """Register a device that sends readings. The answer carries its key once; only a hash is stored. A device bound to a crew member
+    (`crew_id`) can send only that person's readings."""
+    if body.kind not in devices.KINDS:
+        raise validation.FieldError("kind", "Kind must be one of: " + ", ".join(devices.KINDS))
+    if body.crew_id is not None and body.crew_id not in CREW_BY_ID:
+        raise validation.FieldError("crew_id", "Pick a registered crew member")
+    d = devices.create(body.name, body.kind, body.crew_id)
+    audit.record(actor, "device.create", f"device:{d['id']}", after={"name": d["name"], "kind": d["kind"], "crew_id": d["crew_id"]})  # never the key
+    return d
+
+
+@app.get("/api/control/devices", tags=["control"], dependencies=[Depends(require_control)])
+def control_devices():
+    """Every device with when it last sent a reading. Never a key."""
+    return {"devices": devices.listing(), "legacy_key": devices.legacy_on()}
+
+
+@app.post("/api/control/devices/{device_id}/revoke", tags=["control"])
+def control_revoke_device(device_id: str, actor: dict = Depends(require_control)):
+    d = devices.revoke(device_id)
+    if d is None:
+        raise HTTPException(404, "no such device")
+    audit.record(actor, "device.revoke", f"device:{device_id}")
+    return d
 
 
 @app.get("/api/scenes", tags=["data"])
@@ -1412,21 +1647,24 @@ def get_scenes():
 @app.post("/api/control/space-events", tags=["control"])
 def control_add_space_event(body: dict = Body(...), actor: dict = Depends(require_control)):
     """One space-weather event: kind, start_day, end_day, locations, extra_dose_msv (0 to 2000), origin, source, note."""
-    # AUDIT: space event added by actor["id"]
-    return data.add_space_event(body)
+    res = data.add_space_event(body)
+    audit.record(actor, "space_event.add", f"space_event:{res.get('id') if isinstance(res, dict) else ''}",
+                 after={k: body.get(k) for k in ("kind", "start_day", "end_day", "locations", "extra_dose_msv")} if isinstance(body, dict) else None)
+    return res
 
 
 @app.put("/api/control/clock", tags=["control"])
 def control_clock(body: dict = Body(...), _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """Move the mission clock: {"date": "YYYY-MM-DD", "time": "HH:MM"} for a simulated date (time is optional), or
     {"real": true} to follow today's date in UTC again. 422 {field, message} on bad input. Runs the day sync at once. Demo only."""
-    # AUDIT: simulated mission clock moved by actor["id"]
     if not isinstance(body, dict):
         raise validation.FieldError("body", "Send {\"date\": \"2035-10-31\", \"time\": \"12:00\"} or {\"real\": true}")
     real = body.get("real")
     if real is not None and not isinstance(real, bool):
         raise validation.FieldError("real", "real must be true or false")
+    before = mission.clock()
     mission.set_clock(body.get("date"), body.get("time"), bool(real))
+    audit.record(actor, "mission.clock", "mission", before=before, after=mission.clock())
     mission.safe_sync_day(force=True)
     return mission.state()
 
@@ -1442,9 +1680,9 @@ def control_data_status():
     person's indicator last arrived. Counts and dates only: no values and nothing about anyone's health."""
     count = lambda t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"]  # noqa: E731 (fixed table names)
     readings = db.q("SELECT crew_id, indicator, MAX(day) last_day, MAX(received_at) last_received_at, COUNT(*) count "
-                    "FROM observations GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
+                    "FROM observations WHERE superseded_by IS NULL GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
     pkg = data.loaded_package()
-    return {"ingest_configured": bool(settings.ingest_key), "package": (pkg or {}).get("name"),
+    return {"ingest_configured": devices.legacy_on() or any(d["active"] for d in devices.listing()), "package": (pkg or {}).get("name"),
             "counts": {"observations": count("observations"), "goal_entries": count("goal_log"),
                        "events": count("space_events"), "scenes": count("scenes")},
             "readings": [{k: r[k] for k in ("crew_id", "indicator", "last_day", "last_received_at", "count")} for r in readings]}
@@ -1467,7 +1705,6 @@ async def control_import(request: Request, actor: dict = Depends(require_control
     Once a mission is registered only readings, goal history and space events can be added (observations.csv, goal_log.csv,
     space_events.csv): a bundled package is refused (409) and a file that defines the mission (crew, ground, mission, legs,
     scenes) is a 422 that names it."""
-    # AUDIT: mission package / data import by actor["id"]
     ctype = request.headers.get("content-type", "")
     try:
         if ctype.startswith("application/json"):
@@ -1494,6 +1731,7 @@ async def control_import(request: Request, actor: dict = Depends(require_control
             raise HTTPException(415, "Send multipart/form-data (a zip or CSV files) or JSON {\"package\": \"name\"}")
     except validation.ValidationFailure as e:
         return JSONResponse(status_code=422, content={"detail": e.errors, "errors": e.errors, "accepted": {}})
+    audit.record(actor, "data.import", "mission-data", after={"accepted": res.get("accepted"), "duplicates": res.get("duplicates")})  # counts only
     return {**res, "errors": []}
 
 

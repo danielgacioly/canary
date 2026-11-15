@@ -66,7 +66,7 @@ def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict
 
 
 def medical_goals(crew_id: str, day: int) -> List[dict]:
-    rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=?", (crew_id, day, day))
+    rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=? AND voided_at IS NULL", (crew_id, day, day))
     return [{"id": f"med_{r['id']}", "area": r["area"], "title": r["title"], "why": r["why"],
              "by": "medical"} for r in rows]
 
