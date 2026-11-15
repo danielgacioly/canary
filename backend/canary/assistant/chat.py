@@ -35,11 +35,22 @@ def _grounded(results: List[dict]) -> List[dict]:
         d, src = r["result"]["data"], r["result"]["sources"]
         if r["tool"] == "get_status":
             a = d["areas"]
-            claims.append({"text": f"Physical readiness {a['physical']['score']}/100 ({a['physical']['status'].lower()}), "
-                                   f"mental {a['mental']['score']}/100 ({a['mental']['status'].lower()}).", "source_ids": src[:1]})
+            if a["physical"]["score"] is None and a["mental"]["score"] is None:
+                claims.append({"text": "There is no data for this person yet, so there is no readiness to report.", "source_ids": src[:1]})
+            else:
+                part = lambda k: f"{a[k]['score']}/100 ({a[k]['status'].lower()})" if a[k]["score"] is not None else "no data yet"  # noqa: E731
+                claims.append({"text": f"Physical readiness {part('physical')}, mental {part('mental')}.", "source_ids": src[:1]})
             for al in d["alerts"][:2]:
                 claims.append({"text": f"{al['title']} First step: {al['todo'][0].lower()}.", "source_ids": src})
         elif r["tool"] == "get_indicator":
+            if d["value"] is None:
+                last = f" The last reading was on day {d['last_measured_day']}." if d.get("last_measured_day") is not None else ""
+                claims.append({"text": f"There is no current reading of {d['name'].lower()}.{last}", "source_ids": src})
+                continue
+            if d["delta"] is None:
+                claims.append({"text": f"{d['name']} is {_fmt(d['value'], d['dp'])} {d['unit']}. Canary is still learning your normal, "
+                                       "so it can only compare this with the usual adult range.", "source_ids": src})
+                continue
             sign = "above" if d["delta"] > 0 else "below"
             claims.append({"text": f"{d['name']} is {_fmt(d['value'], d['dp'])} {d['unit']}, "
                                    f"{_fmt(abs(d['delta']), d['dp'])} {d['unit']} {sign} your normal of {_fmt(d['baseline'], d['dp'])}. "
@@ -56,7 +67,7 @@ def _grounded(results: List[dict]) -> List[dict]:
                 claims.append({"text": "No risk is active at the moment.", "source_ids": src[:3] or src})
             for k in active:
                 since = f", since day {k['since_day']}" if k["since_day"] is not None else ""
-                data = {"real": "from measured data", "partial": "from a mix of measured and simulated data", "simulated": "from simulated data"}[k["data"]]
+                data = {"real": "from measured data", "partial": "from a mix of measured and simulated data", "simulated": "from simulated data", "none": "with no data yet"}[k["data"]]
                 claims.append({"text": f"{k['name']}: {'watch' if k['level'] == 1 else 'act'} level, {k['trend']}{since}, {data}.",
                                "source_ids": src[:3] or src})
                 if k["hazards"]:

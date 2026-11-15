@@ -18,11 +18,12 @@ import pathlib
 import statistics
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .catalog import CREW, CREW_BY_ID, INDICATORS, LOCATIONS
+from .catalog import INDICATORS, LOCATIONS
 
 _HERE = pathlib.Path(__file__).resolve()
 DATA_DIR = _HERE.parents[3] / "data"                       # recipes, real data, report (repository root)
 RECIPES_FILE = DATA_DIR / "recipes.json"
+DEMO_CREW_FILE = DATA_DIR / "demo_crew.json"              # the demo crew's seeds, for the sheet generator only
 REAL_DIR = DATA_DIR / "real"
 REPORT_FILE = DATA_DIR / "DATASET.md"
 OBS_FILE = _HERE.parents[1] / "data" / "observations.csv"  # the generated table the backend reads
@@ -81,6 +82,12 @@ def days_since_gravity_change(legs: Sequence[dict], day: int) -> Optional[int]:
 
 # ---------------------------------------------------------------- files
 def load_recipes(path: pathlib.Path = RECIPES_FILE) -> dict:
+    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+def load_demo_crew(path: pathlib.Path = DEMO_CREW_FILE) -> dict:
+    """The demo crew as the sheet generator uses it: people (with the `base` values and `cbc_subject` seeds), records, story.
+    The engine never reads this: it knows only the people who are registered."""
     return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
 
@@ -146,7 +153,7 @@ def lab_range(snapshot: dict, ind: str, sex: str) -> Optional[Tuple[Optional[flo
     return None
 
 
-def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str) -> List[Row]:
+def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str, crew: Optional[Sequence[dict]] = None) -> List[Row]:
     """Real Inspiration4 lab values in the observation format. Built from the snapshot, not typed.
 
     Collection labels (L-92 ... R+194) are relative to launch; day 0 is launch, so L-N is day -N
@@ -155,7 +162,7 @@ def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str) -> List[
     """
     lab = snapshot[section]
     out: List[Row] = []
-    for c in CREW:
+    for c in (crew if crew is not None else load_demo_crew()["crew"]):
         subject = c["cbc_subject"]
         for ind, series in lab["crew"][subject].items():
             rec = recipes["indicators"][ind]
@@ -168,20 +175,22 @@ def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str) -> List[
     return sorted(out, key=lambda r: (r[0], r[1], r[2]))
 
 
-def osd569_rows(snapshot: dict, recipes: dict) -> List[Row]:
+def osd569_rows(snapshot: dict, recipes: dict, crew: Optional[Sequence[dict]] = None) -> List[Row]:
     """The real Inspiration4 blood counts (OSD-569)."""
-    return _lab_rows(snapshot, recipes, "cbc", "nasa:osd569")
+    return _lab_rows(snapshot, recipes, "cbc", "nasa:osd569", crew)
 
 
-def osd575_rows(snapshot: dict, recipes: dict) -> List[Row]:
+def osd575_rows(snapshot: dict, recipes: dict, crew: Optional[Sequence[dict]] = None) -> List[Row]:
     """The real Inspiration4 metabolic panel and C-reactive protein (OSD-575): creatinine, potassium, calcium, crp."""
-    return _lab_rows(snapshot, recipes, "cmp", "nasa:osd575")
+    return _lab_rows(snapshot, recipes, "cmp", "nasa:osd575", crew)
 
 
 # ---------------------------------------------------------------- generator
 class Generator:
     def __init__(self, legs: Sequence[dict], recipes: Optional[dict] = None, real_dir=REAL_DIR,
-                 snapshot: Optional[dict] = None):
+                 snapshot: Optional[dict] = None, crew: Optional[Sequence[dict]] = None):
+        """`crew`: the people to generate for, each with `id`, `sex`, `cbc_subject` and `base` (default: the demo crew)."""
+        self.people = {c["id"]: c for c in (crew if crew is not None else load_demo_crew()["crew"])}
         self.legs = list(legs)
         self.r = recipes or load_recipes()
         self.real = read_real(real_dir, self.r)
@@ -210,7 +219,7 @@ class Generator:
             return 0.0
         cum = self._bone.setdefault(crew, [0.0])
         if len(cum) <= day:
-            exer = CREW_BY_ID[crew]["base"]["exer"]
+            exer = self.people[crew]["base"]["exer"]
             per_day = (s["max_pct_per_month"] - s["exercise_gain"] * min(1.0, exer / s["exercise_full_min"])) / 30
             for d in range(len(cum), day + 1):
                 cum.append(max(0.0, cum[-1] + per_day * s["gravity_rate"][gravity_at(self.legs, d)]))
@@ -237,7 +246,7 @@ class Generator:
         if key not in self._pre:
             vals = [float(r[3]) for (c, d, i), r in sorted(self.real.items()) if c == crew and i == ind and d < 0]
             if not vals:  # no real file for it (another real_dir): the pre-flight collections of the snapshot itself
-                subject = CREW_BY_ID[crew]["cbc_subject"]
+                subject = self.people[crew]["cbc_subject"]
                 for section in ("cbc", "cmp"):
                     lab = self.snap.get(section, {})
                     series = lab.get("crew", {}).get(subject, {}).get(ind)
@@ -247,7 +256,7 @@ class Generator:
         return self._pre[key]
 
     def _range(self, crew: str, ind: str) -> Tuple[float, float]:
-        r = lab_range(self.snap, ind, CREW_BY_ID[crew]["sex"])
+        r = lab_range(self.snap, ind, self.people[crew]["sex"])
         if r is None or None in r:
             raise KeyError(f"{ind}: no reference range to seed a simulated value without real pre-flight data")
         return r
@@ -256,7 +265,7 @@ class Generator:
         b = self.r["indicators"][ind]["baseline"]
         kind = b["kind"]
         if kind == "catalog":
-            return CREW_BY_ID[crew]["base"][ind]
+            return self.people[crew]["base"][ind]
         if kind == "crew":
             return b["values"][crew]
         if kind == "location":  # a place without its own value (a rover) takes the value of its planet
@@ -305,7 +314,7 @@ class Generator:
     def observations(self) -> List[Row]:
         rows: Dict[Tuple[str, int, str], Row] = {}
         for ind, rec in self.r["indicators"].items():
-            crews = [CABIN] if rec.get("subject") == CABIN else [c["id"] for c in CREW]
+            crews = [CABIN] if rec.get("subject") == CABIN else list(self.people)
             every = rec["frequency"]["every"]
             panel = rec.get("panel", ind)
             for crew in crews:
@@ -408,7 +417,7 @@ def report(rows: Sequence[Sequence], recipes: dict, plan_name: str = "Mars refer
     L += ["", "## What is real today", "",
           "- Complete blood count (`wbc, lym, neu, hgb, hct, plt, rbc`): real Inspiration4 data from NASA OSDR OSD-569, 4 crew and 7 collections, converted from `backend/canary/data/nasa_snapshot.json` into `data/real/osd569_cbc.csv`. Collections keep their original label in `note` (L-92, L-44, L-3, R+1, R+45, R+82, R+194). The pre-flight ones set each person's baseline and spread for the simulated rows.",
           "- Metabolic panel and inflammation (`creatinine, potassium, calcium, crp`): real Inspiration4 data from NASA OSDR OSD-575, same crew and collections, in `data/real/osd575_cmp.csv`. C-reactive protein comes from the cardiovascular multiplex panel, converted from pg/mL to mg/L; it has no reference range there, so it is read only against the person's own pre-flight values.",
-          "- Each seat reads the Inspiration4 subject of the same sex (`cbc_subject` in the catalog), and every range is the one of that sex. `data/prepare_blood.py` rebuilds both sections from the OSDR files and documents three corrections: C003's L-92 blood count sat one row down from MCH on (realigned and checked by arithmetic), C003's pre-flight rows carry male ranges (each sex takes the range most of its rows carry), and haemoglobin is labelled `percent` in OSD-569 (it is g/dL).",
+          "- Each seat reads the Inspiration4 subject of the same sex (`cbc_subject` in `data/demo_crew.json`, a seed of the sheet generator only), and every range is the one of that sex. `data/prepare_blood.py` rebuilds both sections from the OSDR files and documents three corrections: C003's L-92 blood count sat one row down from MCH on (realigned and checked by arithmetic), C003's pre-flight rows carry male ranges (each sex takes the range most of its rows carry), and haemoglobin is labelled `percent` in OSD-569 (it is g/dL).",
           "- Glucose from the metabolic panel is not imported: three of four crew read 36 to 44 mg/dL on the same day (R+45) with every other collection normal, the pattern of a sample processed late. The ship's `gluc` stays the fingerstick indicator.",
           "- Open real data also exists for more cytokines and for dose by place. Not imported yet; see below.",
           "- Everything else (vital signs, sleep, cognition, weight, vision, bone, hormones, urine, cabin air) is simulated.", "",

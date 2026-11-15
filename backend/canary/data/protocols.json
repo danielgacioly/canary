@@ -81,7 +81,33 @@
     1,
     null,
     null
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "not breathing",
+     "stopped breathing",
+     "no breathing",
+     "no pulse",
+     "cardiac arrest",
+     "heart stopped",
+     "not breathe"
+    ],
+    "weak": [
+     "not responding",
+     "unresponsive",
+     "no response",
+     "unconscious",
+     "collapsed",
+     "fainted",
+     "passed out",
+     "blacked out",
+     "limp",
+     "not moving",
+     "lifeless",
+     "pale",
+     "blue lips"
+    ]
+   }
   },
   "seizure": {
    "n": "Seizure",
@@ -143,7 +169,32 @@
     3,
     1,
     null
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "seizure",
+     "convulsion",
+     "convulsing",
+     "shaking",
+     "jerking",
+     "fitting",
+     "twitching",
+     "epileptic",
+     "epilepsy",
+     "stiff",
+     "foaming",
+     "rigid"
+    ],
+    "weak": [
+     "fit",
+     "trembling",
+     "spasm",
+     "eyes rolled",
+     "rolling eyes",
+     "bit tongue",
+     "biting tongue"
+    ]
+   }
   },
   "choke": {
    "n": "Choking",
@@ -202,7 +253,30 @@
    "after_days": [
     null,
     2
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "choking",
+     "choked",
+     "cannot breathe",
+     "cant breathe",
+     "cannot speak",
+     "cant speak",
+     "cannot cough",
+     "cant cough",
+     "food stuck",
+     "stuck in throat",
+     "swallowed wrong",
+     "gagging"
+    ],
+    "weak": [
+     "gasping",
+     "clutching throat",
+     "hand on throat",
+     "coughing hard",
+     "turning blue"
+    ]
+   }
   },
   "chest": {
    "n": "Chest pain",
@@ -249,7 +323,31 @@
    "after_days": [
     null,
     1
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "chest pain",
+     "chest pressure",
+     "chest tight",
+     "heart attack",
+     "pain in chest",
+     "tight chest",
+     "crushing chest",
+     "pain in arm",
+     "jaw pain"
+    ],
+    "weak": [
+     "chest",
+     "sweating",
+     "short of breath",
+     "shortness of breath",
+     "palpitations",
+     "racing heart",
+     "nausea",
+     "left arm",
+     "dizzy"
+    ]
+   }
   },
   "allergy": {
    "n": "Severe allergic reaction",
@@ -297,7 +395,32 @@
     1,
     null,
     null
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "allergic",
+     "allergy",
+     "anaphylaxis",
+     "swollen lips",
+     "swollen tongue",
+     "swollen face",
+     "hives",
+     "wheezing",
+     "epinephrine"
+    ],
+    "weak": [
+     "rash",
+     "swelling",
+     "swollen",
+     "itchy",
+     "itching",
+     "ate",
+     "sting",
+     "bite",
+     "reaction",
+     "throat closing"
+    ]
+   }
   },
   "bleed": {
    "n": "Heavy bleeding",
@@ -340,7 +463,29 @@
     1,
     1,
     null
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "bleeding",
+     "blood",
+     "hemorrhage",
+     "haemorrhage",
+     "gushing",
+     "spurting",
+     "stabbed",
+     "puncture",
+     "deep cut"
+    ],
+    "weak": [
+     "cut",
+     "wound",
+     "gash",
+     "injured",
+     "laceration",
+     "pierced",
+     "soaked"
+    ]
+   }
   },
   "eye": {
    "n": "Eye injury",
@@ -376,7 +521,36 @@
    "after_days": [
     null,
     7
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "eye injury",
+     "eye pain",
+     "something in eye",
+     "in his eye",
+     "in her eye",
+     "in my eye",
+     "chemical in eye",
+     "dust in eye",
+     "splash in eye",
+     "cannot see",
+     "cant see",
+     "blind",
+     "vision loss",
+     "eyeball"
+    ],
+    "weak": [
+     "eye",
+     "eyes",
+     "vision",
+     "blurry",
+     "blurred",
+     "contact lens",
+     "red eye",
+     "burning eyes",
+     "fragment"
+    ]
+   }
   },
   "crisis": {
    "n": "Emotional crisis",
@@ -422,7 +596,46 @@
     null,
     2,
     null
-   ]
+   ],
+   "keywords": {
+    "strong": [
+     "panic",
+     "panicking",
+     "panic attack",
+     "crying",
+     "sobbing",
+     "despair",
+     "hopeless",
+     "self harm",
+     "hurt himself",
+     "hurt herself",
+     "hurt myself",
+     "suicidal",
+     "suicide",
+     "kill himself",
+     "kill herself",
+     "breakdown",
+     "hysterical"
+    ],
+    "weak": [
+     "anxious",
+     "anxiety",
+     "scared",
+     "afraid",
+     "terrified",
+     "distressed",
+     "depressed",
+     "confused",
+     "not themselves",
+     "not himself",
+     "not herself",
+     "shouting",
+     "screaming",
+     "agitated",
+     "upset",
+     "angry"
+    ]
+   }
   },
   "rad": {
    "n": "Radiation storm",
@@ -469,6 +682,51 @@
     7,
     null,
     7
+   ],
+   "keywords": {
+    "strong": [
+     "radiation",
+     "solar storm",
+     "solar flare",
+     "particle storm",
+     "particle alert",
+     "dosimeter",
+     "radiation sickness",
+     "radiation alarm",
+     "proton",
+     "sep event"
+    ],
+    "weak": [
+     "storm",
+     "flare",
+     "alarm",
+     "shelter",
+     "exposure",
+     "vomiting",
+     "nausea",
+     "dose"
+    ]
+   },
+   "when": [
+    "A solar particle alert or a radiation storm warning is active for the place you are in.",
+    "Whoever is outside comes in first. The alert ends only when the alert says so."
+   ],
+   "watch": [
+    "Each person's dosimeter reading, written down at the start and at the end",
+    "Whether the alert has ended before anyone goes back outside",
+    "Blood count at 24 hours and again at 7 days: lymphocytes fall first"
+   ],
+   "standard": {
+    "text": "The design solar particle event stays below 250 mSv effective dose (V1 4031); every exposure as low as reasonably achievable (V1 4029); career dose below 600 mSv (V1 4030).",
+    "items": [
+     "V1 4029",
+     "V1 4030",
+     "V1 4031"
+    ]
+   },
+   "links": [
+    "eva",
+    "dose"
    ]
   },
   "triage": {
@@ -514,12 +772,210 @@
    "after": [],
    "window_days": 0,
    "ops": "full",
-   "after_days": []
+   "after_days": [],
+   "keywords": {
+    "strong": [],
+    "weak": []
+   }
   }
  },
  "care_note": {
   "source": "prototype assumption",
   "verified": false,
   "note": "window_days, ops and after_days are read from the text of `after`, rounded up to whole days. Illustrative like the rest of this file: not clinically reviewed, to be replaced by flight-surgeon protocols."
+ },
+ "operational": {
+  "order": [
+   "eva",
+   "dose",
+   "care",
+   "sickness",
+   "regravity",
+   "air",
+   "delay"
+  ],
+  "protocols": {
+   "eva": {
+    "n": "EVA: when it is suspended or open",
+    "hazard": "R",
+    "when": [
+     "Before anyone goes outside: on a surface, on a spacewalk or in a rover.",
+     "A radiation storm, or a person who is not cleared, closes EVA. Nobody decides alone."
+    ],
+    "steps": [
+     "Check the storm banner and this page: EVA is suspended for everyone while a radiation storm is active.",
+     "Each person goes only if the medical team has cleared them. A person off EVA stays off, whatever the weather.",
+     "Plan the walk with the space weather forecast and the signal delay in mind: help takes as long as Earth takes to reply.",
+     "Check suits, tethers and the return route, then tell the crew when you leave and when you are back.",
+     "If a storm is called while you are outside, go in first and follow the radiation storm protocol."
+    ],
+    "watch": [
+     "The space weather banner and the dose rate of the place",
+     "Your clearance: only the medical team sees why someone is or is not cleared",
+     "Aerobic capacity against the minimum for the kind of EVA"
+    ],
+    "standard": {
+     "text": "In-mission VO2max at or above 32.9 mL/kg/min for microgravity EVAs (V1 4001) and 36.5 for surface EVAs (V1 4002).",
+     "items": [
+      "V1 4001",
+      "V1 4002"
+     ]
+    },
+    "links": [
+     "rad",
+     "dose"
+    ],
+    "illustrative": true
+   },
+   "dose": {
+    "n": "Radiation dose and the career limit",
+    "hazard": "R",
+    "when": [
+     "Every day away from Earth: the dose adds up whether or not a storm is active.",
+     "Use it to read the mission dose the crew shares, and to know what a storm adds."
+    ],
+    "steps": [
+     "Read your personal dosimeter at the start and end of each day and write it down.",
+     "Compare the mission dose with the career limit: it counts every earlier flight, so each person's own career total is in My space.",
+     "Plan outside work for the days with the lowest dose rate, and keep every exposure as low as reasonably achievable.",
+     "After a storm, log each person's dose and follow the blood count schedule."
+    ],
+    "watch": [
+     "Mission dose against the career limit",
+     "The daily dose rate of the place: it changes at each leg",
+     "The design solar particle event limit of 250 mSv"
+    ],
+    "standard": {
+     "text": "Career effective dose below 600 mSv, the same for all ages and sexes, counting every earlier flight (V1 4030); design solar particle event below 250 mSv (V1 4031); as low as reasonably achievable (V1 4029).",
+     "items": [
+      "V1 4029",
+      "V1 4030",
+      "V1 4031"
+     ]
+    },
+    "links": [
+     "rad",
+     "eva"
+    ],
+    "illustrative": true
+   },
+   "care": {
+    "n": "After an emergency: the care window",
+    "hazard": null,
+    "audience": "medical team",
+    "when": [
+     "A Guided Response was closed with a patient named. A care window opens for that person.",
+     "This page describes the rule. Who is inside a window stays with the person and the medical team."
+    ],
+    "steps": [
+     "Close the Guided Response and choose the patient. Canary opens the window and adds the follow-up items as goals.",
+     "For the days of the window, the patient's status is at least the protocol's limit: fit, no EVA, or off critical tasks.",
+     "Their alert thresholds are tighter for the same days, so small changes show earlier.",
+     "The medical officer reviews the window in the medical console and can close it early."
+    ],
+    "watch": [
+     "The follow-up items of the protocol that was used",
+     "Any alert that appears during the window",
+     "The day the window ends: status returns to what the person's own data says"
+    ],
+    "standard": null,
+    "links": [],
+    "illustrative": true
+   },
+   "sickness": {
+    "n": "Space sickness: the first days",
+    "hazard": "G",
+    "when": [
+     "The first hours and days in 0 g after launch: pulse is high, little water drunk, nausea.",
+     "Most astronauts go through it. It usually passes in 2 to 3 days."
+    ],
+    "steps": [
+     "Take a small sip of water every 15 minutes.",
+     "Move your head slowly and fix your eyes on one point.",
+     "Keep goals short and patient: rest is part of the plan.",
+     "Tell the medical officer if you vomit more than twice."
+    ],
+    "watch": [
+     "Pulse and water intake against your own normal",
+     "How many times you vomit",
+     "Whether it has passed after 3 days"
+    ],
+    "standard": null,
+    "links": [
+     "regravity"
+    ],
+    "illustrative": true
+   },
+   "regravity": {
+    "n": "Return to gravity",
+    "hazard": "G",
+    "when": [
+     "The first weeks after months in 0 g, on arriving at a planet's surface or at home.",
+     "Lower pressure and a faster pulse than your normal when you stand are expected."
+    ],
+    "steps": [
+     "Stand up in two steps: sit, wait, then stand.",
+     "Drink 500 mL of salted water in the morning.",
+     "No solo suited walks this week.",
+     "Measure pressure lying down and standing."
+    ],
+    "watch": [
+     "Dizziness when you stand",
+     "Pulse and pressure against your own normal",
+     "Bone and muscle: the exercise goal changes with the gravity of the place"
+    ],
+    "standard": null,
+    "links": [
+     "sickness",
+     "eva"
+    ],
+    "illustrative": true
+   },
+   "air": {
+    "n": "Closed environment: air, noise, shared surfaces",
+    "hazard": "E",
+    "when": [
+     "Every day in a sealed habitat, vehicle or rover: the air is recycled and nobody can step outside.",
+     "Several people feeling the same thing at once is a reason to check the air."
+    ],
+    "steps": [
+     "If more than one person has a headache or feels drowsy or short of breath, tell the crew and check the cabin air readings.",
+     "Move to a part of the habitat with fresh supply while the readings are checked.",
+     "Clean shared surfaces and keep the filters on schedule.",
+     "Report persistent noise: it costs sleep, and sleep is tracked."
+    ],
+    "watch": [
+     "Cabin air readings, when the habitat reports them",
+     "Sleep and mood: noise and stale air show up there first",
+     "Several people with the same symptom"
+    ],
+    "standard": null,
+    "links": [],
+    "illustrative": true
+   },
+   "delay": {
+    "n": "Earth replies late",
+    "hazard": "D",
+    "when": [
+     "Whenever a message to Earth takes more than a minute each way.",
+     "The crew handles emergencies on its own: Earth sees reports after the delay."
+    ],
+    "steps": [
+     "Use Guided Response first, then send the report: Earth reads it after the signal delay.",
+     "Record messages instead of waiting for a live answer, for work and for home.",
+     "Know where the kit is and who is trained, before you need it.",
+     "Send what Earth needs to decide in one message: what happened, what you did, what you need."
+    ],
+    "watch": [
+     "The reply time shown at the top of the screen",
+     "The days since each person last spoke with home",
+     "How far the nearest hospital is"
+    ],
+    "standard": null,
+    "links": [],
+    "illustrative": true
+   }
+  },
+  "note": "Operational protocols are reference pages built from what Canary already does: the alerts, the care window rule and the NASA-STD-3001 limits it checks. Illustrative and not clinically reviewed, like the emergency protocols."
  }
 }

@@ -2,8 +2,39 @@
 import type { CrewDetail, HazardId, Indicator, Level, Risk, Alert } from '../api/types'
 
 /** Bone is stored as the % change since launch; NASA's line is a share of the pre-flight value (standards.py: 100 - loss). */
-export const bonePctOfPreflight = (i: Indicator) => 100 + i.value
-export const gripPctOfPreflight = (i: Indicator) => (i.baseline ? (100 * i.value) / i.baseline : 100)
+export const bonePctOfPreflight = (i: Indicator): number | null => (i.value === null ? null : 100 + i.value)
+export const gripPctOfPreflight = (i: Indicator): number | null => (i.value === null ? null : i.baseline ? (100 * i.value) / i.baseline : 100)
+
+/** What stands where a number is missing. */
+export const DASH = '—'
+/** A number to a fixed number of decimals, or the dash when there is none. */
+export const num = (v: number | null | undefined, dp = 0): string => (v === null || v === undefined ? DASH : v.toFixed(dp))
+/** The indicator's value with its decimals, or the dash. */
+export const fmtValue = (i: Indicator): string => num(i.value, i.dp)
+/** True when there is no current value for the indicator (never measured, or the last reading is too old to count). */
+export const noValue = (i: Indicator): boolean => i.value === null
+/** True when no indicator of the list has a current value. */
+export const allMissing = (inds: Indicator[]): boolean => inds.length > 0 && inds.every(noValue)
+
+/** The quiet line under a number that is missing, or that is still being learned. Null when there is nothing to say. */
+export function missingNote(i: Indicator): string | null {
+  if (i.value === null) {
+    if (i.last_measured_day !== null) return `Last measured day ${i.last_measured_day}`
+    return 'No data yet'
+  }
+  return learningNote(i)
+}
+
+/** "Learning your normal: 2 of 5" while the person has too few measurements to have a normal of their own. */
+export function learningNote(i: Indicator): string | null {
+  if (i.baseline_from === 'learning' || (i.learning && i.baseline === null)) return `Learning your normal: ${i.baseline_n} of ${i.baseline_need ?? 5}`
+  return null
+}
+
+/** The word for where the dose in a person's page comes from; nothing for a dose that is fully measured or unknown. */
+export function doseOrigin(d: { origin?: 'measured' | 'partial' | 'estimated' }): string | null {
+  return d.origin === 'estimated' ? 'estimated' : d.origin === 'partial' ? 'partly measured' : null
+}
 
 /** Last Amsler grid in the recent check-ins, as a short value. */
 export function amslerResult(d: CrewDetail): { label: string; day: number | null; level: Level } {
@@ -34,10 +65,10 @@ export function nasaLine(k: string, i: Indicator): { y: number; text: string; it
   if (!s) return null
   const base = { item: s.item, url: s.url }
   if (k === 'vo2') return { ...base, y: s.item === 'V1 4001' ? 32.9 : 36.5, text: `${s.item === 'V1 4001' ? 32.9 : 36.5} ${i.unit}` }
-  if (k === 'grip' && i.baseline) return { ...base, y: 0.8 * i.baseline, text: `${(0.8 * i.baseline).toFixed(i.dp)} ${i.unit} (80% of pre-flight)` }
+  if (k === 'grip' && i.baseline !== null && i.baseline) return { ...base, y: 0.8 * i.baseline, text: `${(0.8 * i.baseline).toFixed(i.dp)} ${i.unit} (80% of pre-flight)` }
   if (k === 'bone') return { ...base, y: 95, text: '95% of pre-flight' }
   return null
 }
 
 /** Words for where an indicator's numbers come from, the same on every chart. */
-export const ORIGIN = { simulated: 'Simulated', real: 'Real NASA data', user: 'You typed' } as const
+export const ORIGIN = { simulated: 'Simulated', real: 'Real NASA data', user: 'You typed', none: 'Not measured' } as const

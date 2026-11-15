@@ -39,6 +39,9 @@ class Settings:
     # in the settings table and wins over this default until the demo is reset.
     control_pin: str = _medical_pin(os.environ.get("CANARY_CONTROL_PIN", "4242"))
     crew_pins: Dict[str, str] = _pins(os.environ.get("CANARY_CREW_PINS", "h:1001,k:1002,a:1003,t:1004"))
+    # PBKDF2 rounds for PIN hashes. Leave the default: a stored hash does not record the count, so changing it
+    # invalidates every stored PIN. The test suite lowers it to run fast.
+    pin_iterations: int = int(os.environ.get("CANARY_PBKDF2_ITERATIONS", "100000"))
     token_secret: str = os.environ.get("CANARY_TOKEN_SECRET", secrets.token_hex(16))
     token_ttl_s: int = int(os.environ.get("CANARY_TOKEN_TTL", "3600"))
     # Communication delay runs this many times faster than real time in the demo.
@@ -50,7 +53,15 @@ class Settings:
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
     frontend_dist: str = os.environ.get("CANARY_FRONTEND_DIST", str(ROOT / "frontend" / "dist"))
     # Compute the six demo-story days in the background at start-up, so the first click on a scene is quick.
+    # Key a sensor, wearable or lab must send (header X-Canary-Key) to POST /api/observations. Empty: ingest is off.
+    ingest_key: str = os.environ.get("CANARY_INGEST_KEY", "")
+    # Mission package (a folder under data/missions) loaded on first start and by "reset demo". Empty: start with no data.
+    mission_package: str = os.environ.get("CANARY_MISSION_PACKAGE", "odyssey1-mars")
+    missions_dir: str = os.environ.get("CANARY_MISSIONS_DIR", str(ROOT / "data" / "missions"))
     warm_cache: bool = os.environ.get("CANARY_WARM", "1") == "1"
+    # Background thread that notices a new mission day (every `day_sync_seconds`) and runs what a new day triggers.
+    day_sync: bool = os.environ.get("CANARY_DAY_SYNC", "1") == "1"
+    day_sync_seconds: int = int(os.environ.get("CANARY_DAY_SYNC_SECONDS", "600"))
 
 
 settings = Settings()

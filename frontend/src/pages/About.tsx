@@ -55,7 +55,7 @@ SQLite on board  ──later──▶  ground sync`}</pre>
       <section>
         <div className="head"><h2>Who pays for it</h2></div>
         <div className="about-cols">
-          <div><b>Space agencies and commercial crews</b><p className="muted small">Licence per mission and crew seat, with integration and protocol review.</p></div>
+          <div><b>Space agencies and commercial crews</b><p className="muted small">Licence per mission and crew member, with integration and protocol review.</p></div>
           <div><b>Analog missions and polar stations</b><p className="muted small">A training edition for habitats and stations where isolation is the same problem.</p></div>
           <div><b>Remote work on Earth</b><p className="muted small">Offshore platforms, ships, mines and remote communities: the hospital is far there too. The core stays open source.</p></div>
         </div>

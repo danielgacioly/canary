@@ -6,6 +6,7 @@ Docs: http://localhost:8000/docs
 import hashlib
 import hmac
 import json
+import logging
 import mimetypes
 import pathlib
 import time
@@ -13,40 +14,63 @@ from datetime import date, timedelta
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
-from .assistant import briefing, chat, providers, suggestions, tools
+from .assistant import briefing, chat, protocol_match, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, goals, guide, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
-from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
+from .domain import simdata
+from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
 def _warm_story() -> None:
-    """Compute every crew member's health on the days of the demo story once, in the background, so the first click
-    on each scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
+    """Compute every crew member's health on the days of the scenes once, in the background, so the first click on each
+    scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
     from .domain import risk
     try:
-        for step in STORY:
-            ms = {**risk._day_ms(step["day"]), "storm": step["storm"]}
+        for day in dict.fromkeys(sc["day"] for sc in data.scenes()):
+            ms = {**risk._day_ms(day), "storm": data.storm_at(day, plan.location_at(day))}
             for c in list(CREW):
                 health.snapshot(c["id"], ms)
     except Exception:  # a warm-up must never take the API down; the next request computes it anyway
         pass
 
 
+def _day_sync_loop(stop) -> None:
+    """Every `day_sync_seconds`: bring in live space weather (when on) and, when the mission day changed, run the sync a
+    new day triggers. Whatever happens, the loop goes on and the API stays up."""
+    while True:
+        try:
+            live.import_donki()
+            mission.safe_sync_day()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("canary").exception("day sync loop")
+        if stop.wait(settings.day_sync_seconds):
+            return
+
+
 @asynccontextmanager
 async def lifespan(_app):
+    import threading
     db.connect()
     registry.load()
+    try:
+        data.bootstrap()  # first start with no data and no crew: load the configured mission package once
+    except validation.ValidationFailure as e:  # a broken or missing package must not stop the API from starting
+        print("mission package not loaded:", "; ".join(x["message"] for x in e.errors[:3]))
+    stop = threading.Event()
     if settings.warm_cache:
-        import threading
         threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
+    if settings.day_sync:
+        threading.Thread(target=_day_sync_loop, args=(stop,), name="canary-day-sync", daemon=True).start()
     yield
+    stop.set()
 
 
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
@@ -208,7 +232,7 @@ def ping():
 def catalog():
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
             "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
+            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -235,18 +259,23 @@ def put_mission(body: MissionIn):
             mission.set_location(None if body.clear_location else body.location)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    ms = mission.state()
-    advice.sync_all(ms["day"])  # an advice concluded by the new day may call for a message to the medical officer
-    notify.sync(ms)  # a new critical alert reaches the medical officer, once per episode
-    return ms
+    mission.safe_sync_day(force=True)  # an advice concluded by the new day may call for a message to the medical officer; a new critical alert reaches the medical officer, once per episode
+    return mission.state()
 
 
 @app.post("/api/demo/reset", tags=["mission"])
 def demo_reset():
+    """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
+    An empty setting starts with no data at all."""
     db.reset()
     plan.reset_cache()
     registry.load()
     auth.clear_failures()
+    if settings.mission_package:
+        try:
+            data.import_named(settings.mission_package)
+        except validation.ValidationFailure as e:
+            raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
     return mission.state()
 
 
@@ -269,7 +298,8 @@ def plan_conditions():
     end = p["legs"][-1]["end"]
     step = max(1, (end + 1) // 60)
     days = sorted(set(list(range(0, end + 1, step)) + [end] + [max(0, l["start"]) for l in p["legs"]]))
-    series = [[d, telemetry.cumulative_dose(d, plan.location_at(d), None)] for d in days]
+    curve = dose.curve(None, ms["day"])  # the cabin's (or the plan's) dose: crew-wide, never a person's own dosimeter
+    series = [[d, curve[d]] for d in days]
     return {"name": p["name"], "legs": legs, "today": ms["day"], "leg_index": ms["leg"]["index"],
             "dose": {"series": series, "now_msv": health.dose(ms)["mission_msv"], "end_msv": series[-1][1],
                      "limit_msv": CAREER_LIMIT_MSV, "simulated": True}}
@@ -294,7 +324,18 @@ def put_plan(body: PlanIn):
     except ValueError as e:
         raise HTTPException(400, str(e))
     mission.set_setup_done()
+    _reload_for_legs(plan.get()["legs"])
     return get_plan()
+
+
+def _reload_for_legs(legs: list) -> None:
+    """Legs that equal a preset's are that preset: the bundled package of the preset replaces the data. A custom
+    itinerary changes only the plan: real measurements do not change because the plan did."""
+    sig = simdata.signature(legs)
+    for key in plan.PRESETS:
+        if any(simdata.signature(plan.preset_legs(key, r)) == sig for r in (True, False)):
+            data.reload_for_preset(key)
+            return
 
 
 class PresetIn(BaseModel):
@@ -307,6 +348,7 @@ def plan_preset(body: PresetIn):
         plan.use_preset(body.preset)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    data.reload_for_preset(body.preset)
     mission.set_setup_done()
     return get_plan()
 
@@ -319,6 +361,7 @@ def mission_setup(body: PlanIn):
     except ValueError as e:
         raise HTTPException(400, str(e))
     mission.set_setup_done()
+    _reload_for_legs(plan.get()["legs"])
     return mission.set_step(0)  # the demo story bar keeps working: it starts from its first scene
 
 
@@ -340,7 +383,7 @@ def crew_list():
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
-            "space_weather": {k: v for k, v in nasa.space_weather(ms["storm"]).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+            "space_weather": {k: v for k, v in nasa.space_weather(data.storm_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
 @app.get("/api/crew/photos", tags=["crew"])
@@ -359,11 +402,11 @@ def crew_overview():
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "today": board["people"][c["id"]]})
-    sw = nasa.space_weather(ms["storm"])
+    sw = nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
-            "warnings": [{k: a[k] for k in ("id", "level", "title", "why", "todo", "sources")} for a in env],
+            "warnings": [{k: a.get(k) for k in ("id", "level", "title", "why", "todo", "sources", "protocol")} for a in env],
             "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
             "space_weather": {k: v for k, v in sw.items() if k in ("headline", "active", "kp_max", "sep_events")},
@@ -386,7 +429,7 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
             "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
-            "blood": nasa.blood(c["cbc_subject"], c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
+            "blood": nasa.blood(crew_id, c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
             "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access,
             "care_events": care.events(crew_id, ms["day"])}
@@ -567,6 +610,32 @@ def get_protocols():
     return protocols.resolve(mission.state()["location"])
 
 
+@app.get("/api/protocols/library", tags=["guided response"])
+def protocols_library(v: dict = Depends(viewer)):
+    """The Protocols page: every protocol as a reference page and which ones are in force now. Crew-wide, no personal health data;
+    the care window is listed only for the medical team."""
+    ms = mission.state()
+    return protocol_pages.library(ms, health.dose(ms), medical=v["medical"])
+
+
+class MatchIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, t: str) -> str:
+        if not t.strip():
+            raise ValueError("describe what you see")
+        return t
+
+
+@app.post("/api/protocols/match", tags=["guided response"])
+def match_protocol(body: MatchIn):
+    """What the person sees, in their own words -> the closest protocols with the words that matched. Rules first; a connected
+    model may only re-rank them (assistant/protocol_match.py). Never starts anything."""
+    return protocol_match.match(body.text)
+
+
 class EmergencyIn(BaseModel):
     protocol: Optional[str] = None
     patient: Optional[str] = None
@@ -677,7 +746,8 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
 # ---------------------------------------------------------------- NASA data
 @app.get("/api/space-weather", tags=["nasa"])
 def space_weather():
-    return nasa.space_weather(mission.state()["storm"])
+    ms = mission.state()
+    return nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
 
 
 @app.get("/api/nasa/rad", tags=["nasa"])
@@ -737,6 +807,18 @@ def suggestion_accept(crew_id: str, sid: str, v: dict = Depends(viewer)):
         raise HTTPException(403, "suggestions are for the astronaut only")
     try:
         return suggestions.accept(crew_id, sid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/suggestions/{crew_id}/{sid}/dismiss", tags=["assistant"])
+def suggestion_dismiss(crew_id: str, sid: str, v: dict = Depends(viewer)):
+    """Hide a suggestion for today and remember the choice: the ranking learns from it (assistant/suggestions.py)."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "suggestions are for the astronaut only")
+    try:
+        return suggestions.dismiss(crew_id, sid)
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -921,7 +1003,8 @@ def control_overview():
 @app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
 def control_demo():
     """What the 'fill with the demo crew' button puts in the form."""
-    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
+    form = data.demo_form()
+    return {"crew": form["crew"], "mission": form["mission"], "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
             "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"],
             # the itinerary each profile gives, with and without its rover leg, for the review step
             "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS}}
@@ -941,7 +1024,7 @@ def _trim_list(v: List[str], what: str, max_items: int = 20, max_len: int = 60) 
 
 class SeatIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    seat: str = Field(pattern="^(h|k|a|t)$")
+    seat: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$")  # the person's id; left out, s1 to s6 in order
     name: str = Field(min_length=2, max_length=60)
     role: str = Field(min_length=2, max_length=60)
     home: str = Field(default="", max_length=80)
@@ -1011,47 +1094,56 @@ class MissionRegIn(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    crew: List[SeatIn] = Field(min_length=4, max_length=4)
+    crew: List[SeatIn]  # one to six people (checked in _check_registration, which answers on the `crew` field)
     mission: MissionRegIn
 
 
 def _check_registration(body: RegisterIn) -> None:
-    """The rules that need more than one field: the profile exists, PINs differ between seats, ages at launch."""
+    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between people, ages at launch."""
     errs: List[dict] = []
+    if not 1 <= len(body.crew) <= registry.MAX_CREW:
+        errs.append({"field": "crew", "message": f"Register between 1 and {registry.MAX_CREW} people"})
     if body.mission.preset not in plan.PRESETS:
         errs.append({"field": "mission.preset", "message": "Mission profile must be one of: " + ", ".join(plan.PRESETS)})
     elif body.mission.rover and not plan.has_rover(body.mission.preset):
         errs.append({"field": "mission.rover", "message": f"{plan.PRESETS[body.mission.preset]['name']} has no rover leg; the rover is for the Moon and Mars profiles"})
     launch = date.fromisoformat(body.mission.launch_date)
     seen: dict = {}
+    ids = registry.assign_ids([p.seat for p in body.crew])
+    seen_id: dict = {}
     for i, p in enumerate(body.crew):
+        if ids[i] in registry.RESERVED_IDS:
+            errs.append({"field": f"crew.{i}.seat", "message": f"ID {ids[i]} is reserved; pick another"})
+        elif ids[i] in seen_id:
+            errs.append({"field": f"crew.{i}.seat", "message": f"ID is already used by person {seen_id[ids[i]] + 1}; each person needs their own"})
+        seen_id.setdefault(ids[i], i)
         age = validation.age_on(date.fromisoformat(p.dob), launch)
         if not SEAT_AGE[0] <= age <= SEAT_AGE[1]:
             errs.append({"field": f"crew.{i}.dob", "message": f"Date of birth gives an age of {age} at launch; it must be between {SEAT_AGE[0]} and {SEAT_AGE[1]}"})
         if p.pin in seen:
-            errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by seat {seen[p.pin] + 1}; each seat needs its own"})
+            errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by person {seen[p.pin] + 1}; each person needs their own"})
         seen.setdefault(p.pin, i)
-    if sorted(p.seat for p in body.crew) != sorted(registry.SEATS):
-        errs.append({"field": "crew", "message": "Register each of the four seats once"})
     if errs:
         raise validation.ValidationFailure(errs)
 
 
 @app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
 def control_register(body: RegisterIn):
-    """Register the four crew seats and the mission, then start the mission clock from the beginning."""
+    """Register the crew (one to six people) and the mission, then start the mission clock from the beginning. PINs are stored hashed."""
     _check_registration(body)
-    crew = [s.model_dump() for s in body.crew]
+    ids = registry.assign_ids([s.seat for s in body.crew])
+    crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
     try:
-        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], {**body.mission.model_dump(), "rover": rover})
+        registry.register(crew, {**body.mission.model_dump(), "rover": rover})
     except ValueError as e:
         raise HTTPException(400, str(e))
-    for p in crew:
-        auth.set_pin(p["seat"], p["pin"])
+    first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
+    data.drop_package_story()  # the scenes and storms of a loaded package are about other people
     plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
-    mission.set_step(0)
+    if first:
+        mission.set_day(first[0]["day"])
     return control_overview()
 
 
@@ -1059,7 +1151,116 @@ def control_register(body: RegisterIn):
 def control_clear():
     """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
     registry.clear()
+    data.drop_package_story()
     return control_overview()
+
+
+# ---------------------------------------------------------------- data entry points
+# Sensors, wearables and labs send readings with a key; Mission Control adds space events and imports mission packages.
+# All of them end in domain/data.py, which validates everything first and writes in one transaction.
+MAX_OBS_BATCH = 5000
+
+
+def require_ingest(x_canary_key: Optional[str] = Header(None)) -> None:
+    """The ingest key (CANARY_INGEST_KEY) in the X-Canary-Key header. Never logged, never returned."""
+    if not settings.ingest_key:
+        raise HTTPException(503, "Ingest is off")
+    if not x_canary_key or not hmac.compare_digest(x_canary_key.encode(), settings.ingest_key.encode()):
+        raise HTTPException(401, "A valid X-Canary-Key is required")
+
+
+@app.post("/api/observations", tags=["data"], dependencies=[Depends(require_ingest)])
+def post_observations(body: dict = Body(...)):
+    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note}]}.
+    Up to 5000 rows. One bad row refuses the whole batch (422, `rows.N.field`) and nothing is stored."""
+    rows = body.get("rows") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        raise validation.FieldError("rows", "Send {\"rows\": [...]}")
+    if len(rows) > MAX_OBS_BATCH:
+        raise validation.FieldError("rows", f"At most {MAX_OBS_BATCH} readings per request")
+    return data.add_observations(rows)
+
+
+@app.get("/api/scenes", tags=["data"])
+def get_scenes():
+    """The guided demo's bookmarks (a day, a place, a person, a sentence). Not health data."""
+    return data.scenes()
+
+
+@app.post("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
+def control_add_space_event(body: dict = Body(...)):
+    """One space-weather event: kind, start_day, end_day, locations, extra_dose_msv (0 to 2000), origin, source, note."""
+    return data.add_space_event(body)
+
+
+@app.put("/api/control/clock", tags=["control"], dependencies=[Depends(require_control)])
+def control_clock(body: dict = Body(...)):
+    """Move the mission clock: {"date": "YYYY-MM-DD", "time": "HH:MM"} for a simulated date (time is optional), or
+    {"real": true} to follow today's date in UTC again. 422 {field, message} on bad input. Runs the day sync at once."""
+    if not isinstance(body, dict):
+        raise validation.FieldError("body", "Send {\"date\": \"2035-10-31\", \"time\": \"12:00\"} or {\"real\": true}")
+    real = body.get("real")
+    if real is not None and not isinstance(real, bool):
+        raise validation.FieldError("real", "real must be true or false")
+    mission.set_clock(body.get("date"), body.get("time"), bool(real))
+    mission.safe_sync_day(force=True)
+    return mission.state()
+
+
+@app.get("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
+def control_space_events():
+    return {"events": data.events()}
+
+
+@app.get("/api/control/data-status", tags=["control"], dependencies=[Depends(require_control)])
+def control_data_status():
+    """What Mission Control may know about the data: is ingest on, which package, how much of each kind, and when each
+    person's indicator last arrived. Counts and dates only: no values and nothing about anyone's health."""
+    count = lambda t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"]  # noqa: E731 (fixed table names)
+    readings = db.q("SELECT crew_id, indicator, MAX(day) last_day, MAX(received_at) last_received_at, COUNT(*) count "
+                    "FROM observations GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
+    pkg = data.loaded_package()
+    return {"ingest_configured": bool(settings.ingest_key), "package": (pkg or {}).get("name"),
+            "counts": {"observations": count("observations"), "goal_entries": count("goal_log"),
+                       "events": count("space_events"), "scenes": count("scenes")},
+            "readings": [{k: r[k] for k in ("crew_id", "indicator", "last_day", "last_received_at", "count")} for r in readings]}
+
+
+def _multipart_files(content_type: str, raw: bytes) -> list:
+    """(filename, bytes) of every file part of a multipart/form-data body (standard library, no extra dependency)."""
+    from email import policy
+    from email.parser import BytesParser
+    msg = BytesParser(policy=policy.HTTP).parsebytes(b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + raw)
+    if not msg.is_multipart():
+        raise validation.FieldError("file", "Send a multipart upload with the files")
+    return [(part.get_filename(), part.get_payload(decode=True) or b"") for part in msg.iter_parts() if part.get_filename()]
+
+
+@app.post("/api/control/import", tags=["control"], dependencies=[Depends(require_control)])
+async def control_import(request: Request):
+    """Import a mission package: a multipart upload of a .zip or of CSV files named like the package files, or JSON
+    {"package": "odyssey1-mars"} for a bundled one. Any error: 422 {"errors": [...]} and nothing is written."""
+    ctype = request.headers.get("content-type", "")
+    try:
+        if ctype.startswith("application/json"):
+            try:
+                body = await request.json()
+            except ValueError:
+                raise validation.FieldError("package", "Send JSON like {\"package\": \"odyssey1-mars\"}")
+            name = body.get("package") if isinstance(body, dict) else None
+            res = await run_in_threadpool(data.import_package, data.package_dir(name), name, True)
+        elif ctype.startswith("multipart/form-data"):
+            if int(request.headers.get("content-length") or 0) > data.MAX_UPLOAD_BYTES:
+                raise validation.FieldError("file", "The upload is too large")
+            raw = await request.body()
+            parts = _multipart_files(ctype, raw)
+            files = data.files_from_upload(parts)
+            res = await run_in_threadpool(data.import_package, files, data.upload_label(parts), False)
+        else:
+            raise HTTPException(415, "Send multipart/form-data (a zip or CSV files) or JSON {\"package\": \"name\"}")
+    except validation.ValidationFailure as e:
+        return JSONResponse(status_code=422, content={"detail": e.errors, "errors": e.errors, "accepted": {}})
+    return {**res, "errors": []}
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)

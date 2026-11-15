@@ -9,6 +9,7 @@ import Control from './pages/Control'
 import Medical from './pages/Medical'
 import MissionInfo from './pages/MissionInfo'
 import MissionPlan from './pages/MissionPlan'
+import Protocols from './pages/Protocols'
 import Ranking from './pages/Ranking'
 import Settings from './pages/Settings'
 import Setup from './pages/Setup'
@@ -34,6 +35,8 @@ export default function App() {
         <Route path="/ranking" element={<Ranking />} />
         <Route path="/crew" element={<Crew />} />
         <Route path="/crew/:id" element={<Astronaut />} />
+        <Route path="/protocols" element={<Protocols />} />
+        <Route path="/protocols/:id" element={<Protocols />} />
         <Route path="/plan" element={<MissionPlan />} />
         <Route path="/space-weather" element={<Navigate to="/crew" replace />} />
         <Route path="/link" element={<Navigate to="/crew" replace />} />

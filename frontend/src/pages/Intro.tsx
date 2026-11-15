@@ -17,6 +17,8 @@ const BEATS = [
   { k: 'Canary', h: 'It notices before you do.', p: 'Canary compares every astronaut with their own normal, turns early warnings into goals, and guides the crew step by step when something goes wrong.' },
   { k: 'NASA open data', h: 'Real storms. Real blood counts. Real distance.', p: 'NASA DONKI space weather, Curiosity radiation on Mars and Inspiration4 blood counts drive the story you are about to see.' },
 ]
+const COUNT = ['No crew yet', 'One crew member', 'Two crew', 'Three crew', 'Four crew', 'Five crew', 'Six crew']
+const crewWord = (n: number) => COUNT[n] ?? `${n} crew`
 const LAST = BEATS.length  // index of the "mission ready" beat
 const BEAT_MS = 6500
 
@@ -43,7 +45,6 @@ export default function Intro() {
       <Stars />
       <div className="row intro-top">
         <span className="brand"><CanaryMark size={24} />CANARY</span>
-        <span className="small dim">NASA Space Apps Challenge 2026</span>
         <button className="btn sm ghost right" onClick={enter}>Skip intro<Icon name="chev" /></button>
       </div>
       <div className="intro-stage">
@@ -78,8 +79,8 @@ function MissionReady({ plan, crew, places }: { plan: Plan | null; crew: { id: s
   const where = places[dest.location]
   return (
     <div className="intro-copy ready" key="ready">
-      <h1 className="reveal">{plan.name}. Four crew, {flight} days.</h1>
-      <p className="lead reveal d1">Itinerary and crew are set by mission control. Destination: {where.name}, {where.gravity} gravity, Earth replies in {where.reply.toLowerCase()}. Canary adapts to every leg on its own.</p>
+      <h1 className="reveal">{plan.name}. {crewWord(crew.length)}, {flight} days.</h1>
+      <p className="lead reveal d1">{crew.length === 0 ? 'Mission Control registers the crew and the itinerary. ' : 'Itinerary and crew are set by mission control. '}Destination: {where.name}, {where.gravity} gravity, Earth replies in {where.reply.toLowerCase()}. Canary adapts to every leg on its own.</p>
       <div className="reveal d2"><Timeline legs={plan.legs} places={places} now={0} nowLabel="Launch" compact /></div>
       <div className="ready-crew">
         {crew.map((c, k) => (

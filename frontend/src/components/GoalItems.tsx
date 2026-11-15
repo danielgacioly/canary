@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { api } from '../api/client'
 import type { Goal, TeamGoal } from '../api/types'
 import type { CheckKind } from '../features/Checks'
@@ -38,18 +39,36 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
   )
 }
 
-export function TeamRow({ t, names }: { t: TeamGoal; names: Record<string, string> }) {
+/** A crew mission: title and progress. Tap it for what it is and, in the person's own space, which of their goals count.
+ *  `mine` is the signed-in person's own goals; the public Crew page leaves it out and shows nothing personal. */
+export function TeamRow({ t, mine }: { t: TeamGoal; mine?: Goal[] }) {
+  const [open, setOpen] = useState(false)
+  const counting = (mine ?? []).filter(g => t.personal_ids.includes(g.id))
+  const num = (x: number) => x.toLocaleString('en-US')
   return (
-    <div className="team-row col" style={{ gap: 10 }}>
-      <div className="row" style={{ alignItems: 'flex-start' }}>
-        <div className="grow"><div className="goal-title">{t.title}</div><div className="small muted">{t.area === 'mental' ? 'Mental' : 'Physical'} · crew goal</div></div>
-        {t.done && <span className="status s0"><span className="dot" />Done</span>}
-      </div>
-      <div className="row">
-        <div className="bar-track grow" style={{ ['--pc' as string]: t.done ? 'var(--ok)' : 'var(--accent)' }}><i style={{ width: `${t.pct}%` }} /></div>
-        <span className="num small muted">{t.value.toLocaleString('en-US')}/{t.target.toLocaleString('en-US')} {t.unit}</span>
-      </div>
-      <div className="small dim">{Object.entries(t.contrib).map(([id, n]) => `${names[id]?.split(' ')[0]} ${n.toLocaleString('en-US')}`).join(' · ')}</div>
+    <div className={`team-row ${open ? 'open' : ''}`}>
+      <button type="button" className="team-head" aria-expanded={open} aria-controls={`mission-${t.id}`} onClick={() => setOpen(o => !o)}>
+        <span className="row">
+          <span className="goal-title grow">{t.title}</span>
+          {t.done && <span className="status s0"><span className="dot" />Done</span>}
+        </span>
+        <span className="row">
+          <span className="bar-track grow" style={{ ['--pc' as string]: t.done ? 'var(--ok)' : 'var(--accent)' }}><i style={{ width: `${t.pct}%` }} /></span>
+          <span className="num small muted">{num(t.value)} / {num(t.target)} {t.unit}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="team-more" id={`mission-${t.id}`}>
+          <p>{t.what}</p>
+          <p className="small muted">Counts the last 7 days. {num(t.value)} of {num(t.target)} {t.unit} so far.</p>
+          {counting.length > 0 && (
+            <div className="team-mine">
+              <b className="small">Your goals that move it forward</b>
+              <ul className="plain">{counting.map(g => <li key={g.id}>{g.title}<span className="small muted">{g.done ? 'Done today' : 'Not yet today'}</span></li>)}</ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

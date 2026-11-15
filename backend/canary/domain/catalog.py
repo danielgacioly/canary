@@ -1,9 +1,9 @@
-"""Static mission data: places, crew, indicators, body systems, goals, badges and the demo story.
+"""Static mission data: places, indicators, body systems, goals and badges (and the views of the registered crew).
 
 Everything numeric that comes from literature is marked `source` so it can be
-checked before the pitch. Crew members and their baselines are fictional.
+checked before the pitch.
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------- places
 LOCATIONS: Dict[str, dict] = {
@@ -56,57 +56,14 @@ def day_label(day: int, location: str, leg_start: int = 0) -> str:
     return f"Day {day}"
 
 
-# ---------------------------------------------------------------- crew (fictional)
-CREW: List[dict] = [
-    {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
-     "cbc_subject": "C002", "age": 46, "sex": "F",
-     "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
-              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40, "vo2": 38.5}},
-    {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
-     "cbc_subject": "C001", "age": 41, "sex": "M",
-     "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
-              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45, "vo2": 41.0}},
-    {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
-     "cbc_subject": "C003", "age": 38, "sex": "F",
-     "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
-              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38, "vo2": 44.0}},
-    {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
-     "cbc_subject": "C004", "age": 44, "sex": "M",
-     "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
-              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48, "vo2": 39.5}},
-]
-CREW_BY_ID = {c["id"]: c for c in CREW}
-
-# ---------------------------------------------------------------- personal records
-# Registered by Mission Control before flight (the future admin flow). Fictional people.
-# Private: the astronaut and the medical team. Ages follow the mission clock from LAUNCH_DATE.
-LAUNCH_DATE = "2035-06-01"
-RECORDS: Dict[str, dict] = {
-    "h": {"dob": "1988-09-14", "sex": "Female", "nationality": "Brazilian", "languages": ["Portuguese", "English", "Spanish"],
-          "agency": "Brazilian Space Agency (AEB)", "flights": 2, "days_in_space": 214,
-          "height_cm": 168, "weight_kg": 61.5, "blood_type": "O−", "skin_type": "III", "handedness": "Right",
-          "vision": "No correction", "allergies": ["Penicillin"], "medications": [], "conditions": [],
-          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
-    "k": {"dob": "1993-11-02", "sex": "Male", "nationality": "Japanese", "languages": ["Japanese", "English"],
-          "agency": "Japan Aerospace Exploration Agency (JAXA)", "flights": 1, "days_in_space": 181,
-          "height_cm": 174, "weight_kg": 70.2, "blood_type": "A+", "skin_type": "III", "handedness": "Left",
-          "vision": "Glasses for reading", "allergies": [], "medications": [], "conditions": [],
-          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "eva": "none", "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
-    "a": {"dob": "1997-02-20", "sex": "Female", "nationality": "Nigerian", "languages": ["English", "Yoruba", "French"],
-          "agency": "European Space Agency (ESA)", "flights": 0, "days_in_space": 0,
-          "height_cm": 171, "weight_kg": 64.0, "blood_type": "B+", "skin_type": "VI", "handedness": "Right",
-          "vision": "No correction", "allergies": ["Peanuts"], "medications": [], "conditions": [],
-          "diet": "No peanuts", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
-    "t": {"dob": "1990-12-05", "sex": "Male", "nationality": "Chilean", "languages": ["Spanish", "English"],
-          "agency": "NASA (international partner seat)", "flights": 1, "days_in_space": 12,
-          "height_cm": 182, "weight_kg": 81.4, "blood_type": "O+", "skin_type": "IV", "handedness": "Right",
-          "vision": "Contact lenses", "allergies": [], "medications": ["Antihistamine as needed (seasonal)"], "conditions": ["Seasonal allergic rhinitis"],
-          "diet": "Vegetarian", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
-}
+# ---------------------------------------------------------------- the registered crew
+# Filled in place by registry.load() from what Mission Control registered (or a mission package imported): from one to
+# six people, with nothing but what was registered. The engine has no crew of its own; the demo crew lives with the
+# sheet generator (data/demo_crew.json) and reaches the engine only as the odyssey1 packages' crew.csv.
+CREW: List[dict] = []
+CREW_BY_ID: Dict[str, dict] = {}
+RECORDS: Dict[str, dict] = {}  # each person's registered record, by id (private: the person and the medical team)
+MAX_CREW = 6
 
 # ---------------------------------------------------------------- indicators
 # dir: which way is bad. sd: personal day-to-day spread used for the z-score.
@@ -131,6 +88,39 @@ INDICATORS: Dict[str, dict] = {
     "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
     "vo2": {"name": "Aerobic capacity (VO2max)", "unit": "mL/kg/min", "area": "physical", "dir": "low", "sd": 3.0, "dp": 1},
 }
+
+# How long a reading stays current, in days (`max_age`). Derived from how often the indicator is measured (the
+# `frequency.every` of its recipe in data/recipes.json): measured every day -> 3 days; every 2 to 7 days -> 10 days; a
+# monthly blood panel -> 45 days; any other interval -> 1.5 times the interval, rounded up. Exception to the 10 days: a
+# weekly measurement gets 21 (three intervals), because the mock data skips weekly tests for up to 20 days on purpose
+# (h's VO2max, days -28 to -7) and a carried-forward test inside that window is still current.
+# A reading older than that is stale: it is shown as the last measurement, but never counted as today's value.
+MEASURED_EVERY = {"sleep": 1, "react": 1, "mood": 1, "stress": 1, "social": 1, "hr": 1, "bp": 1, "spo2": 1, "temp": 1, "gluc": 3,
+                  "water": 1, "exer": 1, "grip": 1, "vo2": 7, "bone": 1, "dsst": 3, "span": 3, "kss": 1, "tlx": 7}
+
+
+def max_age_for(every: int) -> int:
+    """Days a reading of an indicator measured every `every` days stays current (rule above)."""
+    if every <= 1:
+        return 3
+    if every <= 7:
+        return max(10, 3 * every)  # 10 days; a weekly test 21: three intervals
+    if every == 30:
+        return 45
+    return -(-3 * every // 2)  # ceil(1.5 * every)
+
+
+for _ind, _every in MEASURED_EVERY.items():
+    INDICATORS[_ind]["max_age"] = max_age_for(_every)
+OTHER_MEASURED_EVERY = {"weight": 3, "hrv": 1}  # measured and stored, but not in INDICATORS
+
+
+def max_age(ind: str) -> Optional[int]:
+    """Days a reading of `ind` stays current, or None for what has no rule here (lab panels have their own, in risk.PANELS)."""
+    if ind in INDICATORS:
+        return INDICATORS[ind]["max_age"]
+    return max_age_for(OTHER_MEASURED_EVERY[ind]) if ind in OTHER_MEASURED_EVERY else None
+
 
 # Where each cognitive or self-report indicator comes from. None of the numbers is a published value.
 INDICATOR_NOTES: Dict[str, dict] = {
@@ -222,16 +212,18 @@ PERSONAL_GOALS: List[dict] = [
 ]
 PERSONAL_BY_ID = {g["id"]: g for g in PERSONAL_GOALS}
 
-# Weekly crew missions. `metric` says how progress is counted from the last 7 days.
+# Weekly crew missions. `metric` says how progress is counted from the last 7 days. A count goal has `per_person`: its target
+# is that times the number of people (6 exercise sessions each, so 24 for a crew of four). A `all_done` goal needs most of the
+# crew (goals.crew_quorum) on each of its days.
 TEAM_GOALS: List[dict] = [
     # Counts the routine exercise goal ticked, never the measured exercise minutes: those are health data.
-    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: 24 sessions this week", "target": 24, "unit": "sessions", "metric": "count:exercise"},
-    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social"},
-    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood"},
-    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure"},
-    {"id": "team_mind", "area": "mental", "title": "Crew mind: 20 meditation sessions", "target": 20, "unit": "sessions", "metric": "count:meditate"},
-    {"id": "team_books", "area": "mental", "title": "Book club: 10 hours of reading", "target": 600, "unit": "min", "metric": "count20:read"},
-    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "unit": "days", "metric": "all_done:water"},
+    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: {target} sessions this week", "per_person": 6, "what": "Every exercise session anyone on the crew completes adds one to the total.", "unit": "sessions", "metric": "count:exercise"},
+    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "what": "A day counts when most of the crew spends their off-duty time together.", "unit": "meals", "metric": "all_done:social"},
+    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "what": "A day counts when most of the crew has done their mood check-in.", "unit": "days", "metric": "all_done:mood"},
+    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "what": "A night counts when most of the crew takes time for something they enjoy.", "unit": "nights", "metric": "all_done:leisure"},
+    {"id": "team_mind", "area": "mental", "title": "Crew mind: {target} meditation sessions", "per_person": 5, "what": "Every meditation, prayer or slow-breathing session adds one to the total.", "unit": "sessions", "metric": "count:meditate"},
+    {"id": "team_books", "area": "mental", "title": "Book club: {hours} hours of reading", "per_person": 150, "what": "Every reading session adds twenty minutes to the crew's total.", "unit": "min", "metric": "count20:read"},
+    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "what": "A day counts when most of the crew reaches their water goal.", "unit": "days", "metric": "all_done:water"},
 ]
 
 BADGES: List[dict] = [
@@ -245,23 +237,6 @@ BADGES: List[dict] = [
     {"id": "fortnight", "name": "Fortnight", "desc": "14-day streak", "streak": 14, "area": "both"},
     {"id": "first_responder", "name": "First Responder", "desc": "Took part in a guided response", "emergency": True, "area": "both"},
 ]
-
-# ---------------------------------------------------------------- demo story
-STORY: List[dict] = [
-    {"loc": "earth", "day": -30, "me": "h", "storm": None, "when": "30 days before launch",
-     "text": "The crew measures everything it will measure in space. From here on, Canary compares each person with themselves, never with an average."},
-    {"loc": "rocket", "day": 2, "me": "t", "storm": None, "when": "Day 2, in orbit",
-     "text": "Tomás has a fast pulse and has barely had any water. Space sickness. The alert already comes with what to do."},
-    {"loc": "transit", "day": 147, "me": "h", "storm": None, "when": "Day 147, on the way to Mars",
-     "text": "Helena's sleep, mood, focus and time with the crew have been slipping together for two weeks. None would matter alone. Together they do."},
-    {"loc": "transit", "day": 152, "me": "h", "storm": "sep", "when": "Day 152, replaying 10 May 2024",
-     "text": "This storm really happened: the strongest in 20 years. The readings are NASA's records from that day. What if a crew had been in its path?"},
-    {"loc": "transit", "day": 153, "me": "k", "storm": None, "when": "Day 153, dinner",
-     "text": "Tomás has a seizure. Earth will not know for 5 minutes. Hold EMERGENCY, pick Seizure and follow the steps."},
-    {"loc": "mars", "day": 222, "me": "a", "storm": "mars", "when": "Sol 12 on Mars, replaying 20 May 2024",
-     "text": "That day the Curiosity rover measured radiation 51 times above normal. The chart is that record. The crew stays inside."},
-]
-
 
 # ---------------------------------------------------------------- hazard matrix (hazard x indicator)
 # The team's matrix "matriz-perigos-indicadores". Hazards: R radiation, I isolation & confinement, D distance from
@@ -330,3 +305,59 @@ _link(["dsst", "span", "kss", "tlx"], "I", "the brain system's hazard in SYSTEMS
 _link("urine_volume", "G", "the kidney system's hazard in SYSTEMS", _ASSUME)
 # Rows of the matrix with no indicator in the catalog yet: cytokines (OSD-575/656).
 HAZARD_ROWS_WITHOUT_INDICATOR = ["cytokines"]
+
+
+# ---------------------------------------------------------------- what an incoming measurement may look like
+# One entry per measurement the system accepts (POST /api/observations and mission packages): the units it may be sent
+# in and a plausibility range [lo, hi]. The range catches typos, unit slips and broken sensors; it is NOT a clinical
+# range and says nothing about what is healthy (prototype assumption, `verified: False`). Vitals reuse the limits of
+# the self check-in forms (selftests.VITALS_LIMITS). The lab panel and the cabin sensors are listed here too, because
+# the observation table carries them although they are not in INDICATORS. Adding a key to INDICATORS itself would
+# change every health snapshot, so the plausibility ranges live apart.
+ACCEPT: Dict[str, dict] = {
+    "sleep": {"units": ("h",), "range": (0, 24)},
+    "react": {"units": ("ms",), "range": (50, 10000)},
+    "mood": {"units": ("/5",), "range": (0, 5)},
+    "stress": {"units": ("/5",), "range": (0, 5)},
+    "social": {"units": ("min",), "range": (0, 1440)},
+    "dsst": {"units": ("correct", "correct/60s"), "range": (0, 500)},
+    "span": {"units": ("digits",), "range": (0, 30)},
+    "kss": {"units": ("/9",), "range": (0, 9)},
+    "tlx": {"units": ("/100",), "range": (0, 100)},
+    "hr": {"units": ("bpm",), "range": (25, 250)},
+    "bp": {"units": ("mmHg",), "range": (60, 260)},
+    "spo2": {"units": ("%",), "range": (50, 100)},
+    "temp": {"units": ("°C",), "range": (30, 45)},
+    "gluc": {"units": ("mg/dL",), "range": (20, 800)},
+    "water": {"units": ("L",), "range": (0, 20)},
+    "exer": {"units": ("min",), "range": (0, 1440)},
+    "grip": {"units": ("kg",), "range": (0, 120)},
+    "bone": {"units": ("%",), "range": (-100, 200)},
+    "vo2": {"units": ("mL/kg/min",), "range": (5, 100)},
+    "hrv": {"units": ("ms",), "range": (0, 400)},
+    "weight": {"units": ("kg",), "range": (20, 300)},
+    # blood and urine panels
+    "wbc": {"units": ("10^3/uL",), "range": (0.2, 100)},
+    "lym": {"units": ("cells/uL",), "range": (0, 20000)},
+    "neu": {"units": ("cells/uL",), "range": (0, 40000)},
+    "hgb": {"units": ("g/dL",), "range": (3, 25)},
+    "hct": {"units": ("percent", "%"), "range": (10, 70)},
+    "plt": {"units": ("10^3/uL",), "range": (5, 2000)},
+    "rbc": {"units": ("10^6/uL",), "range": (1, 10)},
+    "creatinine": {"units": ("mg/dL",), "range": (0.1, 15)},
+    "potassium": {"units": ("mmol/L",), "range": (1, 10)},
+    "calcium": {"units": ("mg/dL",), "range": (4, 20)},
+    "crp": {"units": ("mg/L",), "range": (0, 1000)},
+    "urine_calcium": {"units": ("mg/24h",), "range": (0, 3000)},
+    "urine_volume": {"units": ("mL/24h",), "range": (0, 10000)},
+    "cortisol": {"units": ("ug/dL",), "range": (0, 100)},
+    "tsh": {"units": ("mIU/L",), "range": (0, 100)},
+    "vitamin_d": {"units": ("ng/mL",), "range": (0, 200)},
+    # cabin air
+    "co2": {"units": ("ppm",), "range": (200, 100000)},
+    # the dosimeter: accepted as a measurement (crew badge or cabin), but NOT an INDICATOR (no baseline, no alert of its
+    # own): the dose model reads it. Absorbed-dose-equivalent rate in mSv per day.
+    "dose_rate": {"units": ("mSv/day",), "range": (0, 100)},
+}
+ACCEPT_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
+CABIN_ID = "cabin"  # the crew id of cabin sensors (air, dosimeter)

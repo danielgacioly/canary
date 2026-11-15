@@ -1,0 +1,8 @@
+start_day,end_day,location,label
+-60,-1,earth,Pre-flight training and baseline
+0,4,rocket,Launch and lunar transit
+5,19,moon,"Surface stay, south pole"
+20,24,moon_rover,Pressurized rover traverse
+25,34,moon,"Surface stay, south pole"
+35,39,rocket,Return to Earth
+40,120,earth,Recovery

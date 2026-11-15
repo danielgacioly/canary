@@ -3,16 +3,16 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
-import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
+import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
-import { nasaLine } from '../lib/health'
+import { allMissing, doseOrigin, DASH, nasaLine, num } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
-const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
+const TABS = ['Triage', 'Briefings', 'Prescribe', 'Messages', 'Emergencies'] as const
 
 export default function Medical() {
   const [signed, setSigned] = useState(api.isMedical())
@@ -31,12 +31,13 @@ export default function Medical() {
         <button className="btn sm right" onClick={() => { api.medicalSignOut(); setSigned(false) }}>Sign out</button>
       </div>
       <Tabs value={tab} onChange={setTab} options={TABS.map(t => [t, t] as [typeof t, string])} />
-      {!ov ? <span className="lbl">Loading…</span> : (
+      {!ov ? <span className="lbl">Loading…</span> : ov.crew.length === 0 && tab !== 'Messages' ? (
+        <p className="waiting">No crew is registered yet. Mission Control registers the crew; their health appears here once it does.</p>
+      ) : (
         <>
           {tab === 'Triage' && <Triage ov={ov} />}
           {tab === 'Briefings' && <Briefings ov={ov} />}
           {tab === 'Prescribe' && <Prescribe ov={ov} />}
-          {tab === 'Alert rules' && <Rules ov={ov} />}
           {tab === 'Messages' && <Messages />}
           {tab === 'Emergencies' && <Emergencies ov={ov} />}
         </>
@@ -86,7 +87,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                   <span className="why">
                     {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
                     {alerts.map(a => <span key={a.id} className={`alert-line s${a.level}`}><span className="dot" />{a.title}{a.since_day !== undefined && <span className="small dim num"> since day {a.since_day}</span>}</span>)}
-                    {!c.ops.reason && !alerts.length && <span className="small dim">Nothing raised</span>}
+                    {!c.ops.reason && !alerts.length && <span className="small dim">{allMissing(Object.values(c.indicators)) ? 'No data yet' : 'Nothing raised'}</span>}
                   </span>
                   {red ? <span className={`tag s${red.level}`} title={red.title}>{red.text}</span> : <span />}
                 </Link>
@@ -125,7 +126,9 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                     const eva = k === 'vo2' && c.standard_profile ? EVA_WORD[c.standard_profile.eva] : null
                     return (
                       <td key={c.id} className={`num r s${i.level}`}>
-                        <span className={i.level ? 'c' : ''}>{(k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>
+                        <span className={i.level ? 'c' : ''}>{i.value === null ? DASH : (k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> {i.z !== null && <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>}
+                        {i.value === null && <div className="cell-note small dim">{i.last_measured_day !== null ? `Last measured day ${i.last_measured_day}` : 'No data yet'}</div>}
+                        {i.value !== null && i.baseline === null && <div className="cell-note small dim">Learning: {i.baseline_n} of {i.baseline_need ?? 5}</div>}
                         {(eva || s) && (
                           <div className="cell-note small">
                             {eva && <div className="dim">{eva}</div>}
@@ -143,8 +146,8 @@ function Triage({ ov }: { ov: MedicalOverview }) {
               <td><b>Career dose</b> <span className="dim small">mSv</span></td>
               {ov.crew.map(c => (
                 <td key={c.id} className="num r">
-                  {c.dose.career_msv?.toFixed(0)}
-                  <div className="cell-note small dim">{c.dose.career_pct_of_limit?.toFixed(0)}%{c.dose.prior_estimate ? ' · est.' : ''}</div>
+                  {num(c.dose.career_msv)}
+                  <div className="cell-note small dim">{num(c.dose.career_pct_of_limit)}%{c.dose.prior_estimate ? ' · est.' : ''}{doseOrigin(c.dose) ? ` · dose ${doseOrigin(c.dose)}` : ''}</div>
                 </td>
               ))}
               <td className="small muted">{ov.crew[0].dose.career_limit_msv} mSv over a career (V1 4030)</td>
@@ -225,38 +228,6 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
           {!goals?.length && <p className="muted">None. Guided Response adds follow-up care here automatically.</p>}</div>
       </section>
     </div>
-  )
-}
-
-function Rules({ ov }: { ov: MedicalOverview }) {
-  const { bump, toast } = useSession()
-  const form = useForm({
-    initial: { watch: ov.thresholds.watch, act: ov.thresholds.act },
-    validate: f => ({ act: f.act > f.watch ? null : `Act (${f.act.toFixed(1)} σ) must be above watch (${f.watch.toFixed(1)} σ). Raise act or lower watch.` }),
-    submit: async f => { await api.setThresholds(f.watch, f.act); bump(); toast('Alert rules updated') },
-  })
-  const sliders = [['watch', 'Watch from', 0.5, 4, 's1'], ['act', 'Act from', 1, 5, 's2']] as const
-  return (
-    <form className="col narrow" noValidate onSubmit={form.submit}>
-      <div className="section-head"><h2>When Canary speaks up</h2></div>
-      <p className="muted">Each indicator is compared with that person's own pre-flight normal. The distance is measured in their personal spread (σ). Lower thresholds mean earlier, more frequent alerts.</p>
-      {sliders.map(([k, l, min, max, c]) => (
-        <FieldGroup key={k} form={form} name={k} label={<span className="row"><span>{l}</span><b className={`num right c ${c}`}>{form.values[k].toFixed(1)} σ</b></span>} hint={`${min}–${max} σ`}>
-          <input type="range" min={min} max={max} step={0.1} value={form.values[k]} aria-label={l} onChange={e => { form.set(k, +e.target.value); form.touch('act') }} />
-        </FieldGroup>
-      ))}
-      <FormError form={form} />
-      <SubmitButton form={form} className="btn pri start">Apply to crew</SubmitButton>
-      <div className="hr" />
-      <span className="lbl">Cross-signal rules (always on)</span>
-      <ul className="steps">
-        <li>Sleep + mood + reaction time together → behavioural alert, reaction test, 3-night plan</li>
-        <li>High pulse + low water in the first 72 h → space sickness, hydration goals</li>
-        <li>Low pressure + high pulse in partial gravity → re-adaptation, slow standing</li>
-        <li>Wavy Amsler grid → eye alert (SANS screen)</li>
-        <li>Solar particle event → everyone to shelter, radiation protocol</li>
-      </ul>
-    </form>
   )
 }
 

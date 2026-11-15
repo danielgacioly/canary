@@ -1,7 +1,8 @@
 """PINs and session tokens for the private spaces.
 
-- Every crew member has a 4-digit PIN. The default comes from config (CANARY_CREW_PINS); a PIN changed in
-  the app is stored salted and hashed (PBKDF2-SHA256) in the settings table and wins over the default.
+- Every registered crew member has a 4-digit PIN, stored salted and hashed (PBKDF2-SHA256) in the settings table
+  when they are registered or imported, and again when they change it in the app. CANARY_CREW_PINS (config) is only a
+  fallback default for an id that has no stored PIN.
 - Signing in returns a short-lived token `{crew_id}.{exp}.{sig}`; `sig` is an HMAC over `crew:{crew_id}:{exp}`.
   The X-Canary-Viewer header carries that token, never a bare id.
 - Failed attempts are rate-limited per person: 5 in 60 seconds.
@@ -15,7 +16,6 @@ from typing import Dict, List, Optional
 from . import db
 from .config import PIN_RE, settings
 
-ITERATIONS = 100_000
 MAX_FAILS = 5
 WINDOW_S = 60
 
@@ -23,7 +23,7 @@ _failed: Dict[str, List[float]] = {}
 
 
 def _hash(pin: str, salt: bytes) -> str:
-    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, ITERATIONS).hex()
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, settings.pin_iterations).hex()
 
 
 def valid_pin(pin: str) -> bool:
@@ -44,6 +44,18 @@ def set_pin(crew_id: str, pin: str) -> None:
     pins = db.get_setting("pins") or {}
     pins[crew_id] = {"salt": salt.hex(), "hash": _hash(pin, salt)}
     db.set_setting("pins", pins)
+
+
+def hashed_pins(pins: Dict[str, str], keep: bool = True) -> dict:
+    """The `pins` setting with these PINs (salted and hashed), for callers that write settings themselves. `keep`: add to
+    the PINs already stored; False: only these (a registration replaces everybody's)."""
+    out = dict(db.get_setting("pins") or {}) if keep else {}
+    for crew_id, pin in pins.items():
+        if not valid_pin(pin):
+            raise ValueError("a PIN is exactly 4 digits")
+        salt = os.urandom(16)
+        out[crew_id] = {"salt": salt.hex(), "hash": _hash(pin, salt)}
+    return out
 
 
 # ---------------------------------------------------------------- rate limit

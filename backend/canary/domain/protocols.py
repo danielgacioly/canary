@@ -16,6 +16,10 @@ from .catalog import LOCATIONS
 _BANK = json.loads((pathlib.Path(__file__).resolve().parents[1] / "data" / "protocols.json").read_text(encoding="utf-8"))
 
 
+def bank() -> dict:
+    return _BANK
+
+
 def order() -> list:
     return _BANK["order"]
 

@@ -3,17 +3,22 @@
 The ranking counts effort (goals done, check-ins sent), never health numbers:
 nobody climbs by looking healthy, and reporting a bad day counts the same as a good one.
 
-Past days use a simulated completion history so the demo has a lived-in crew;
-anything the crew ticks in the app is stored and wins over the simulation.
+The history comes from the goal log only (the `goal_log` table): rows loaded from a mission package and goals the
+crew ticks in the app. A goal with no row was not done. A row counts on a past day; on the current mission day it
+counts only when it was done at or before the current mission time (mission.mission_time(): the simulated time, or the
+current UTC time on the real date), so a package can say "Helena did her exercise at 09:40" and the goal turns done when
+the mission clock passes that time. A goal ticked in the app is stored with the current mission time, so it counts at once.
+
+A person's history starts on their first day with any row in the goal log (their first logged goal); with no row at all it
+starts on the first day of the plan. Completion and streak count only from there.
 """
 from typing import Dict, List, Optional
 
 from .. import db
-from . import advice, health, plan, risk, telemetry
+from . import advice, health, mission, plan, risk
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
                       WINDOW_BY_PLACE)
 
-HISTORY_START = -30  # first day with goals (pre-flight training)
 STREAK_RATE = 0.7    # a day counts for the streak when 70% of goals are done
 
 
@@ -32,29 +37,32 @@ def daily_goal_ids(location: str) -> List[str]:
     return [g["id"] for g in PERSONAL_GOALS if not (g.get("space_only") and location == "earth")]
 
 
-def _log(crew_id: str) -> Dict[tuple, int]:
-    return {(r["day"], r["goal_id"]): r["done"] for r in db.q("SELECT day,goal_id,done FROM goal_log WHERE crew_id=?", (crew_id,))}
+_log_cache: Dict[str, tuple] = {}
 
 
-def _sim_done(crew_id: str, goal_id: str, day: int, today: int) -> bool:
-    p = {"h": 0.86, "k": 0.84, "a": 0.9, "t": 0.74}[crew_id]
-    g = PERSONAL_BY_ID.get(goal_id)
-    if crew_id == "h" and 132 <= day <= 153 and g and g["area"] == "mental":
-        p = 0.35  # the slide the alert catches
-    if crew_id == "t" and 1 <= day <= 4:
-        p = 0.3
-    if day == today:
-        p *= 0.45  # the day is not over
-    return telemetry.h01(f"goal:{crew_id}:{goal_id}:{day}") < p
+def _log(crew_id: str) -> Dict[tuple, tuple]:
+    """The person's goal log: (day, goal id) -> (done, done_at_time or None). A package brings thousands of rows, so it is
+    read once per change of the database (callers only read it)."""
+    stamp = (db.epoch, db.writes)
+    hit = _log_cache.get(crew_id)
+    if hit is None or hit[0] != stamp:
+        with db._lock:
+            rows = db.connect().execute("SELECT day,goal_id,done,done_at_time FROM goal_log WHERE crew_id=?", (crew_id,)).fetchall()
+        hit = _log_cache[crew_id] = (stamp, {(r[0], r[1]): (r[2], r[3]) for r in rows})
+    return hit[1]
 
 
-def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict[tuple, int]] = None) -> bool:
+def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict[tuple, tuple]] = None,
+            now: Optional[str] = None) -> bool:
+    """Was the goal done on `day`, looking from mission day `today`? On `today` itself only a row done by the current
+    mission time counts (a row without a time counts)."""
     log = _log(crew_id) if log is None else log
-    if (day, goal_id) in log:
-        return bool(log[(day, goal_id)])
-    if goal_id.startswith(("al_", "med_", "sg_")):
+    row = log.get((day, goal_id))
+    if row is None or not row[0]:
         return False
-    return _sim_done(crew_id, goal_id, day, today)
+    if day == today and row[1] is not None and row[1] > (now or mission.mission_time()):
+        return False
+    return True
 
 
 def medical_goals(crew_id: str, day: int) -> List[dict]:
@@ -123,25 +131,33 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
 
 def set_done(crew_id: str, goal_id: str, day: int, done: bool) -> None:
     import time
-    db.x("INSERT INTO goal_log(crew_id,day,goal_id,done,updated_at) VALUES(?,?,?,?,?) "
-         "ON CONFLICT(crew_id,day,goal_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at",
-         (crew_id, day, goal_id, int(done), time.time()))
+    db.x("INSERT INTO goal_log(crew_id,day,goal_id,done,updated_at,done_at_time) VALUES(?,?,?,?,?,?) "
+         "ON CONFLICT(crew_id,day,goal_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at, "
+         "done_at_time=excluded.done_at_time",
+         (crew_id, day, goal_id, int(done), time.time(), mission.mission_time()))
 
 
 # ---------------------------------------------------------------- history-based numbers
-def _start(today: int) -> int:
-    """First day with history: HISTORY_START, or earlier when the clock is set before it."""
-    return min(HISTORY_START, today)
+def _start(crew_id: str, today: int) -> int:
+    """First day of the person's history: their first day with a row in the goal log, else the first day of the plan; never
+    after `today` (a clock set before the history starts shows `today` alone)."""
+    first = min((d for d, _ in _log(crew_id)), default=plan.get()["legs"][0]["start"])
+    return min(first, today)
 
 
 def _history(crew_id: str, today: int) -> dict:
     """Per-day completions from the first history day to today, routine goals only. `today` is always a key."""
     log = _log(crew_id)
+    now = mission.mission_time()
+    extra_by_day: Dict[int, int] = {}  # goals added by an alert, the medical team or a suggestion, done
+    for (ld, gid), v in log.items():
+        if v[0] and gid.startswith(("al_", "med_", "sg_")):
+            extra_by_day[ld] = extra_by_day.get(ld, 0) + 1
     days = {}
-    for d in range(_start(today), today + 1):
+    for d in range(_start(crew_id, today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
-        done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
-        extra = sum(1 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_", "sg_")))
+        done = [gid for gid in ids if is_done(crew_id, gid, d, today, log, now)]
+        extra = extra_by_day.get(d, 0)
         days[d] = {"done": done, "total": len(ids), "count": len(done) + extra}
     return days
 
@@ -156,25 +172,43 @@ def _streak(days: dict, today: int) -> int:
     return n
 
 
+def crew_quorum(n: Optional[int] = None) -> int:
+    """How many people make a crew day: three quarters of the crew, rounded up (3 of 4, and everybody in a crew of one to three)."""
+    n = len(CREW) if n is None else n
+    return max(1, -(-3 * n // 4))
+
+
+def team_target(t: dict, n: Optional[int] = None) -> int:
+    """The week's target of a crew goal for a crew of n (default: the registered crew). A count goal scales with the crew."""
+    n = max(1, len(CREW) if n is None else n)
+    return t["per_person"] * n if "per_person" in t else t["target"]
+
+
+def _team_title(t: dict, target: int) -> str:
+    return t["title"].format(target=target, hours=f"{target / 60:g}") if "{" in t["title"] else t["title"]
+
+
 def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, window_end: Optional[int] = None) -> List[dict]:
     histories = histories or {c["id"]: _history(c["id"], today) for c in CREW}
     end = today if window_end is None else window_end
-    days = [d for d in range(end - 6, end + 1) if d >= _start(today)]
+    days = list(range(end - 6, end + 1))  # a day before someone's history counts as nothing done
+    done_on = lambda cid, d: histories[cid][d]["done"] if d in histories[cid] else []  # noqa: E731
     out = []
+    quorum = crew_quorum()
     for t in TEAM_GOALS:
         kind, _, gid = t["metric"].partition(":")
-        if kind == "all_done":  # a crew day: at least 3 of the 4 did it
-            val = sum(1 for d in days if sum(gid in histories[c["id"]][d]["done"] for c in CREW) >= 3)
+        target = team_target(t)
+        if kind == "all_done":  # a crew day: at least 3 of the 4 did it (three quarters of the crew)
+            val = sum(1 for d in days if sum(gid in done_on(c["id"], d) for c in CREW) >= quorum)
         elif kind == "count":
-            val = sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
+            val = sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         else:  # count20
-            val = 20 * sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
+            val = 20 * sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         val = round(val)
-        # Each person's part: how many times they ticked the routine goal. Routine goals only, so a goal added by an
-        # alert or the medical team never shows here.
-        contrib = {c["id"]: sum(1 for d in days if gid in histories[c["id"]][d]["done"]) for c in CREW}
-        out.append({**t, "value": val, "pct": min(100, round(100 * val / t["target"])), "done": val >= t["target"],
-                    "contrib": contrib})
+        # `personal_ids`: which routine personal goal counts toward the mission (catalog data, the same for everyone;
+        # the person's own goals come from their own goals endpoint). No per-person numbers leave here.
+        out.append({**{k: v for k, v in t.items() if k != "per_person"}, "title": _team_title(t, target), "target": target,
+                    "value": val, "pct": min(100, round(100 * val / target)), "done": val >= target, "personal_ids": [gid]})
     return out
 
 
@@ -208,17 +242,21 @@ def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = Non
                for a in ("physical", "mental")}
     return {"crew_id": crew_id, "goals_week": week, "goals_week_by_area": by_area, "streak": streak, "completion_7d": rate,
             "badges": b, "badges_earned": sum(1 for x in b if x["earned"]),
-            "daily_done": [[d, days[d]["count"], days[d]["total"]] for d in range(max(_start(today), today - 13), today + 1)]}
+            "daily_done": [[d, days[d]["count"], days[d]["total"]] for d in range(max(min(days), today - 13), today + 1)]}
 
 
 def crew_streak(today: int, histories: Dict[str, dict]) -> int:
-    """Shared streak: consecutive days on which at least 3 of the 4 kept their routine."""
+    """Shared streak: consecutive days on which at least three quarters of the crew (3 of 4) kept their routine."""
+    if not CREW:
+        return 0
+    quorum = crew_quorum()
+
     def ok(d: int) -> bool:
-        return sum(1 for c in CREW if histories[c["id"]][d]["total"]
-                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= 3
+        return sum(1 for c in CREW if d in histories[c["id"]] and histories[c["id"]][d]["total"]
+                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= quorum
     n = 1 if ok(today) else 0
     d = today - 1
-    while d >= _start(today) and ok(d):
+    while ok(d):
         n += 1
         d -= 1
     return n
@@ -234,7 +272,7 @@ def crew_board(today: int) -> dict:
             "team_done": sum(1 for t in team if t["done"]), "team_total": len(team)}
 
 
-PUBLIC_ROW = ("crew_id", "goals_week", "completion_7d", "streak", "badges_earned")
+PUBLIC_ROW = ("crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "patches")
 
 
 def public_row(crew_id: str, today: int, histories: Dict[str, dict]) -> dict:
@@ -242,11 +280,13 @@ def public_row(crew_id: str, today: int, histories: Dict[str, dict]) -> dict:
 
     Goals added by an alert, the medical team or a health-based suggestion are left out of the count, so a jump in
     someone's total never tells the crew they have an alert or a prescription. The split by area, the day-by-day
-    counts and the patch progress stay in the person's own space.
+    counts and the patch progress stay in the person's own space. The earned patches are public: every patch is
+    earned by effort (a goal done N times, a streak, taking part in a guided response), never by a health number.
     """
     days = histories[crew_id]
     p = profile(crew_id, today, histories)
     p["goals_week"] = sum(len(days[d]["done"]) for d in range(today - 6, today + 1) if d in days)
+    p["patches"] = [{"id": b["id"], "name": b["name"]} for b in p["badges"] if b["earned"]]
     return {k: p[k] for k in PUBLIC_ROW}
 
 

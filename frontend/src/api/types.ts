@@ -21,14 +21,17 @@ export interface StoryStep { loc: string; day: number; me: string; storm: string
 export interface Leg { location: string; start: number; end: number; label: string }
 export interface LegNow extends Leg { index: number; day_in_leg: number; length: number; next: Leg | null; days_to_next: number | null }
 export interface Plan { name: string; legs: Leg[]; preset: string | null; presets: Record<string, string> }
+export interface Clock { mode: 'simulated' | 'real'; date: string; time: string }
 export interface Mission {
-  step: number; steps: number; story: StoryStep; day: number; day_label: string
+  step: number; steps: number; story: StoryStep | null; day: number; day_label: string
   location: string; place: Place; storm: string | null; suggested_user: string; learning: boolean
   leg: LegNow; custom_day: boolean; location_override: boolean; plan_name: string; setup_done: boolean
-  callsign: string | null; registered: boolean
+  callsign: string | null; registered: boolean; clock: Clock
 }
+/** One bookmark of the demo story (GET /api/scenes): a day, a place, a person, a sentence. */
+export interface Scene { index: number; day: number; location: string; person: string; storm: string | null; when: string; text: string }
 export interface CrewInfo { id: string; name: string; role: string; initials: string; home: string; age: number }
-export interface IndicatorDef { name: string; unit: string; area: Area; facet?: string; dir: string; sd: number; dp: number }
+export interface IndicatorDef { name: string; unit: string; area: Area; facet?: string; dir: string; sd: number; dp: number; max_age?: number }
 export interface SystemDef { name: string; area: Area; indicators: string[]; space: string; hazard: string }
 export interface Source { id: string; name: string; org: string; url: string; used_for: string }
 export interface Catalog {
@@ -44,16 +47,20 @@ export interface GuideEntry {
 }
 export interface Indicator {
   id: string; name: string; unit: string; area: Area; facet?: string; dp: number
-  value: number; baseline: number; delta: number; z: number; bad: number; level: Level; source: string
-  origin: 'user' | 'simulated' | 'real'; last_measured_day: number | null; age_days: number | null
+  /** null when nothing current is known (status "no_data"): never measured, or the last reading is older than the indicator allows */
+  value: number | null; baseline: number | null; delta: number | null; z: number | null; bad: number | null; level: Level; source: string
+  status?: 'no_data'
+  origin: 'user' | 'simulated' | 'real' | 'none'; last_measured_day: number | null; age_days: number | null; stale?: boolean
+  /** no normal of their own yet: only the population range and the NASA standard speak */
+  learning?: boolean; baseline_need?: number | null
   /** last day of the care window that tightens this person's thresholds */
   sensitive_until?: number
-  spread: number; baseline_from: 'preflight' | 'catalog'; baseline_n: number
-  population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical'; source: string; verified: boolean }
+  spread: number; baseline_from: 'preflight' | 'early_flight' | 'learning' | 'catalog'; baseline_n: number
+  population: { low: number | null; high: number | null; status: 'in' | 'out' | 'critical' | 'no_data'; source: string; verified: boolean }
   /** NASA-STD-3001 limit for this indicator today, in flight only; null when the standard sets none Canary can check */
   standard?: Standard | null
 }
-export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null; risks?: string[] }
+export interface SystemState { id: string; name: string; area: Area; level: Level; status: string; indicators: string[]; note: string | null; risks?: string[]; no_data?: boolean }
 export interface AlertGoal { id: string; area: Area; title: string }
 export interface Alert {
   id: string; level: Level; title: string; why: string; todo: string[]; sys?: string | null
@@ -74,14 +81,17 @@ export interface Risk {
   id: string; name: string; nasa_red: boolean; systems: string[]; clock_days: number; level: Level; score: number
   trend: 'rising' | 'stable' | 'falling'; evidence: RiskEvidence[]; since_day: number | null; source: string; verified: boolean
   /** real = measured (NASA data or typed in the app), simulated = none of it, partial = a mix */
-  data: 'real' | 'partial' | 'simulated'; panel_due: boolean
+  data: 'real' | 'partial' | 'simulated' | 'none'; panel_due: boolean
   hazards: HazardId[]; hazard_links: HazardLink[]; hazard_note: string; system_levels?: Record<string, Level>
   note?: string; dose?: { now_msv: number; limit_msv: number; pct: number; cross_day: number | null; same_for_everyone: boolean; note: string }
 }
-export interface AreaState { score: number; level: Level; status: string }
+/** score is null when nothing is measured in the area */
+export interface AreaState { score: number | null; level: Level; status: string }
 export interface Dose {
   mission_msv: number; rate_msv_day: number; career_limit_msv: number; pct_of_limit: number; simulated: boolean
   limit_source?: string
+  /** measured = every day from a dosimeter, estimated = none, partial = a mix */
+  origin?: 'measured' | 'partial' | 'estimated'; measured_days?: number; estimated_days?: number
   /** for one crew member: dose from earlier flights (record or estimate) and the career total NASA's limit counts */
   prior_msv?: number; prior_estimate?: boolean; prior_source?: string; career_msv?: number; career_pct_of_limit?: number
 }
@@ -92,10 +102,10 @@ export interface Goal {
   advice?: { status: AdviceStatus; check_day: number }
   adjusted?: { pct: number; minutes: number; target: number; reason: 'fatigue'; max_pct: number }
 }
-export type AdviceStatus = 'pending' | 'improved' | 'same' | 'worse'
+export type AdviceStatus = 'pending' | 'improved' | 'same' | 'worse' | 'no_data'
 export interface AdviceItem {
   goal_id: string; origin: 'alert' | 'suggestion'; indicator: string; risk: string | null
-  start_day: number; check_day: number; start_bad: number; status: AdviceStatus; bad_at_check?: number
+  start_day: number; check_day: number; start_bad: number; status: AdviceStatus; bad_at_check?: number | null
 }
 export interface AdviceResponse {
   day: number; active: AdviceItem[]; done: AdviceItem[]; margin: number
@@ -109,7 +119,11 @@ export interface Profile {
 }
 export interface TeamGoal {
   id: string; area: Area; title: string; target: number; unit: string
-  value: number; pct: number; done: boolean; contrib: Record<string, number>
+  value: number; pct: number; done: boolean
+  /** one sentence: what the mission is */
+  what: string
+  /** the routine personal goals that count toward it (catalog data, the same for everyone) */
+  personal_ids: string[]
 }
 export interface CrewSummary {
   id: string; name: string; role: string; initials: string; home: string
@@ -125,11 +139,13 @@ export interface Analyte {
   unit: string; range: { min: number; max: number } | null; values: (number | null)[]; status: ('in' | 'out' | null)[]
   panel?: 'cbc' | 'cmp'; source?: string
 }
-export interface Blood { subject: string; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number }; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' }
+/** Lab results registered for the person; with none, `analytes` is empty and `origin` is null. */
+export interface Blood { subject: string | null; timepoints: string[]; lymphocytes: number[]; range: { min: number; max: number } | null; unit: string; note: string; analytes: Record<string, Analyte>; origin: 'real' | null }
 export interface CrewDetail {
   crew: CrewInfo; mission: Mission; indicators: Record<string, Indicator>; systems: Record<string, SystemState>
   alerts: Alert[]; risks: Risk[]; areas: Record<Area, AreaState>; level: Level; status: string; dose: Dose
-  trends: Record<string, [number, number][]>; goals: Goal[]; profile: Profile; blood: Blood
+  /** [day, value]; a day without a current measurement has null: the chart leaves a gap */
+  trends: Record<string, [number, number | null][]>; no_data?: boolean; goals: Goal[]; profile: Profile; blood: Blood
   standard_profile?: { eva: 'none' | 'microgravity' | 'surface'; prior_dose: { msv: number; estimate: boolean; source: string }; sex: string }
   events: { id: number; kind: string; day: number; payload: Record<string, unknown>; has_photo: boolean }[]
   system_info: Record<string, { space: string; hazard: string }>
@@ -151,7 +167,7 @@ export interface Person {
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
 export interface Ridge { id: HazardId; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[]; basis?: string; assumption?: boolean }
-export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[] }
+export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[]; protocol?: string | null }
 export interface LegConditions extends Leg { days: number; gravity_key: string; ridge: Ridge[]; dose_leg_msv: number }
 export interface PlanConditions {
   name: string; legs: LegConditions[]; today: number; leg_index: number
@@ -165,15 +181,33 @@ export interface CrewOverview {
   contract: ContractRow[]; ridge: Ridge[]; warnings: Warning[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
-/** One person in the crew's ranking: routine goals only, never the split by area, daily counts or patch progress. */
+/** One person in the crew's ranking: routine goals only and the patches earned, never the split by area, daily counts or patch progress. */
 export interface LeaderRow {
   crew_id: string; goals_week: number; completion_7d: number; streak: number; badges_earned: number
+  /** earned patches: effort-based, public */
+  patches: { id: string; name: string }[]
   rank: number; name: string; initials: string; role: string
 }
 export interface Leaderboard { rows: LeaderRow[];team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
 export interface Step { i: number; t?: string; q?: string; yes?: number | string; no?: number | string; timer?: number; metro?: number; breath?: number; end?: number; variant?: string | null }
 export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; after_items: { title: string; days: number }[]; window_days: number; ops: 'full' | 'limited' | 'rest'; steps: Step[]; source: string }
 export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean; care_note?: { source: string; verified: boolean; note: string } }
+export interface ProtocolPage {
+  id: string; kind: 'emergency' | 'operational'; name: string; sign: string | null; audience: string; guided: boolean
+  when: string[]; steps: { t: string | null; variant: string | null; q: string | null }[]; watch: string[]; kit: string[]
+  window_days: number; ops: 'full' | 'limited' | 'rest' | null; links: string[]; source: string | null; live: string[]
+  standard: { text: string; items: string[]; name: string; url: string; checked: string } | null
+}
+export interface InForce { id: string; level: Level; reason: string; audience?: string }
+export interface ProtocolLibrary {
+  in_force: InForce[]; emergency: ProtocolPage[]; operational: ProtocolPage[]; reviewed: boolean; note: string
+  care_table: { id: string; name: string; window_days: number; ops: 'full' | 'limited' | 'rest' }[]; place: { id: string; name: string }
+}
+export interface ProtocolMatch {
+  mode: 'rules' | 'ai'; provider: string
+  matches: { id: string; name: string; sign: string; score: number; matched: string[] }[]
+  fallback: { id: string; name: string; sign: string } | null
+}
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
 export interface Claim { text: string; source_ids: string[] }
@@ -207,8 +241,11 @@ export interface TestResult { id: number; kind: string; day: number; at: number;
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
 export interface CheckinResult { ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
-export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
-export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }
+export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean
+  /** One short line each, either may be empty: what in the environment fits this today, and what in the person's own state. */
+  because_outside: string; because_inside: string; protocol: string | null
+  rank: { priority: number; both: number; learned: number; score: number; accepted: number; dismissed: number } }
+export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[]; context: { place: string; in_force: string[] } }
 export interface PersonalRecord {
   name: string; role: string; home: string; dob: string; age: number; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; bmi: number
@@ -228,7 +265,8 @@ export interface ControlOverview {
   warnings: { title: string; todo: string[] }[]; dose: Dose; emergencies: Emergency[]
 }
 export interface SeatForm {
-  seat: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
+  /** the person's id; left out, the server gives s1 to s6 in order */
+  seat?: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
   /** EVA role (surface, microgravity, none) and the dose from earlier flights in mSv; empty means "estimated from days in space". */
@@ -240,4 +278,22 @@ export interface ControlDemo {
   /** Profiles that can carry a rover leg, the station's daily dose (the prior-dose estimate) and each profile's legs. */
   rover_presets: string[]; iss_dose_msv_per_day: number
   itineraries: Record<string, { rover: Leg[]; plain: Leg[] }>
+}
+
+/** GET /api/control/data-status: counts and dates only, never a value. */
+export interface DataStatus {
+  ingest_configured: boolean; package: string | null
+  counts: { observations: number; goal_entries: number; events: number; scenes: number }
+  readings: { crew_id: string; indicator: string; last_day: number; last_received_at: string; count: number }[]
+}
+export interface SpaceEvent {
+  id: string; kind: 'sep' | 'mars'; start_day: number; end_day: number; locations: string[]; extra_dose_msv: number
+  origin: 'real' | 'simulated' | 'donki'; source: string; note: string
+}
+export interface NewSpaceEvent { kind: string; start_day: number; end_day: number; locations: string[]; extra_dose_msv: number; origin: string; note?: string }
+/** What an import stored; `errors` is empty on success (a failed import answers 422 and writes nothing). */
+export interface ImportResult {
+  accepted: { mission: number; legs: number; crew: number; observations: number; space_events: number; goal_log: number; scenes: number }
+  duplicates: { observations: number }
+  errors: { field: string; message: string }[]
 }

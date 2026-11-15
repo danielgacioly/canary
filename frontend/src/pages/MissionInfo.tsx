@@ -21,7 +21,7 @@ export default function MissionInfo() {
       <div className="head rise">
         <div>
           <h1>{o.callsign ?? 'No mission'}</h1>
-          <p className="sub">{o.name} · {o.crew.length} crew · registered by Mission Control</p>
+          <p className="sub">{o.name} · {o.crew.length} {o.crew.length === 1 ? 'crew member' : 'crew'} · registered by Mission Control</p>
         </div>
         <button className="btn ctl-switch right" onClick={() => nav('/control')}><Icon name="link" />Switch to Mission Control mode</button>
       </div>
@@ -35,6 +35,7 @@ export default function MissionInfo() {
 
       <section className="rise" style={{ ['--d' as string]: 2 }}>
         <div className="section-head"><h2>The crew</h2><span className="sub">Who they are. Their health stays with each of them and the medical team.</span></div>
+        {o.crew.length === 0 && <p className="muted">No crew is registered. Mission Control registers the crew.</p>}
         <div className="crew-cards">
           {o.crew.map(c => (
             <div key={c.id} className="crew-card">

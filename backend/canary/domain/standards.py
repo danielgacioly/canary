@@ -69,9 +69,11 @@ def _out(level: int, limit_text: str, item: str, early: bool = False) -> dict:
             "item": item, "source": EARLY if early else DOC["name"], "url": DOC["url"], "verified": not early}
 
 
-def check(ind: str, crew_id: str, location: str, value: float, baseline: Optional[float]) -> Optional[dict]:
+def check(ind: str, crew_id: str, location: str, value: Optional[float], baseline: Optional[float]) -> Optional[dict]:
     """The NASA limit for one indicator today: {"level", "status" (in / near / limit), "text", "item", "source", "url",
     "verified"}, or None when the standard sets no number Canary can check for it."""
+    if value is None:  # no current reading: nothing to hold against a limit
+        return None
     if ind == "vo2":
         role, place = eva_role(crew_id), LOCATIONS[location].get("eva", "none")
         if role == "none" or place == "none":

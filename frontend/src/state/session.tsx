@@ -2,12 +2,14 @@
 // counter that every screen watches to refetch after anything changes.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
-import type { Catalog, Mission } from '../api/types'
+import type { Catalog, Mission, Scene } from '../api/types'
 import { applyPrefs, loadPrefs, savePrefs, type Prefs } from './prefs'
 
 interface Session {
   catalog: Catalog | null
   mission: Mission | null
+  /** The demo story's bookmarks (GET /api/scenes); empty when the loaded data has none, and then the story bar is hidden. */
+  scenes: Scene[]
   /** Use a mission state the API just returned (for example after setup) without waiting for a refetch. */
   setMission: (m: Mission) => void
   me: string | null
@@ -19,6 +21,9 @@ interface Session {
   setLocation: (loc: string | null) => Promise<void>
   emergency: boolean
   setEmergency: (v: boolean) => void
+  /** Open Guided Response already on this protocol (from its page on the Protocols page); null opens the picker. */
+  startProtocol: (id: string | null) => void
+  emergencyPid: string | null
   askOpen: boolean
   setAskOpen: (v: boolean) => void
   toast: (t: string) => void
@@ -42,10 +47,14 @@ function save(k: string, v: string | null) {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [mission, setMission] = useState<Mission | null>(null)
+  const [scenes, setScenes] = useState<Scene[]>([])
   // A remembered person without a session token is not signed in.
   const [me, setMeState] = useState<string | null>(load('canary.viewer') ? load('canary.me') : null)
   const [rev, setRev] = useState(0)
-  const [emergency, setEmergency] = useState(false)
+  const [emergency, setEmergencyRaw] = useState(false)
+  const [emergencyPid, setEmergencyPid] = useState<string | null>(null)
+  const setEmergency = useCallback((v: boolean) => { setEmergencyRaw(v); if (!v) setEmergencyPid(null) }, [])
+  const startProtocol = useCallback((id: string | null) => { setEmergencyPid(id); setEmergencyRaw(true) }, [])
   const [askOpen, setAskOpen] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; t: string }[]>([])
   const tid = useRef(0)
@@ -54,6 +63,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [rev])  // Mission Control can re-register the crew
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
+  useEffect(() => { api.scenes().then(setScenes).catch(() => setScenes([])) }, [rev])
   useEffect(() => { api.photos().then(setPhotos).catch(() => undefined) }, [rev])
   useEffect(() => {
     applyPrefs(prefs)
@@ -89,8 +99,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [bump])
   const setLocation = useCallback(async (loc: string | null) => { setMission(await api.setLocation(loc)); bump() }, [bump])
 
-  const value = useMemo(() => ({ catalog, mission, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, askOpen, setAskOpen, toast, toasts, photos, prefs, setPref }),
-    [catalog, mission, me, setMe, rev, bump, setStep, setLocation, emergency, askOpen, toast, toasts, photos, prefs, setPref])
+  const value = useMemo(() => ({ catalog, mission, scenes, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, setAskOpen, toast, toasts, photos, prefs, setPref }),
+    [catalog, mission, scenes, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, toast, toasts, photos, prefs, setPref])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

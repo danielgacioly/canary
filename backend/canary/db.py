@@ -1,8 +1,9 @@
 """SQLite storage. One file, no server: it has to run on board without a network.
 
-Only what people do is stored here (check-ins, goals, messages, emergencies,
-briefings, settings). Sensor telemetry comes from a TelemetrySource
-(see domain/telemetry.py), which today reads the observation table (see domain/simdata.py).
+Everything lives here: what people do (check-ins, goals, messages, emergencies, briefings, settings) and what the
+mission measured. Measurements (`observations`), space-weather events (`space_events`) and the guided-demo bookmarks
+(`scenes`) arrive only through the entry points in domain/data.py (the API routes, a mission package import, or
+scripts/load_mission.py); the engine reads them back through that module and nothing else.
 """
 import json
 import sqlite3
@@ -20,7 +21,18 @@ CREATE TABLE IF NOT EXISTS checkin_photos (
   checkin_id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, data_url TEXT NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS goal_log (
   crew_id TEXT NOT NULL, day INTEGER NOT NULL, goal_id TEXT NOT NULL, done INTEGER NOT NULL,
-  updated_at REAL NOT NULL, PRIMARY KEY (crew_id, day, goal_id));
+  updated_at REAL NOT NULL, done_at_time TEXT, PRIMARY KEY (crew_id, day, goal_id));
+CREATE TABLE IF NOT EXISTS observations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL, indicator TEXT NOT NULL,
+  value REAL NOT NULL, unit TEXT NOT NULL, origin TEXT NOT NULL, method TEXT NOT NULL, source TEXT NOT NULL,
+  note TEXT NOT NULL, measured_at TEXT NOT NULL, received_at TEXT NOT NULL,
+  UNIQUE (crew_id, indicator, measured_at, source));
+CREATE TABLE IF NOT EXISTS space_events (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, start_day INTEGER NOT NULL, end_day INTEGER NOT NULL, locations TEXT NOT NULL,
+  extra_dose_msv REAL NOT NULL, origin TEXT NOT NULL, source TEXT NOT NULL, note TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scenes (
+  idx INTEGER PRIMARY KEY, day INTEGER NOT NULL, location TEXT NOT NULL, person TEXT NOT NULL, storm TEXT NOT NULL,
+  when_label TEXT NOT NULL, text TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS medical_goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT NOT NULL, area TEXT NOT NULL, title TEXT NOT NULL,
   why TEXT NOT NULL, xp INTEGER NOT NULL, from_day INTEGER NOT NULL, to_day INTEGER NOT NULL,
@@ -45,6 +57,9 @@ CREATE TABLE IF NOT EXISTS care_events (
 CREATE TABLE IF NOT EXISTS notices (
   crew_id TEXT NOT NULL, alert_id TEXT NOT NULL, since_day INTEGER NOT NULL, day INTEGER NOT NULL, level INTEGER NOT NULL,
   title TEXT NOT NULL, to_id TEXT NOT NULL, created_at REAL NOT NULL, PRIMARY KEY (crew_id, alert_id, since_day));
+CREATE TABLE IF NOT EXISTS suggestion_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, sid TEXT NOT NULL, action TEXT NOT NULL,
+  day INTEGER NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
   response TEXT NOT NULL, created_at REAL NOT NULL);
@@ -57,11 +72,22 @@ _conn: Optional[sqlite3.Connection] = None
 # write goes through x(), reset() or a new connection, and each of them empties the cache, so a read never returns
 # data older than the last write. Rows are copied out, so a caller that edits a row cannot change the cache.
 _cache: dict = {}
+# Bumped when the connection changes or the demo is reset: anything built from a table (domain/data.py) is stale then.
+epoch = 0
+# Counts every write (any table): a cache of something read from the database stays valid while it is unchanged.
+writes = 0
 _CACHE_MAX = 50_000
 
 
 def _forget() -> None:
+    global writes
+    writes += 1
     _cache.clear()
+
+
+def _bump_epoch() -> None:
+    global epoch
+    epoch += 1
 
 
 def connect(path: Optional[str] = None) -> sqlite3.Connection:
@@ -71,8 +97,12 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             _conn = sqlite3.connect(path or settings.db_path, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            cols = [r[1] for r in _conn.execute("PRAGMA table_info(goal_log)").fetchall()]
+            if "done_at_time" not in cols:  # a database made before the goal log carried the time of day
+                _conn.execute("ALTER TABLE goal_log ADD COLUMN done_at_time TEXT")
             _conn.commit()
             _forget()
+            _bump_epoch()
         return _conn
 
 
@@ -113,7 +143,8 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "advice", "care_events", "notices"):
+        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "suggestion_feedback", "advice", "care_events", "notices", "observations", "space_events", "scenes"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
         _forget()
+    _bump_epoch()
