@@ -2341,12 +2341,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -2358,12 +2352,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -2375,12 +2363,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -2392,12 +2374,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -2409,12 +2385,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -2426,12 +2396,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -2443,12 +2407,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -28651,12 +28609,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -28668,12 +28620,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -28685,12 +28631,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -28702,12 +28642,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -28719,12 +28653,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -28736,12 +28664,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -28753,12 +28675,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -37720,12 +37636,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -37737,12 +37647,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -37754,12 +37658,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -37771,12 +37669,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -37788,12 +37680,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -37805,12 +37691,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -37822,12 +37702,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -38187,12 +38061,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -38204,12 +38072,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -38221,12 +38083,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -38238,12 +38094,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -38255,12 +38105,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -38272,12 +38116,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -38289,12 +38127,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -38700,12 +38532,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -38717,12 +38543,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -38734,12 +38554,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -38751,12 +38565,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -38768,12 +38576,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -38785,12 +38587,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -38802,12 +38598,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -39213,12 +39003,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -39230,12 +39014,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -39247,12 +39025,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -39264,12 +39036,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -39281,12 +39047,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -39298,12 +39058,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -39315,12 +39069,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -39680,12 +39428,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -39697,12 +39439,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -39714,12 +39450,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -39731,12 +39461,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -39748,12 +39472,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -39765,12 +39483,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -39782,12 +39494,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -40147,12 +39853,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -40164,12 +39864,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -40181,12 +39875,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -40198,12 +39886,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -40215,12 +39897,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -40232,12 +39908,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -40249,12 +39919,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -40614,12 +40278,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -40631,12 +40289,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -40648,12 +40300,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -40665,12 +40311,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -40682,12 +40322,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -40699,12 +40333,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -40716,12 +40344,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -41081,12 +40703,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -41098,12 +40714,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -41115,12 +40725,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -41132,12 +40736,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -41149,12 +40747,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -41166,12 +40758,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -41183,12 +40769,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",
@@ -41251,12 +40831,6 @@
   "team": [
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 7,
-     "t": 6
-    },
     "done": true,
     "id": "team_exercise",
     "metric": "count:exercise",
@@ -41268,12 +40842,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 5,
-     "t": 6
-    },
     "done": true,
     "id": "team_meals",
     "metric": "all_done:social",
@@ -41285,12 +40853,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 1,
-     "k": 7,
-     "t": 5
-    },
     "done": false,
     "id": "team_checkins",
     "metric": "all_done:mood",
@@ -41302,12 +40864,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": true,
     "id": "team_movie",
     "metric": "all_done:leisure",
@@ -41319,12 +40875,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 2,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_mind",
     "metric": "count:meditate",
@@ -41336,12 +40886,6 @@
    },
    {
     "area": "mental",
-    "contrib": {
-     "a": 6,
-     "h": 4,
-     "k": 5,
-     "t": 5
-    },
     "done": false,
     "id": "team_books",
     "metric": "count20:read",
@@ -41353,12 +40897,6 @@
    },
    {
     "area": "physical",
-    "contrib": {
-     "a": 6,
-     "h": 6,
-     "k": 6,
-     "t": 6
-    },
     "done": true,
     "id": "team_water",
     "metric": "all_done:water",

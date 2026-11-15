@@ -205,11 +205,10 @@ def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, windo
         else:  # count20
             val = 20 * sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         val = round(val)
-        # Each person's part: how many times they ticked the routine goal. Routine goals only, so a goal added by an
-        # alert or the medical team never shows here.
-        contrib = {c["id"]: sum(1 for d in days if gid in done_on(c["id"], d)) for c in CREW}
+        # `personal_ids`: which routine personal goal counts toward the mission (catalog data, the same for everyone;
+        # the person's own goals come from their own goals endpoint). No per-person numbers leave here.
         out.append({**{k: v for k, v in t.items() if k != "per_person"}, "title": _team_title(t, target), "target": target,
-                    "value": val, "pct": min(100, round(100 * val / target)), "done": val >= target, "contrib": contrib})
+                    "value": val, "pct": min(100, round(100 * val / target)), "done": val >= target, "personal_ids": [gid]})
     return out
 
 
@@ -273,7 +272,7 @@ def crew_board(today: int) -> dict:
             "team_done": sum(1 for t in team if t["done"]), "team_total": len(team)}
 
 
-PUBLIC_ROW = ("crew_id", "goals_week", "completion_7d", "streak", "badges_earned")
+PUBLIC_ROW = ("crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "patches")
 
 
 def public_row(crew_id: str, today: int, histories: Dict[str, dict]) -> dict:
@@ -281,11 +280,13 @@ def public_row(crew_id: str, today: int, histories: Dict[str, dict]) -> dict:
 
     Goals added by an alert, the medical team or a health-based suggestion are left out of the count, so a jump in
     someone's total never tells the crew they have an alert or a prescription. The split by area, the day-by-day
-    counts and the patch progress stay in the person's own space.
+    counts and the patch progress stay in the person's own space. The earned patches are public: every patch is
+    earned by effort (a goal done N times, a streak, taking part in a guided response), never by a health number.
     """
     days = histories[crew_id]
     p = profile(crew_id, today, histories)
     p["goals_week"] = sum(len(days[d]["done"]) for d in range(today - 6, today + 1) if d in days)
+    p["patches"] = [{"id": b["id"], "name": b["name"]} for b in p["badges"] if b["earned"]]
     return {k: p[k] for k in PUBLIC_ROW}
 
 

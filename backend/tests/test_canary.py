@@ -107,9 +107,13 @@ def test_ranking_and_crew_missions_never_reveal_alert_doctor_goals_or_health_num
     at(3)
     lb = client.get("/api/leaderboard").json()
     for r in lb["rows"]:
-        assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "rank", "name", "initials", "role"}
+        assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "patches", "rank", "name", "initials", "role"}
+        assert all(set(x) == {"id", "name"} for x in r["patches"]) and len(r["patches"]) == r["badges_earned"]
     ex = next(t for t in lb["team"] if t["id"] == "team_exercise")
-    assert ex["unit"] == "sessions" and all(isinstance(v, int) and v <= 7 for v in ex["contrib"].values())
+    # Each mission names the personal goal that counts toward it (catalog data) and carries no per-person numbers.
+    assert ex["unit"] == "sessions" and ex["personal_ids"] == ["exercise"] and "contrib" not in ex
+    assert {t["id"]: t["personal_ids"] for t in lb["team"]}["team_books"] == ["read"]
+    assert all(set(g) == set(ex) for g in lb["team"]) and all(len(g["personal_ids"]) == 1 for g in lb["team"])
 
     def public():
         ov = client.get("/api/crew/overview").json()
