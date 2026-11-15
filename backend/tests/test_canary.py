@@ -11,9 +11,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from canary import auth, db  # noqa: E402
 from canary.assistant import guard  # noqa: E402
-from canary.domain import catalog, goals, health, mission, plan as plan_mod  # noqa: E402
+from canary.domain import catalog, goals, health, mission, plan as plan_mod, registry  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, client_from, plan_preset, plan_put, plan_setup, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 
 client = TestClient(app)
 
@@ -36,7 +37,7 @@ def as_(cid):
 
 
 def at(step):
-    return client.put("/api/mission", json={"step": step}).json()
+    return client.put("/api/mission", json={"step": step}, headers=control_headers(client)).json()
 
 
 def test_no_alerts_while_learning_on_earth():
@@ -166,46 +167,46 @@ def test_briefing_is_approved_then_queued():
 
 def test_medical_endpoints_need_the_pin():
     assert client.get("/api/medical/overview").status_code == 401
-    assert client.post("/api/medical/session", json={"pin": "0000"}).status_code == 401
-    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    assert client.post("/api/medical/session", json={"account_id": "k", "pin": "0000"}).status_code == 401
+    tok = medical_headers(client)["Authorization"][7:]
     assert client.get("/api/medical/overview", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
 
 
 def test_closing_an_emergency_creates_follow_up_goals_and_a_report():
     at(4)
-    e = client.post("/api/emergencies", json={"responder": "k"}).json()
-    client.post(f"/api/emergencies/{e['id']}", json={"protocol": "seizure", "patient": "t", "text": "Seizure stopped at 02:10"})
-    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"})
+    e = client.post("/api/emergencies", json={"responder": "k"}, headers=crew_headers(client, "h")).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": "seizure", "patient": "t", "text": "Seizure stopped at 02:10"}, headers=crew_headers(client, "h"))
+    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"}, headers=crew_headers(client, "h"))
     titles = [g["title"] for g in client.get("/api/goals/t", headers=as_("t")).json()["personal"] if g["by"] == "medical"]
     assert titles and any("Glucose" in t for t in titles)
-    assert any(m["kind"] == "report" for m in client.get("/api/messages").json())
+    assert any(m["kind"] == "report" for m in client.get("/api/messages", headers=crew_headers(client, "h")).json())
 
 
 def test_plan_drives_the_place_and_goals():
-    client.post("/api/plan/preset", json={"preset": "iss"})
-    ms = client.put("/api/mission", json={"day": 100}).json()
+    plan_preset("iss")
+    ms = client.put("/api/mission", json={"day": 100}, headers=control_headers(client)).json()
     assert ms["location"] == "iss" and ms["leg"]["label"].startswith("Expedition")
     titles = [g["title"] for g in client.get("/api/goals/h", headers=as_("h")).json()["personal"]]
     assert any("treadmill" in t for t in titles) and any("cupola" in t for t in titles)
-    assert client.put("/api/mission", json={"day": 200}).json()["location"] == "earth"
+    assert client.put("/api/mission", json={"day": 200}, headers=control_headers(client)).json()["location"] == "earth"
 
 
 def test_custom_plan_is_validated_and_used():
     bad = {"name": "x", "legs": [{"location": "earth", "start": 0, "end": 10}, {"location": "moon", "start": 5, "end": 20}]}
-    assert client.put("/api/plan", json=bad).status_code == 400
+    assert plan_put(bad).status_code == 400
     good = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
                                           {"location": "moon", "start": 3, "end": 40, "label": "Base camp"}]}
-    assert client.put("/api/plan", json=good).status_code == 200
-    ms = client.put("/api/mission", json={"day": 10}).json()
+    assert plan_put(good).status_code == 200
+    ms = client.put("/api/mission", json={"day": 10}, headers=control_headers(client)).json()
     assert ms["location"] == "moon" and ms["place"]["gravity"] == "1/6 g" and ms["leg"]["label"] == "Base camp"
     assert any(p["variant"] for p in client.get("/api/protocols").json()["protocols"]["rad"]["steps"])
 
 
 def test_bone_loss_depends_on_gravity_in_the_plan():
-    client.post("/api/plan/preset", json={"preset": "mars"})
+    plan_preset("mars")
     at(2)
     mars = health.indicator("t", "bone", mission.state())["value"]
-    client.post("/api/plan/preset", json={"preset": "moon"})
+    plan_preset("moon")
     # the moon package ends on day 120 (back on Earth after a short trip): the last day with a current reading
     moon = health.indicator("t", "bone", {**mission.state(), "day": 120, "location": plan_mod.location_at(120), "learning": False})["value"]
     assert mars < moon
@@ -240,7 +241,7 @@ def test_profile_photo_is_set_by_the_astronaut_only():
     assert client.delete("/api/crew/h/photo", headers=as_("h")).json() == {}
 
 def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
-    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    tok = medical_headers(client)["Authorization"][7:]
     med = {"Authorization": f"Bearer {tok}"}
     assert client.get("/api/crew/h", headers=med).json()["access"] == "medical"
     assert client.get("/api/crew").status_code == 401
@@ -255,7 +256,7 @@ def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
 # ---------------------------------------------------------------- the mission clock before and after the plan
 @pytest.mark.parametrize("day", [-60, -365, -31, 800, 2000])
 def test_every_page_works_on_any_mission_day(day):
-    assert client.put("/api/mission", json={"day": day}).json()["day"] == day
+    assert client.put("/api/mission", json={"day": day}, headers=control_headers(client)).json()["day"] == day
     for path in ("/api/crew/overview", "/api/leaderboard"):
         assert client.get(path).status_code == 200, path
     h = as_("h")
@@ -267,23 +268,29 @@ def test_every_page_works_on_any_mission_day(day):
 def test_wrong_pin_is_401_and_the_right_one_returns_a_token():
     assert client.post("/api/crew/h/session", json={"pin": "9999"}).status_code == 401
     r = client.post("/api/crew/h/session", json={"pin": "1001"}).json()
-    assert r["crew_id"] == "h" and r["token"].startswith("h.") and r["expires_at"] > 0
+    assert r["crew_id"] == "h" and r["token"].startswith("crew.h.") and r["expires_at"] > 0
     assert client.post("/api/crew/h/session", json={"pin": "12"}).status_code == 422  # exactly 4 digits
     assert client.post("/api/crew/zz/session", json={"pin": "1001"}).status_code == 404
 
 
-def test_pin_attempts_are_rate_limited_per_person():
+def test_pin_attempts_are_rate_limited_per_person_and_per_address():
+    auth.clear_failures()
+    elsewhere = client_from("10.9.8.7")  # another terminal
     for _ in range(5):
         assert client.post("/api/crew/h/session", json={"pin": "0000"}).status_code == 401
     assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 429  # even the right PIN waits
-    assert client.post("/api/crew/k/session", json={"pin": "1002"}).status_code == 200
+    assert elsewhere.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 429  # Helena's account is paused from everywhere
+    assert elsewhere.post("/api/crew/k/session", json={"pin": "1002"}).status_code == 200  # another person, another address: open
+    assert client.post("/api/crew/k/session", json={"pin": "1002"}).status_code == 429  # the first address is paused for everybody
+    auth.clear_failures()
 
 
 def test_a_plain_id_in_the_viewer_header_is_rejected():
     assert client.get("/api/goals/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
     assert client.get("/api/crew/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
     exp = int(time.time()) - 10  # a correctly signed but expired token
-    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": f"h.{exp}.{auth._sig('h', exp)}"}).status_code == 403
+    body = f"crew.h.crew.{exp}.abcdef0123456789"
+    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": f"{body}.{auth._sig(body)}"}).status_code == 403
     assert client.get("/api/goals/h", headers={"X-Canary-Viewer": as_("h")["X-Canary-Viewer"] + "0"}).status_code == 403
 
 
@@ -302,14 +309,14 @@ def test_changing_the_pin_replaces_the_old_one():
     assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 401
     assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
     stored = json.dumps(db.get_setting("pins"))
-    assert "2468" not in stored  # stored salted and hashed
+    assert '"2468"' not in stored and set(db.get_setting("pins")["h"]) == {"salt", "hash"}  # stored salted and hashed (a run of hex digits may spell 2468 by chance)
     reset_demo(client)
     assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 200  # reset restores defaults
 
 
 def test_medical_pin_is_four_digits():
-    assert client.post("/api/medical/session", json={"pin": "196"}).status_code == 422
-    assert client.post("/api/medical/session", json={"pin": "1961"}).status_code == 200
+    assert client.post("/api/medical/session", json={"account_id": "k", "pin": "196"}).status_code == 422
+    assert client.post("/api/medical/session", json={"account_id": "k", "pin": "1002"}).status_code == 200
 
 
 # ---------------------------------------------------------------- mission setup
@@ -318,11 +325,11 @@ def test_setup_saves_the_plan_and_marks_it_done():
     legs = [{"location": "earth", "start": -60, "end": -1, "label": "Training"},
             {"location": "rocket", "start": 0, "end": 4, "label": "Transfer"},
             {"location": "moon", "start": 5, "end": 34, "label": "Surface"}]
-    bad = client.post("/api/setup", json={"name": "x", "legs": [legs[1], {**legs[2], "start": 3}]})
+    bad = plan_setup({"name": "x", "legs": [legs[1], {**legs[2], "start": 3}]})
     assert bad.status_code == 400
-    ms = client.post("/api/setup", json={"name": "Artemis", "legs": legs}).json()
+    ms = plan_setup({"name": "Artemis", "legs": legs}).json()
     assert ms["setup_done"] and ms["plan_name"] == "Artemis" and ms["step"] == 0
-    assert client.put("/api/mission", json={"day": 10}).json()["location"] == "moon"
+    assert client.put("/api/mission", json={"day": 10}, headers=control_headers(client)).json()["location"] == "moon"
     reset_demo(client)
     ms = client.get("/api/mission").json()
     assert ms["setup_done"] is True and ms["plan_name"] == "Mars reference mission"  # reset restores the demo mission
@@ -378,26 +385,26 @@ def test_my_information_is_private_and_ages_with_the_mission():
     r = client.get("/api/crew/h/record", headers=as_("h")).json()
     assert r["blood_type"] == "O−" and r["age"] == 46 and r["bmi"] == 21.8 and r["date_today"] == "2035-05-02"
     assert client.get("/api/crew/h/record", headers=as_("k")).status_code == 403
-    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    tok = medical_headers(client)["Authorization"][7:]
     assert client.get("/api/crew/h/record", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
 
 
 def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
-    assert client.post("/api/control/session", json={"pin": "0000"}).status_code == 401
+    assert client.post("/api/control/session", json={"account_id": "g-mcc1", "pin": "0000"}).status_code == 401
     assert client.get("/api/control/overview").status_code == 401
-    med = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    med = medical_headers(client)["Authorization"][7:]
     assert client.get("/api/control/overview", headers={"X-Canary-Control": med}).status_code == 401  # a medical token is not a control token
-    c = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    c = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
     assert client.get("/api/mission/overview").json()["callsign"] == "Odyssey 1"
-
-    o = client.post("/api/control/clear", headers=c).json()
-    assert o["registered"] is False and o["people"] == [] and client.get("/api/catalog").json()["crew"] == []
-    assert client.get("/api/mission").json()["registered"] is False
-
     demo = client.get("/api/control/demo", headers=c).json()
-    crew = demo["crew"]
+    assert client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": demo["mission"], "ground": demo["ground"]}).status_code == 409  # registered: locked
+
+    empty(client)  # what a system with nothing registered looks like
+    assert client.get("/api/catalog").json()["crew"] == [] and client.get("/api/mission").json()["registered"] is False
+    crew = [dict(p) for p in demo["crew"]]
     crew[0] = {**crew[0], "name": "Ana Lima", "pin": "2468"}
-    o = client.post("/api/control/register", headers=c, json={"crew": crew, "mission": {**demo["mission"], "callsign": "Kestrel 2", "preset": "iss"}}).json()
+    c = control_headers(client)  # the first-access sign-in: no MCC account exists yet
+    o = client.post("/api/control/register", headers=c, json={"crew": crew, "mission": {**demo["mission"], "callsign": "Kestrel 2", "preset": "iss"}, "ground": demo["ground"]}).json()
     assert o["registered"] and o["overview"]["callsign"] == "Kestrel 2" and o["mission"]["step"] == 0
     assert any(p["name"] == "Ana Lima" and p["initials"] == "AL" for p in client.get("/api/catalog").json()["crew"])
     assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
@@ -407,21 +414,30 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
 
 
-def test_mission_control_brings_back_the_demo_data_after_a_clear():
+def test_mission_control_brings_back_the_demo_data_on_an_empty_system_only():
     assert client.post("/api/control/demo-data").status_code == 401
-    c = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    c = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
     before = client.get("/api/control/data-status", headers=c).json()["counts"]
-    assert client.post("/api/control/clear", headers=c).json()["registered"] is False
+    assert client.post("/api/control/demo-data", headers=c).status_code == 409  # registered: only the demo reset starts over
+    empty(client)
+    c = control_headers(client)
     o = client.post("/api/control/demo-data", headers=c).json()
     assert o["registered"] and o["overview"]["callsign"] == "Odyssey 1" and len(o["people"]) == 4
+    c = control_headers(client)
     assert client.get("/api/control/data-status", headers=c).json()["counts"] == before
     assert client.get("/api/scenes").json()  # the demo story is back
     assert client.get("/api/control/overview", headers=c).status_code == 200  # Mission Control stays signed in
 
 
+def _register_form(crew, mission, demo):
+    """Register on an empty system (a registered mission is locked) and answer the response."""
+    empty(client)
+    return client.post("/api/control/register", headers=control_headers(client), json={"crew": crew, "mission": mission, "ground": demo["ground"]})
+
+
 def _register(c, **mission):
-    demo = client.get("/api/control/demo", headers=c).json()
-    return client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": {**demo["mission"], **mission}})
+    demo = client.get("/api/control/demo", headers=control_headers(client)).json()
+    return _register_form(demo["crew"], {**demo["mission"], **mission}, demo)
 
 
 def _legs():
@@ -457,7 +473,7 @@ def test_registering_moon_or_mars_with_or_without_the_rover_leg(preset, rover_pl
 def test_the_rover_is_refused_for_profiles_without_one_and_nothing_is_saved():
     c = _ctl()
     assert "mission.rover" in _fields(_register(c, preset="iss", rover=True))
-    assert client.get("/api/plan").json()["preset"] == "mars" and "mars_rover" in [l["location"] for l in _legs()]  # the demo is still in force
+    assert not registry.registered() and catalog.CREW == []  # a refused registration saves nothing
     assert _register(c, preset="iss", rover=False).status_code == 200
     assert _register(c, preset="iss").status_code == 200  # left out: no rover, no error
     assert not any(l["location"].endswith("_rover") for l in _legs())
@@ -469,7 +485,7 @@ def test_eva_role_and_prior_dose_reach_my_information_and_the_medical_team():
     demo = client.get("/api/control/demo", headers=c).json()
     crew = [dict(p) for p in demo["crew"]]
     crew[0].update(eva="microgravity", prior_dose_msv=120.5)
-    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
+    assert _register_form(crew, demo["mission"], demo).status_code == 200
     r = client.get("/api/crew/h/record", headers=as_("h")).json()
     assert r["eva"] == "microgravity" and r["prior_dose_msv"] == 120.5 and r["prior_dose"] == {"msv": 120.5, "estimate": False, "source": "personal record"}
     k = client.get("/api/crew/k/record", headers=as_("k")).json()  # no recorded dose: the estimate from 181 days in space
@@ -495,8 +511,9 @@ def test_mission_and_control_overviews_carry_no_eva_role_or_prior_dose_per_perso
     demo = client.get("/api/control/demo", headers=c).json()
     crew = [dict(p) for p in demo["crew"]]
     crew[0].update(eva="microgravity", prior_dose_msv=120.5)  # a marker that would show if it leaked
-    assert client.post("/api/control/register", headers=c, json={"crew": crew, "mission": demo["mission"]}).status_code == 200
-    mission_ov, control_ov = client.get("/api/mission/overview"), client.get("/api/control/overview", headers=c)
+    assert _register_form(crew, demo["mission"], demo).status_code == 200
+    c = control_headers(client)
+    mission_ov, control_ov = client.get("/api/mission/overview", headers=as_("h")), client.get("/api/control/overview", headers=c)
     for name, body in {"mission overview": mission_ov.json(), "control overview": control_ov.json(),
                        "crew overview": client.get("/api/crew/overview").json()}.items():
         rows = list(_rows(body))
@@ -509,11 +526,12 @@ def test_mission_and_control_overviews_carry_no_eva_role_or_prior_dose_per_perso
 
 def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
     at(2)  # transit: 10 minutes each way, 20x faster in the demo = 15 s
-    client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Confirm the crew is in the shelter."})
-    client.post("/api/messages", json={"sender": "ship medical team", "recipient": "mission-control", "text": "All four in the shelter."})
-    msgs = client.get("/api/messages").json()
-    out = next(m for m in msgs if m["sender"] == "mission-control")
+    client.post("/api/messages", json={"recipient": "medical", "text": "Confirm the crew is in the shelter."}, headers=control_headers(client))
+    client.post("/api/messages", json={"recipient": "mission-control", "text": "All four in the shelter."}, headers=_med())
+    msgs = client.get("/api/messages", headers=control_headers(client)).json()
+    out = next(m for m in msgs if m["sender"] == "g-mcc1")  # the sender is the account that signed in
     back = next(m for m in msgs if m["recipient"] == "mission-control")
+    assert back["sender"] == "k"
     assert not out["delivered"] and 10 <= out["eta_s"] <= 15 and back["text"].startswith("All four")
 
 
@@ -608,7 +626,7 @@ def test_osd569_rows_are_real_and_keep_the_original_label():
 def test_simdata_follows_the_plan_the_same_way_plan_does():
     from canary.domain import plan as plan_mod, simdata
     for key in ("mars", "iss", "moon"):
-        client.post("/api/plan/preset", json={"preset": key})
+        plan_preset(key)
         legs = plan_mod.get()["legs"]
         for d in range(-70, 800, 7):
             assert simdata.location_at(legs, d) == plan_mod.location_at(d)
@@ -619,7 +637,7 @@ def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
     from canary.domain import telemetry
     good = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
                                           {"location": "moon", "start": 3, "end": 40}]}
-    assert client.put("/api/plan", json=good).status_code == 200
+    assert plan_put(good).status_code == 200
     assert telemetry.last_observation("h", "co2", 10) is None  # co2 belongs to "cabin"
     assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
     assert telemetry.SOURCE.value("t", "hr", -500) is None  # before the first measurement: no value, and never an exception
@@ -629,7 +647,7 @@ def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
 
 # ---------------------------------------------------------------- Prompt 1: everything the person measures is an observation
 def _day(d):
-    return client.put("/api/mission", json={"day": d}).json()
+    return client.put("/api/mission", json={"day": d}, headers=control_headers(client)).json()
 
 
 def _checkin(cid, kind, payload):
@@ -787,7 +805,7 @@ def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the
 
 def test_a_plan_without_preflight_learns_from_the_first_flight_days_never_from_the_catalog_seed():
     plan_no_pre = {"name": "No pre-flight", "legs": [{"location": "rocket", "start": 0, "end": 3}, {"location": "transit", "start": 4, "end": 100}]}
-    assert client.put("/api/plan", json=plan_no_pre).status_code == 200
+    assert plan_put(plan_no_pre).status_code == 200
     b = health.baselines("h")
     assert not any(x["from"] == "catalog" for x in b.values())
     assert b["sleep"]["from"] == "early_flight" and b["sleep"]["n"] >= health.MIN_PREFLIGHT  # daily readings: five in the first days
@@ -953,7 +971,7 @@ def test_get_risks_is_a_read_only_tool_with_sources_and_chat_answers_from_it():
 
 # ---------------------------------------------------------------- Prompt 4: the advice loop, alerts that last, lighter training under fatigue
 def _med():
-    tok = client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]
+    tok = medical_headers(client)["Authorization"][7:]
     return {"Authorization": f"Bearer {tok}"}
 
 
@@ -1027,7 +1045,7 @@ def test_advice_reviews_are_private_to_the_medical_officer():
     advice.start("h", "sg_breathe", "suggestion", {"indicator": "stress", "after_days": 7}, 147)
     _day(154)
     assert len(_advice_messages()) == 1
-    assert not any(m["kind"] == "advice" for m in client.get("/api/messages").json())
+    assert not any(m["kind"] == "advice" for m in client.get("/api/messages", headers=crew_headers(client, "h")).json())
     assert not any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("t")).json())
     assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=_med()).json())
     assert any(m["kind"] == "advice" for m in client.get("/api/messages", headers=as_("k")).json())
@@ -1107,9 +1125,9 @@ def test_ticking_an_alert_goal_opens_its_experiment_once():
 
 # ---------------------------------------------------------------- Prompt 5: critical alerts reach the medical officer, emergencies leave a care window
 def _close(protocol, patient, outcome="stable"):
-    e = client.post("/api/emergencies", json={"responder": "k"}).json()
-    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient})
-    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}).json()
+    e = client.post("/api/emergencies", json={"responder": "k"}, headers=crew_headers(client, "h")).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient}, headers=crew_headers(client, "h"))
+    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}, headers=crew_headers(client, "h")).json()
 
 
 def _med_goals(who):
@@ -1155,7 +1173,7 @@ def test_closing_twice_does_not_repeat_goals_or_the_window():
     _day(153)
     e = _close("seizure", "t")
     n = (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'")))
-    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"})
+    client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": "stable"}, headers=crew_headers(client, "h"))
     assert (len(db.q("SELECT 1 FROM medical_goals")), len(db.q("SELECT 1 FROM messages WHERE kind='report'"))) == n
     assert len(db.q("SELECT 1 FROM care_events")) == 1
 
@@ -1226,7 +1244,8 @@ def test_alerts_and_windows_are_private_to_the_medical_team():
     assert {n["crew_id"] for n in ov["notices"]} >= {"h", "k"} and all(n["title"] and n["since_day"] <= 147 for n in ov["notices"])
     assert any(c["id"] == "t" and c["care_events"] and c["ops"]["key"] == "rest" for c in ov["crew"])
     kinds = lambda hdr: {m["kind"] for m in client.get("/api/messages", headers=hdr).json()}  # noqa: E731
-    assert not kinds({}) & {"alert", "alert_earth", "advice"}
+    assert client.get("/api/messages").status_code == 401
+    assert not kinds(control_headers(client)) & {"alert", "alert_earth", "advice"}
     assert not kinds(as_("a")) & {"alert", "alert_earth"} and not kinds(as_("t")) & {"alert", "alert_earth"}
     assert "alert" in kinds(as_("k")) and "alert" in kinds(as_("h"))  # each sees only what is addressed to them
     assert not any(m["kind"] == "alert" and m["recipient"] != "k" for m in client.get("/api/messages", headers=as_("k")).json())
@@ -1647,7 +1666,7 @@ def _fields(r):
 
 
 def _ctl():
-    return {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
 
 
 def _tests_count(cid, kind):
@@ -1704,11 +1723,12 @@ def test_medical_goal_messages_thresholds_and_questions_refuse_bad_input_and_wri
     assert len(client.get("/api/medical/goals", headers=med).json()) == goals_before
     assert client.post("/api/medical/goals", json=base, headers=med).status_code == 200
 
-    n = len(client.get("/api/messages").json())
+    ctl = control_headers(client)
+    n = len(client.get("/api/messages", headers=ctl).json())
     for text in ("", "   ", "x" * 1001):
-        assert "text" in _fields(client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": text}))
-    assert len(client.get("/api/messages").json()) == n
-    assert client.post("/api/messages", json={"sender": "mission-control", "recipient": "medical", "text": "Hello"}).status_code == 200
+        assert "text" in _fields(client.post("/api/messages", json={"recipient": "medical", "text": text}, headers=ctl))
+    assert len(client.get("/api/messages", headers=ctl).json()) == n
+    assert client.post("/api/messages", json={"recipient": "medical", "text": "Hello"}, headers=ctl).status_code == 200
 
     before = db.get_setting("thresholds")
     assert "act" in _fields(client.put("/api/medical/thresholds", json={"watch": 2.0, "act": 1.5}, headers=med))
@@ -1724,16 +1744,17 @@ def test_medical_goal_messages_thresholds_and_questions_refuse_bad_input_and_wri
     assert len(client.get("/api/assistant/history/h", headers=h).json()) == asked
 
 
-def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
+def test_control_registration_names_every_wrong_seat_field_and_saves_nothing_until_it_is_right():
+    demo = client.get("/api/control/demo", headers=_ctl()).json()
+    empty(client)  # a registered mission is locked: the form is checked on a system with nothing registered
     c = _ctl()
-    demo = client.get("/api/control/demo", headers=c).json()
-    names = [p["name"] for p in client.get("/api/catalog").json()["crew"]]
-    good = {"crew": demo["crew"], "mission": demo["mission"]}
+    names = []
+    good = {"crew": demo["crew"], "mission": demo["mission"], "ground": demo["ground"]}
 
     def bad(seat, **patch):
         crew = [dict(p) for p in good["crew"]]
         crew[seat].update(patch)
-        return _fields(client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c))
+        return _fields(client.post("/api/control/register", json={"crew": crew, "mission": good["mission"], "ground": good["ground"]}, headers=c))
 
     assert "crew.1.name" in bad(1, name="K")
     assert "crew.0.role" in bad(0, role="")
@@ -1749,16 +1770,23 @@ def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
     assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names  # nothing was registered
 
     def bad_mission(**patch):
-        return _fields(client.post("/api/control/register", json={"crew": good["crew"], "mission": {**good["mission"], **patch}}, headers=c))
+        return _fields(client.post("/api/control/register", json={"crew": good["crew"], "mission": {**good["mission"], **patch}, "ground": good["ground"]}, headers=c))
+
+    def bad_ground(ground, **patch):
+        return _fields(client.post("/api/control/register", json={"crew": good["crew"], "mission": {**good["mission"], **patch}, "ground": ground}, headers=c))
 
     assert "mission.callsign" in bad_mission(callsign="K") and "mission.callsign" in bad_mission(callsign="x" * 25)
     assert "mission.name" in bad_mission(name="  ") and "mission.launch_date" in bad_mission(launch_date="2035-13-40")
     assert "mission.preset" in bad_mission(preset="venus")
+    assert "ground" in bad_ground([g for g in good["ground"] if g["role"] != "mcc"])  # at least one MCC account
+    assert "ground.1.pin" in bad_ground([good["ground"][1], {**good["ground"][0], "id": None, "pin": good["ground"][1]["pin"]}])
+    assert "mission.dose_waiver" in bad_mission(dose_waiver=False)  # the Mars plan passes the career limit
     assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names
 
     crew = [dict(p) for p in good["crew"]]
     crew[0]["name"] = "Ana Lima"
-    assert client.post("/api/control/register", json={"crew": crew, "mission": good["mission"]}, headers=c).status_code == 200
+    assert client.post("/api/control/register", json={"crew": crew, "mission": good["mission"], "ground": good["ground"]}, headers=c).status_code == 200
+    assert client.post("/api/control/register", json={"crew": crew, "mission": good["mission"], "ground": good["ground"]}, headers=control_headers(client)).status_code == 409
 
 
 def test_auth_errors_keep_their_plain_shape():
@@ -1783,7 +1811,7 @@ PERSONAL = ("prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit", 
 
 
 def _crew_facing():
-    ctl = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    ctl = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
     return {"crew overview": client.get("/api/crew/overview").json(), "mission overview": client.get("/api/mission/overview").json(),
             "leaderboard": client.get("/api/leaderboard").json(), "plan conditions": client.get("/api/plan/conditions").json(),
             "control overview": client.get("/api/control/overview", headers=ctl).json()}

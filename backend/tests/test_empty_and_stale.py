@@ -19,6 +19,7 @@ from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, health, mission, plan, registry, risk, telemetry  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, add_ground, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 from tests import golden_capture as gc  # noqa: E402
 
 client = TestClient(app)
@@ -28,6 +29,8 @@ def reset(monkeypatch, package):
     monkeypatch.setattr(settings, "mission_package", package)
     monkeypatch.setattr(settings, "live_space_weather", False)
     assert reset_demo(client).status_code == 200
+    if not package:
+        add_ground()  # nothing registered, but the ground accounts exist so the consoles have someone to sign in
 
 
 def reset_crew(monkeypatch):
@@ -35,7 +38,7 @@ def reset_crew(monkeypatch):
     reset(monkeypatch, "")
     assert catalog.CREW == []
     form = data.demo_form()
-    r = client.post("/api/control/register", headers=tokens()[2], json={"crew": form["crew"], "mission": form["mission"]})
+    r = client.post("/api/control/register", headers=tokens()[2], json={"crew": form["crew"], "mission": form["mission"], "ground": form["ground"]})
     assert r.status_code == 200, r.text
     assert [c["id"] for c in catalog.CREW] == list(gc.CREW_IDS)
 
@@ -49,7 +52,7 @@ def restore(monkeypatch):
 
 
 def day(d):
-    return client.put("/api/mission", json={"day": d}).json()
+    return client.put("/api/mission", json={"day": d}, headers=control_headers(client)).json()
 
 
 def add(crew_id, ind, d, value):
@@ -68,8 +71,8 @@ def remove_all_observations():
 
 def tokens():
     crew = {c: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c}/session", gc.PINS[c])} for c in [x["id"] for x in catalog.CREW]}
-    med = {"Authorization": "Bearer " + gc._token(client, "/api/medical/session", gc.MEDICAL_PIN)}
-    ctl = {"X-Canary-Control": gc._token(client, "/api/control/session", gc.CONTROL_PIN)}
+    med = {"Authorization": "Bearer " + gc.medical_token(client, "g-fs1")}
+    ctl = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
     return crew, med, ctl
 
 
@@ -78,7 +81,7 @@ def every_get(crew=gc.CREW_IDS):
     ch, med, ctl = tokens()
     out = {}
     for p in gc.PUBLIC_PATHS:
-        out[p] = gc._get(client, p)
+        out[p] = gc._get(client, p, med if p in gc.SIGNED_IN_PATHS else None)
     for c in crew:
         for t in gc.CREW_PATHS:
             p = t.format(c=c)
@@ -129,7 +132,7 @@ def test_a_package_without_observations_is_just_as_empty(monkeypatch, d):
 def test_no_data_does_not_hide_a_non_data_alert(monkeypatch):
     reset(monkeypatch, "odyssey1-mars")
     remove_all_observations()
-    client.put("/api/mission", json={"step": 3})  # the particle storm of the replay: not a thing the data says
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))  # the particle storm of the replay: not a thing the data says
     out = every_get()
     assert any(a["id"] == "storm" for a in out["/api/crew/h [as h]"]["alerts"])
     assert out["/api/crew/h [as h]"]["no_data"] is True
@@ -141,7 +144,7 @@ def test_a_registered_crew_with_no_measurements_is_empty_too(monkeypatch):
     reset(monkeypatch, "")
     ctl = tokens()[2]
     form = [{**p, "pin": str(2001 + i)} for i, p in enumerate(data.demo_form()["crew"])]
-    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**data.demo_form()["mission"], "launch_date": "2036-03-01"}})
+    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**data.demo_form()["mission"], "launch_date": "2036-03-01"}, "ground": data.demo_form()["ground"]})
     assert r.status_code == 200, r.text
     remove_all_observations()
     day(60)
@@ -150,17 +153,18 @@ def test_a_registered_crew_with_no_measurements_is_empty_too(monkeypatch):
         s = gc._get(client, f"/api/crew/{c['id']}", ch[c["id"]])
         assert s["no_data"] is True and not [a for a in s["alerts"] if not a.get("data")]
     for p in gc.PUBLIC_PATHS:
-        gc._get(client, p)
+        gc._get(client, p, next(iter(ch.values())) if p in gc.SIGNED_IN_PATHS else None)
 
 
 def test_a_system_with_no_crew_at_all_answers_too(monkeypatch):
     reset(monkeypatch, "")
     registry.clear()
+    add_ground()
     assert catalog.CREW == []
     day(10)
     _, med, ctl = tokens()
     for p in gc.PUBLIC_PATHS:
-        gc._get(client, p)
+        gc._get(client, p, med if p in gc.SIGNED_IN_PATHS else None)
     for p in gc.MEDICAL_PATHS:
         gc._get(client, p, med)
     for p in gc.CONTROL_PATHS:

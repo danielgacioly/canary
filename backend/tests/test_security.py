@@ -10,7 +10,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from canary.main import app, spa_file  # noqa: E402
-from tests.golden_capture import MEDICAL_PIN, PINS, _token, control_headers, reset_demo  # noqa: E402
+from tests.golden_capture import PINS, _token, control_headers, medical_headers, reset_demo  # noqa: E402
 
 client = TestClient(app)
 
@@ -27,7 +27,7 @@ def crew(cid):
 
 
 def medical():
-    return {"Authorization": "Bearer " + _token(client, "/api/medical/session", MEDICAL_PIN)}
+    return medical_headers(client)
 
 
 # ---------------------------------------------------------------- the built app
@@ -74,9 +74,10 @@ def test_approving_twice_sends_one_briefing():
 def test_a_briefing_message_is_private():
     b = _briefing("h")
     client.post(f"/api/briefings/{b['id']}/approve", headers=crew("h"))
-    kinds = lambda headers=None: [m["kind"] for m in client.get("/api/messages", headers=headers or {}).json()]  # noqa: E731
-    assert "briefing" not in kinds()
+    kinds = lambda headers: [m["kind"] for m in client.get("/api/messages", headers=headers).json()]  # noqa: E731
+    assert client.get("/api/messages").status_code == 401  # no token, no messages
     assert "briefing" not in kinds(crew("k"))
+    assert "briefing" not in kinds(control_headers(client))
     assert "briefing" in kinds(crew("h"))
     assert "briefing" in kinds(medical())
 

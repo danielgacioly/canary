@@ -8,6 +8,7 @@
 """
 import datetime as dt
 import os
+import re
 import tempfile
 
 os.environ["CANARY_DB"] = os.path.join(tempfile.mkdtemp(), "size.db")
@@ -15,11 +16,12 @@ os.environ["CANARY_DB"] = os.path.join(tempfile.mkdtemp(), "size.db")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canary import db  # noqa: E402
+from canary import auth, db  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, goals, health, privacy, registry  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 from tests import golden_capture as gc  # noqa: E402
 
 client = TestClient(app)
@@ -41,15 +43,15 @@ def fresh(monkeypatch):
 
 
 def ctl():
-    return {"X-Canary-Control": gc._token(client, "/api/control/session", gc.CONTROL_PIN)}
+    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
 
 
 def medical():
-    return {"Authorization": "Bearer " + gc._token(client, "/api/medical/session", gc.MEDICAL_PIN)}
+    return {"Authorization": "Bearer " + gc.medical_token(client, "g-fs1")}
 
 
 def person(i, **over):
-    p = {"name": NAMES[i], "role": ROLES[i], "home": "Somewhere", "pin": f"{3001 + i}", "dob": f"{1985 + i}-04-1{i + 1}",
+    p = {"seat": f"s{i + 1}", "name": NAMES[i], "role": ROLES[i], "home": "Somewhere", "pin": f"{3001 + i}", "dob": f"{1985 + i}-04-1{i + 1}",
          "sex": "Female" if i % 2 == 0 else "Male", "nationality": "Portuguese", "languages": ["Portuguese"], "agency": "Test agency",
          "flights": 0, "days_in_space": 0, "height_cm": 170, "weight_kg": 68, "blood_type": "A+", "skin_type": "III",
          "handedness": "Right", "eva": "surface"}
@@ -57,11 +59,11 @@ def person(i, **over):
     return p
 
 
-MISSION = {"callsign": "Test 1", "name": "Test mission", "launch_date": LAUNCH, "preset": "mars"}
+MISSION = {"callsign": "Test 1", "name": "Test mission", "launch_date": LAUNCH, "preset": "mars", "dose_waiver": True}
 
 
 def register(n, **over):
-    return client.post("/api/control/register", headers=ctl(), json={"crew": [person(i) for i in range(n)], "mission": MISSION, **over})
+    return client.post("/api/control/register", headers=ctl(), json={"crew": [person(i) for i in range(n)], "mission": MISSION, "ground": GROUND, **over})
 
 
 def ids():
@@ -81,7 +83,7 @@ def reading(cid, ind, d, v):
 
 
 def go(day):
-    assert client.put("/api/mission", json={"day": day}).status_code == 200
+    assert client.put("/api/mission", json={"day": day}, headers=control_headers(client)).status_code == 200
 
 
 def every_get(crew):
@@ -90,7 +92,7 @@ def every_get(crew):
     tok = {c: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c}/session", PINS[c])} for c in crew}
     med = medical()
     for p in gc.PUBLIC_PATHS:
-        out[p] = gc._get(client, p)
+        out[p] = gc._get(client, p, tok[crew[0]] if p in gc.SIGNED_IN_PATHS else None)
     for c in crew:
         for t in gc.CREW_PATHS:
             p = t.format(c=c)
@@ -142,18 +144,20 @@ def test_every_endpoint_answers_for_a_crew_of_n(n):
 def test_every_registered_id_signs_in_with_its_own_pin_and_the_demo_pins_open_nothing(n):
     assert register(n).status_code == 200
     for c in ids():
+        auth.clear_failures()  # these wrong PINs come from one address: do not let them pause the next sign-in
         assert client.post(f"/api/crew/{c}/session", json={"pin": PINS[c]}).status_code == 200
         assert client.post(f"/api/crew/{c}/session", json={"pin": "9999"}).status_code == 401
+    auth.clear_failures()
     for demo_id, demo_pin in (("h", "1001"), ("k", "1002"), ("a", "1003"), ("t", "1004"), ("s1", "1001")):
         assert client.post(f"/api/crew/{demo_id}/session", json={"pin": demo_pin}).status_code in (401, 404), (demo_id, demo_pin)
     # every PIN is stored hashed
     stored = db.get_setting("pins")
-    assert sorted(stored) == sorted(ids()) and all(set(v) == {"salt", "hash"} for v in stored.values())
+    assert sorted(stored) == sorted(ids() + ["g-fs1", "g-mcc1"]) and all(set(v) == {"salt", "hash"} for v in stored.values())
 
 
 def test_a_crew_that_reuses_the_demo_ids_does_not_inherit_the_demo_pins():
     form = [person(i, seat=s, pin=f"{4001 + i}") for i, s in enumerate(["h", "k"])]
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
     assert r.status_code == 200 and ids() == ["h", "k"]
     assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 401
     assert client.post("/api/crew/h/session", json={"pin": "4001"}).status_code == 200
@@ -162,30 +166,34 @@ def test_a_crew_that_reuses_the_demo_ids_does_not_inherit_the_demo_pins():
 def test_ids_are_stable_when_the_same_people_are_registered_again():
     assert register(3).status_code == 200
     first = ids()
+    empty(client)
     assert register(3).status_code == 200
     assert ids() == first == ["s1", "s2", "s3"]
-    form = [person(0, seat="s2", pin="5001"), person(1, pin="5002"), person(2, pin="5003")]  # an explicit s2 is kept; the others take what is free
-    assert client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION}).status_code == 200
-    assert ids() == ["s2", "s1", "s3"]
+    empty(client)
+    form = [person(0, seat="s2", pin="5001"), person(1, seat=None, pin="5002"), person(2, seat=None, pin="5003")]  # an explicit s2 is kept; the others get a generated id
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
+    assert r.status_code == 200
+    assert ids()[0] == "s2" and all(re.fullmatch(r"c-[0-9a-f]{6}", i) for i in ids()[1:]) and len(set(ids())) == 3  # generated ids are never s1..s6 and never repeat
 
 
 def test_registering_replaces_the_crew_and_the_pins_of_the_one_before():
     assert register(4).status_code == 200
+    empty(client)
     assert register(2).status_code == 200
-    assert ids() == ["s1", "s2"] and sorted(db.get_setting("pins")) == ["s1", "s2"]
+    assert ids() == ["s1", "s2"] and sorted(db.get_setting("pins")) == ["g-fs1", "g-mcc1", "s1", "s2"]
     assert client.post("/api/crew/s3/session", json={"pin": PINS["s3"]}).status_code == 404
 
 
 def test_duplicate_pin_and_duplicate_id_are_refused_on_the_field():
     form = [person(0, pin="7001"), person(1, pin="7001"), person(2, pin="7003")]
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
     assert r.status_code == 422
     assert [(e["field"], "already used by person 1" in e["message"]) for e in r.json()["detail"]] == [("crew.1.pin", True)]
     form = [person(0, seat="x1", pin="7001"), person(1, seat="x1", pin="7002")]
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
     assert r.status_code == 422 and [e["field"] for e in r.json()["detail"]] == ["crew.1.seat"] and "used by person 1" in r.json()["detail"][0]["message"]
     form = [person(0, seat="cabin")]
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
     assert r.status_code == 422 and r.json()["detail"][0]["field"] == "crew.0.seat"
     assert catalog.CREW == []  # a refused registration writes nothing
 
@@ -193,13 +201,14 @@ def test_duplicate_pin_and_duplicate_id_are_refused_on_the_field():
 def test_nobody_and_seven_people_are_refused_on_the_crew_field():
     for n in (0, 7):
         form = [person(i % 6, pin=f"{6001 + i}", seat=f"p{i}") for i in range(n)]
-        r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+        r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
         assert r.status_code == 422, n
         assert r.json()["detail"][0]["field"] == "crew" and "between 1 and 6" in r.json()["detail"][0]["message"]
     assert catalog.CREW == []
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": [{**person(0), "name": ""}], "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": [{**person(0), "name": ""}], "mission": MISSION, "ground": GROUND})
     assert r.status_code == 422 and r.json()["detail"][0]["field"] == "crew.0.name"
     assert registry.normalize([person(0)])[0][0]["seat"] == "s1"
+    assert re.fullmatch(r"c-[0-9a-f]{6}", registry.normalize([person(0, seat=None)])[0][0]["seat"])
     with pytest.raises(ValueError):
         registry.normalize([person(i % 6, pin=f"{6001 + i}", seat=f"p{i}") for i in range(7)])
     with pytest.raises(ValueError):
@@ -240,13 +249,14 @@ def test_a_person_without_preflight_data_is_learning_and_never_compared_with_a_s
 
 def test_a_crew_without_a_medical_officer_still_works():
     form = [person(0, role="Commander"), person(1, role="Pilot", pin="3002")]
-    assert client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION}).status_code == 200
+    assert client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND}).status_code == 200
     assert privacy.medical_officer() is None
     assert privacy.alerts_to("s2") == "s1" and privacy.alerts_to("s1") == "s2"  # the commander, else the other person
     out = every_get(ids())
     assert "no medical officer" in out["/api/crew/s1 [as s1]"]["care_by"]
+    empty(client)
     solo = [person(0, role="Astronaut")]
-    assert client.post("/api/control/register", headers=ctl(), json={"crew": solo, "mission": MISSION}).status_code == 200
+    assert client.post("/api/control/register", headers=ctl(), json={"crew": solo, "mission": MISSION, "ground": GROUND}).status_code == 200
     assert privacy.alerts_to("s1") == "s1" and privacy.substitute() == "s1"
     every_get(ids())
 
@@ -258,7 +268,7 @@ def test_the_demo_form_is_the_bundled_packages_crew():
     assert [p["seat"] for p in j["crew"]] == ["h", "k", "a", "t"] and [p["pin"] for p in j["crew"]] == ["1001", "1002", "1003", "1004"]
     assert j["mission"]["callsign"] == "Odyssey 1" and all(p["prior_dose_msv"] is None for p in j["crew"])
     assert "base" not in keys_of(j) and "cbc_subject" not in keys_of(j)
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": j["crew"], "mission": j["mission"]})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": j["crew"], "mission": j["mission"], "ground": j["ground"]})
     assert r.status_code == 200 and ids() == ["h", "k", "a", "t"]
 
 
@@ -274,7 +284,7 @@ def test_a_registered_person_has_blood_only_from_their_own_observations():
 
 def test_a_person_registered_without_a_sex_has_no_sex_specific_range_and_nothing_breaks():
     form = [person(0, sex=""), person(1, sex="Other", pin="3002")]
-    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
+    r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION, "ground": GROUND})
     assert r.status_code == 200 and [c["sex"] for c in catalog.CREW] == [None, None]
     post_obs([reading("s1", "grip", d, 20.0) for d in range(-12, 3)])
     go(5)
