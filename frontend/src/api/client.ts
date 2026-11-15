@@ -57,7 +57,7 @@ async function req<T>(path: string, init?: RequestInit & { as?: Kind }): Promise
   try {
     r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
   } catch {
-    throw new ApiError(0, 'Cannot reach the Canary server. Check the connection and try again.')
+    throw new ApiError(0, 'Canary is not reachable. Check the connection to the ship\'s server.')
   }
   if (!r.ok) {
     let detail: unknown = r.statusText
