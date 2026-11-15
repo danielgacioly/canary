@@ -66,8 +66,11 @@ function Describe({ P, onStart, onBack }: { P: Protocols; onStart: (id: string, 
 
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
 
-export default function GuidedResponse({ onClose }: { onClose: () => void }) {
+/** `initialProtocol` opens that protocol directly; an unknown id falls back to the chooser. Without the prop, the protocol
+ * id from the session (`emergencyPid`, set by a protocol's page or setEmergency(id)) is used. */
+export default function GuidedResponse({ onClose, initialProtocol }: { onClose: () => void; initialProtocol?: string }) {
   const { me, mission, catalog, bump, toast, prefs, emergencyPid } = useSession()
+  const initial = initialProtocol ?? emergencyPid ?? undefined
   const [P, setP] = useState<Protocols | null>(null)
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -79,7 +82,6 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const [voice, setVoice] = useState(prefs.voice)
   const [done, setDone] = useState(false)
   const [describing, setDescribing] = useState(false)  // "I don't know": the person says what they see, Canary suggests a protocol
-  const started = useRef(false)
 
   useEffect(() => {
     api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
@@ -113,6 +115,21 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
     const p = { text, ...extra }
     if (emRef.current) send(p); else pending.current.push(p)
   }
+
+  // Open the requested protocol once the list is loaded; log it once the emergency record exists.
+  const opened = useRef(false)
+  const unlogged = useRef<string | null>(null)
+  useEffect(() => {
+    if (!P || opened.current) return
+    opened.current = true
+    if (initial && P.protocols[initial]) { setPid(initial); setI(0); setStepAt(Date.now()); unlogged.current = initial }
+  }, [P, initial])
+  useEffect(() => {
+    const id = unlogged.current
+    if (!em || !P || !id) return
+    unlogged.current = null
+    log(`Protocol: ${P.protocols[id].name}`, { protocol: id })
+  }, [em, P, pid])  // eslint-disable-line react-hooks/exhaustive-deps
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
 
@@ -128,12 +145,6 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
     setDescribing(false); setPid(id); setI(0); setStepAt(Date.now())
     log(`Protocol: ${P?.protocols[id].name}`, { protocol: id })
   }
-  // Opened from a protocol's page: go straight to it (once the bank and the record are ready, so the log keeps the choice).
-  useEffect(() => {
-    if (started.current || !emergencyPid || !P || !em || !P.protocols[emergencyPid]) return
-    started.current = true
-    pick(emergencyPid)
-  }, [P, em, emergencyPid])  // eslint-disable-line react-hooks/exhaustive-deps
   const go = (to: number | string | undefined) => {
     if (to === undefined) { setI(x => x + 1); setStepAt(Date.now()); return }
     if (typeof to === 'string') { log(`Switched to ${P?.protocols[to].name}`, { protocol: to }); setPid(to); setI(to === 'cpr' ? 1 : 0) } else setI(to)

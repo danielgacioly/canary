@@ -218,12 +218,49 @@ export interface Emergency { id: number; protocol: string | null; patient: strin
 export interface OpenEmergency { id: number; patient: string | null; patient_id: string | null; protocol: string | null; started_at: number }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number; in_transit: boolean }
 export interface Claim { text: string; source_ids: string[] }
+// AI layer contract: docs/ai/schema.md §6 (backend/canary/assistant/contracts.py). New keys are optional so
+// answers from the rule-based path (and older logs) still type-check.
+export type AssistantMode = 'ai' | 'grounded' | 'refused' | 'emergency' | 'unknown' | 'fallback'
+export type AssistantStatusValue = 'supported' | 'insufficient_evidence' | 'out_of_scope'
+export interface Observation { statement: string; source_ids: string[] }
+export type Explanation = Observation
+export interface RecommendedAction { id: string; label: string }
+export interface DroppedClaim { field: string; statement: string; rule_id: string }
+// `guard` key of an answer: what the guard removed and which rule ids fired (guard.postcheck report).
+export interface GuardReport { dropped_claims: DroppedClaim[]; rejected_numbers: string[]; reason: string | null; rule_ids?: string[] }
 export interface AssistantAnswer {
-  id: number; mode: 'ai' | 'grounded' | 'refused' | 'emergency' | 'unknown'; provider: string; provider_error?: string | null
+  id: number; mode: AssistantMode; provider: string; provider_error?: string | null
   answer: string; claims: Claim[]; sources: string[]; tools_used: { tool: string; args: Record<string, string> }[]; dropped: number
   question?: string
+  created_at?: number              // when it was asked (history)
+  model?: string | null            // model id when the answer came from a provider
+  prompt_version?: string          // e.g. system_v2
+  status?: AssistantStatusValue
+  observations?: Observation[]   // facts from data (telemetry, status, checkin, goals, summary, nasa)
+  explanations?: Explanation[]   // possible explanations from approved knowledge (kb:)
+  limitations?: string[]
+  recommended_action?: RecommendedAction | null
+  guard?: GuardReport
+  source_meta?: Record<string, SourceMeta>   // title, version and excerpt for each kb: id cited this turn
+  asked_by?: 'self' | 'medical'              // who was signed in when the question was asked (history)
 }
-export interface AssistantStatus { provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
+export interface SourceMeta { title: string; version: number | null; text?: string | null }
+// GET /api/medical/assistant-audit (medical token): one row per assistant turn, no answer text.
+export interface AssistantAuditEntry {
+  id: number; crew_id: string; question: string; created_at: number
+  mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
+  tools: string[]; guard_flags: string[]; latency_ms: number | null
+  asked_by: 'self' | 'medical'
+}
+// GET /api/assistant/status: which provider and model answer, the loop limits and a warning when the setting is wrong.
+export interface AssistantStatus {
+  provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]
+  model?: string | null             // the model id a provider would use (null without a provider)
+  selection?: string                // CANARY_LLM_PROVIDER as set: auto, none, gemini, anthropic, local
+  limits?: { max_steps: number; max_tool_calls: number; timeout_s: number }
+  warning?: string | null           // e.g. an unknown CANARY_LLM_PROVIDER: the assistant runs on rules
+  tools: { name: string; description: string }[]
+}
 export interface Briefing { id: number; crew_id: string; day: number; status: string; text: string; mode: string; bytes: number; created_at: number; deliver_at: number | null }
 export interface SpaceWeather {
   mode: string; window: string; sep_events: number; kp_max: number; fast_cmes: number; flares: number
@@ -262,8 +299,13 @@ export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
 export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean
   /** One short line each, either may be empty: what in the environment fits this today, and what in the person's own state. */
   because_outside: string; because_inside: string; protocol: string | null
-  rank: { priority: number; both: number; learned: number; score: number; accepted: number; dismissed: number } }
-export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[]; context: { place: string; in_force: string[] } }
+  rank: { priority: number; both: number; learned: number; score: number; accepted: number; dismissed: number }
+  source?: 'ai' | 'rules' }
+export interface Suggestions {
+  mode: 'rules' | 'ai'; provider: string; model?: string | null; configured?: boolean; rewritten?: number
+  fallback_reason?: string | null; rejected_numbers?: string[]; day: number; items: Suggestion[]
+  context: { place: string; in_force: string[] }
+}
 export interface PersonalRecord {
   name: string; role: string; home: string; dob: string; age: number; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; bmi: number

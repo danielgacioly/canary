@@ -175,7 +175,7 @@ SYSTEMS: Dict[str, dict] = {
               "space": "Cabin air is recycled. Carbon dioxide builds up faster than on Earth and dust on the Moon and Mars is fine and sharp.",
               "hazard": "Hostile, closed environment"},
     "skeleton": {"name": "Bones", "area": "physical", "indicators": ["bone"],
-                 "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it.",
+                 "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it.",
                  "hazard": "Altered gravity"},
     "muscles": {"name": "Muscles", "area": "physical", "indicators": ["exer", "grip"],
                 "space": "Leg and back muscles shrink fast without load. Daily resistive exercise is the main defence.",
@@ -267,63 +267,107 @@ BADGES: List[dict] = [
 # ---------------------------------------------------------------- hazard matrix (hazard x indicator)
 # The team's matrix "matriz-perigos-indicadores". Hazards: R radiation, I isolation & confinement, D distance from
 # Earth, G altered gravity, E hostile closed environment. Keys are indicator ids, check-in kinds or evidence names
-# ("dose", "amsler", "symptoms"). Every link carries its `source` as the team wrote it and `verified: False`: the
-# "HRP" and "Patel 2020" sources are still to be checked against the HRP risk pages and the article. These are
-# possible factors for a signal, never a cause.
+# ("dose", "amsler", "symptoms"). Every link carries its `source` as the team wrote it. The "Patel 2020" links were
+# read against the article on 2026-11-15 (Patel et al., "Red risks for a journey to the red planet", npj Microgravity
+# 2020, PATEL_URL): `verified: True` only when the article says what `why` says, with the section and the finding in
+# `checked`; otherwise `verified: False` and `checked` says what the article does or does not support. The "HRP" links
+# are still to be checked against the HRP evidence reports. These are possible factors for a signal, never a cause.
 _P, _H = "Patel 2020", "HRP"
+PATEL_URL = "https://doi.org/10.1038/s41526-020-00124-6"
 HAZARDS_BY_INDICATOR: Dict[str, List[dict]] = {}
 
 
-def _link(keys, hazard: str, why: str, source: str, verified: bool = False) -> None:
+def _link(keys, hazard: str, why: str, source: str, verified: bool = False, checked: str = "") -> None:
     for k in ([keys] if isinstance(keys, str) else keys):
-        HAZARDS_BY_INDICATOR.setdefault(k, []).append({"hazard": hazard, "why": why, "source": source, "verified": verified})
+        HAZARDS_BY_INDICATOR.setdefault(k, []).append({"hazard": hazard, "why": why, "source": source, "verified": verified,
+                                                       "checked": checked})
 
 
-_link("sleep", "I", "routine and monotony", f"{_P} (BMed); {_H}")
-_link("sleep", "E", "noise, light, CO2", f"{_P} (BMed); {_H}")
-_link("react", "R", "effect on the nervous system", _P)
-_link("react", "I", "fatigue, stress", _P)
-_link("react", "E", "high CO2", _P)
-_link("mood", "I", "isolation, conflicts", f"{_P} (BMed)")
-_link("mood", "D", "no real-time contact", f"{_P} (BMed)")
-_link("mood", "E", "confinement", f"{_P} (BMed)")
-_link(["stress", "cortisol"], "I", "confinement", f"{_P} (BMed)")
-_link(["stress", "cortisol"], "D", "distance from home", f"{_P} (BMed)")
-_link(["stress", "cortisol"], "E", "noise, confinement", f"{_P} (BMed)")
-_link("social", "I", "isolation", f"{_P} (BMed)")
-_link(["hr", "sbp", "dbp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}")
-_link("hr", "G", "deconditioning, readaptation", f"{_P}; {_H}")
-_link(["sbp", "dbp"], "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}")
+_NOT_IN_PATEL = "not in Patel 2020; to check against the HRP evidence report"
+_link("sleep", "I", "routine and monotony", f"{_P} (BMed); {_H}",
+      checked="Patel 2020 (BMed) reports sleep difficulties in a 520-day isolation analog and shorter sleep from workload, "
+              "not routine and monotony; HRP still to check")
+_link("sleep", "E", "noise, light, CO2", f"{_P} (BMed); {_H}",
+      checked="Patel 2020 (BMed) names elevated CO2 as an ISS stressor but does not tie noise, light or CO2 to sleep; HRP still to check")
+_link("react", "R", "effect on the nervous system", _P, True,
+      "Patel 2020 (radiation, CNS): acute risks include altered neurocognitive function and impaired motor function")
+_link("react", "I", "fatigue, stress", _P, True,
+      "Patel 2020 (BMed): isolation brings decrements in cognitive function; perceived stress rises over time; fatigue measured in flight")
+_link("react", "E", "high CO2", _P, True,
+      "Patel 2020 (BMed): elevated carbon dioxide is among the environmental stressors of ISS missions")
+_link("mood", "I", "isolation, conflicts", f"{_P} (BMed)", True,
+      "Patel 2020 (BMed): analogs show decreased mood and more stress; in the 520-day analog two crew had 85% of the perceived conflicts")
+_link("mood", "D", "no real-time contact", f"{_P} (BMed)", True,
+      "Patel 2020 (BMed): exploration brings communication delays, unlike the near-constant real-time contact of the ISS")
+_link("mood", "E", "confinement", f"{_P} (BMed)",
+      checked="Patel 2020 places confinement under isolation and confinement (I), not the closed environment (E)")
+_link("stress", "I", "confinement", f"{_P} (BMed)", True,
+      "Patel 2020 (BMed): isolation and confinement analogs show increased stress")
+_link("stress", "D", "distance from home", f"{_P} (BMed)", True,
+      "Patel 2020 (BMed): the risk comes from multiple hazards, including isolation and distance from Earth")
+_link("stress", "E", "noise, confinement", f"{_P} (BMed)",
+      checked="Patel 2020 does not mention noise; confinement is under I")
+_link("cortisol", "I", "confinement", f"{_P} (BMed)",
+      checked="Patel 2020 links isolation to stress but names no stress hormone; cortisol as the marker is a team assumption")
+_link("cortisol", "D", "distance from home", f"{_P} (BMed)",
+      checked="Patel 2020 links distance to stress but names no stress hormone; cortisol as the marker is a team assumption")
+_link("cortisol", "E", "noise, confinement", f"{_P} (BMed)",
+      checked="Patel 2020 does not mention noise or cortisol")
+_link("social", "I", "isolation", f"{_P} (BMed)", True,
+      "Patel 2020 (BMed, teams): team dynamics and conflicts change over time in isolation analogs")
+_link(["hr", "sbp", "dbp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}", True,
+      "Patel 2020 (radiation): cardiovascular disease risk from radiation, latency of 10 years or more")
+_link("hr", "G", "deconditioning, readaptation", f"{_P}; {_H}", checked=_NOT_IN_PATEL)
+_link(["sbp", "dbp"], "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}",
+      checked="Patel 2020 describes the headward fluid shift (SANS) but not dizziness back under gravity; HRP still to check")
 _link("spo2", "E", "recirculated air, CO2, dust", _H)
 _link("temp", "E", "microbes in a closed environment", _H)
-_link("gluc", "D", "limited diet", f"{_P} (nutrition); {_H}")
-_link("gluc", "G", "inactivity", f"{_P} (nutrition); {_H}")
-_link("weight", "I", "appetite drops", f"{_P} (nutrition)")
-_link("weight", "D", "limited food, no resupply", f"{_P} (nutrition)")
-_link("weight", "G", "muscle loss", f"{_P} (nutrition)")
+_link("gluc", "D", "limited diet", f"{_P} (nutrition); {_H}",
+      checked="Patel 2020 (nutrition) covers deficiencies of a closed food system, not glucose; HRP still to check")
+_link("gluc", "G", "inactivity", f"{_P} (nutrition); {_H}", checked=_NOT_IN_PATEL)
+_link("weight", "I", "appetite drops", f"{_P} (nutrition)",
+      checked="Patel 2020 reports body mass loss in flight but does not tie it to appetite or isolation")
+_link("weight", "D", "limited food, no resupply", f"{_P} (nutrition)", True,
+      "Patel 2020 (nutrition): ISS crews get fresh food every month or two; exploration crews will not, raising the risk of deficiency")
+_link("weight", "G", "muscle loss", f"{_P} (nutrition)", True,
+      "Patel 2020 (nutrition): loss of body mass in flight goes with more bone and muscle loss")
 _link("water", "D", "recycled water", _H)
 _link("water", "G", "thirst fades", _H)
 _link("exer", "I", "motivation", _H)
-_link("exer", "G", "a countermeasure is needed", _H)
+_link("exer", "G", "a countermeasure is needed", f"{_H}; {_P} (nutrition)", True,
+      "Patel 2020 (nutrition): exercise is a multisystem countermeasure; heavy resistive exercise loads bone against weightlessness-induced loss")
 _link("exer", "E", "little space, equipment", _H)
 _link("grip", "G", "no load", _H)
-_link("bone", "D", "nutrition (vitamin D)", _H)
-_link("bone", "G", "no load", _H)
-_link("urine_calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones)")
+_link("bone", "D", "nutrition (vitamin D)", f"{_H}; {_P} (nutrition)", True,
+      "Patel 2020 (nutrition): vitamin D deficiency was found in ISS crews; better vitamin D status with diet and exercise protected bone density")
+_link("bone", "G", "no load", f"{_H}; {_P} (nutrition)", True,
+      "Patel 2020 (nutrition): weightlessness-induced bone loss, driven by more bone resorption")
+_link("urine_calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones); {_P} (nutrition)", True,
+      "Patel 2020 (nutrition): bone resorption rises in microgravity, and crews showed increased kidney stone risk")
 _link("creatinine", "G", "hydration, muscle", _H)
 _link("vo2", "G", "deconditioning without load", f"{_H}; NASA-STD-3001 V1 4001-4004")
-_link("calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones); real data OSD-575")
-_link("potassium", "D", "limited diet, hydration", f"{_P} (nutrition); real data OSD-575")
-_link("crp", "I", "stress", f"{_P}; {_H}; real data OSD-575")
-_link("crp", "E", "microbes", f"{_P}; {_H}; real data OSD-575")
-_link("vitamin_d", "E", "no sunlight", _H)
-_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "R", "drops first after a dose", f"{_P}; {_H}; real data OSD-569")
-_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "I", "stress", f"{_P}; {_H}; real data OSD-569")
-_link(["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"], "E", "microbes", f"{_P}; {_H}; real data OSD-569")
-_link("amsler", "G", "fluid shift towards the head", f"{_P} (SANS)")
-_link("amsler", "E", "CO2 as a cofactor", f"{_P} (SANS)")
-_link("dose", "R", "direct", "real data RadLab, DONKI")
-_link("co2", "E", "direct", f"{_P} (SANS cofactor)")
+_link("calcium", "G", "calcium leaves the bone", f"{_H} (kidney stones); {_P} (nutrition); real data OSD-575", True,
+      "Patel 2020 (nutrition): bone resorption rises in microgravity, and crews showed increased kidney stone risk")
+_link("potassium", "D", "limited diet, hydration", f"{_P} (nutrition); real data OSD-575",
+      checked="Patel 2020 (nutrition) covers deficiencies of a closed food system but does not mention potassium")
+_link("crp", "I", "stress", f"{_P}; {_H}; real data OSD-575",
+      checked="Patel 2020 mentions chronic inflammation only for radiation and heart disease, not for stress; HRP still to check")
+_link("crp", "E", "microbes", f"{_P}; {_H}; real data OSD-575", checked=_NOT_IN_PATEL)
+_link("vitamin_d", "E", "no sunlight", _H,
+      checked="Patel 2020 (nutrition) reports vitamin D deficiency in ISS crews but does not give the cause; HRP still to check")
+_BLOOD = ["wbc", "lym", "neu", "hgb", "hct", "plt", "rbc"]
+_link(_BLOOD, "R", "drops first after a dose", f"{_P}; {_H}; real data OSD-569",
+      checked="Patel 2020 lists immune decrements among the effects of radiation on Earth, not that blood counts drop first; HRP still to check")
+_link(_BLOOD, "I", "stress", f"{_P}; {_H}; real data OSD-569", checked=_NOT_IN_PATEL)
+_link(_BLOOD, "E", "microbes", f"{_P}; {_H}; real data OSD-569", checked=_NOT_IN_PATEL)
+_link("amsler", "G", "fluid shift towards the head", f"{_P} (SANS)", True,
+      "Patel 2020 (SANS): in microgravity fluid moves toward the head; the Amsler grid is part of the ISS eye checks")
+_link("amsler", "E", "CO2 as a cofactor", f"{_P} (SANS)", True,
+      "Patel 2020 (SANS): high carbon dioxide levels are a possible confounding factor of SANS")
+_link("dose", "R", "direct", "real data RadLab, DONKI", True,
+      "Patel 2020 (radiation): outside the magnetosphere crews take galactic cosmic rays and solar particle events; the dose is the hazard itself")
+_link("co2", "E", "direct", f"{_P} (SANS cofactor)", True,
+      "Patel 2020 (SANS): high carbon dioxide levels are a possible confounding factor of SANS")
 # Links the matrix does not have and the code suggests (the hazard each body system already declares in SYSTEMS).
 # Not silent: marked as prototype assumptions, to confirm with the team.
 _ASSUME = "prototype assumption (hazard of the body system in SYSTEMS)"

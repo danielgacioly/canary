@@ -67,7 +67,7 @@
         "gp": 0.4,
         "g1": -0.25
       },
-      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "source": "NASA: weight-bearing bones lose on average 1% to 1.5% of mineral density per month in spaceflight (nasa.gov, The Human Body in Space), https://www.nasa.gov/humans-in-space/the-human-body-in-space/",
       "verified": false,
       "assumption": "0.35% a month with full exercise (110 min a day) up to 1% a month without; full rate in 0 g, 40% in partial gravity, slow recovery (-25%) on Earth. Order of magnitude only, to verify before quoting."
     }
@@ -485,7 +485,7 @@
         "label": "DXA scan before launch and after landing (not measurable on board)"
       },
       "gaps": 0.0,
-      "source": "NASA-STD-3001 Vol 1 [V1 4027] sets the limit; the scan values are simulated",
+      "source": "NASA-STD-3001 Vol 1 [V1 4027] sets the limit; the scan values are simulated. Bone loss rate: NASA reports weight-bearing bones lose on average 1% to 1.5% of mineral density per month in spaceflight (nasa.gov, The Human Body in Space), https://www.nasa.gov/humans-in-space/the-human-body-in-space/",
       "verified": false,
       "assumption": "Total-hip bone mineral density in g/cm². Fictional baselines per person; the post-flight value is the baseline reduced by the cumulative bone_loss state (about 1% a month without countermeasures, NASA HRP order of magnitude, less with exercise) plus 0.012 g/cm² of scan precision. Bone density cannot be measured on board: there is no daily in-flight row, the in-flight value is inferred by the engine from exercise and time in microgravity and labelled an estimate."
     },

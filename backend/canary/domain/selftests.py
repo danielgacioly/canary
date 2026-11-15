@@ -208,6 +208,36 @@ def goal_for(kind: str, p: dict) -> Optional[str]:
     return None
 
 
+# What a check-in may tell the model or a tool: the numeric and enum answers only. A free-text field (a symptom note, a
+# reading title, the journal's words) and any extra key never leave the store, from tools.get_checkins or the suggestions facts.
+MODEL_KEYS = {
+    "pvt": ("ms",), "dsst": ("correct", "errors"), "span": ("span",), "mood": ("mood", "stress"), "kss": ("level",),
+    "tlx": ("raw", "scores"), "wellbeing": ("phq2", "gad2"), "amsler": ("distortion",), "symptoms": ("items", "severity"),
+    "sleep": ("hours", "quality"), "reading": ("minutes", "pages", "absorbing"), "journal": ("lines",),
+    "vitals": tuple(VITALS_LIMITS),
+}
+
+
+def model_values(kind: str, p: dict) -> dict:
+    """The allow-listed values of a check-in payload. Scores keep the workload keys only; symptoms keep the listed names
+    only; a journal gives its line count only."""
+    out: dict = {}
+    for k in MODEL_KEYS.get(kind, ()):
+        if k not in p:
+            continue
+        v = p[k]
+        if k == "scores":
+            if not isinstance(v, dict):
+                continue
+            v = {s: n for s, n in v.items() if s in TLX_KEYS and isinstance(n, (int, float)) and not isinstance(n, bool)}
+        elif k == "items":
+            v = [i for i in v if i in SYMPTOM_NAMES] if isinstance(v, list) else []
+        elif k == "lines":
+            v = int(v or 0)
+        out[k] = v
+    return out
+
+
 def summary(kind: str, p: dict) -> str:
     try:
         return {

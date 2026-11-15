@@ -1,6 +1,6 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
-  AlertEvent, AlertEvents, AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, OpenEmergency, GoalsResponse,
+  AlertEvent, AlertEvents, AssistantAnswer, AssistantAuditEntry, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, OpenEmergency, GoalsResponse,
   CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
@@ -214,6 +214,7 @@ export const api = {
   controlDemoData: () => req<ControlOverview>('/control/demo-data', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),
+  assistantAudit: (limit = 30) => req<AssistantAuditEntry[]>(`/medical/assistant-audit?limit=${limit}`),
   medGoals: () => req<MedGoal[]>('/medical/goals'),
   addMedGoal: (g: { who: string; area: string; title: string; why: string; days: number }) =>
     req<MedGoal[]>('/medical/goals', { method: 'POST', ...body(g) }),

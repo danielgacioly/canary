@@ -916,7 +916,7 @@
      "bone"
     ],
     "name": "Bones",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "area": "physical",
@@ -1417,6 +1417,11 @@
  },
  "/api/control/demo [as control]": {
   "career_limit_msv": 600,
+  "counts": {
+   "events": 2,
+   "goal_entries": 54630,
+   "readings": 73527
+  },
   "crew": [
    {
     "agency": "Brazilian Space Agency (AEB)",
@@ -3482,9 +3487,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -3583,7 +3588,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -3819,9 +3824,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -4044,7 +4049,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -4628,7 +4633,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -8025,9 +8030,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -8126,7 +8131,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -8362,9 +8367,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -8587,7 +8592,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -9171,7 +9176,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -12650,9 +12655,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -12751,7 +12756,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -12987,9 +12992,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -13212,7 +13217,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -13796,7 +13801,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -17193,9 +17198,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -17294,7 +17299,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -17530,9 +17535,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -17755,7 +17760,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -18339,7 +18344,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -21818,9 +21823,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -21919,7 +21924,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -22155,9 +22160,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -22380,7 +22385,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -22964,7 +22969,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -26361,9 +26366,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -26462,7 +26467,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -26698,9 +26703,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -26923,7 +26928,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -27507,7 +27512,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -31362,9 +31367,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -31463,7 +31468,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -31699,9 +31704,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -31924,7 +31929,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -32508,7 +32513,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -35905,9 +35910,9 @@
     "population": {
      "high": 99,
      "low": 70,
-     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+     "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -36006,7 +36011,7 @@
     "population": {
      "high": 100,
      "low": 40,
-     "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+     "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
      "status": "in",
      "verified": false
     },
@@ -36242,9 +36247,9 @@
     "population": {
      "high": 10,
      "low": 6,
-     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+     "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
      "status": "in",
-     "verified": false
+     "verified": true
     },
     "raw_level": 0,
     "readings_today": 1,
@@ -36467,7 +36472,7 @@
     "population": {
      "high": 37.2,
      "low": 36.1,
-     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+     "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
      "status": "in",
      "verified": false
     },
@@ -37051,7 +37056,7 @@
    },
    "skeleton": {
     "hazard": "Altered gravity",
-    "space": "Weight-bearing bones lose mineral in 0 g, on the order of 1% a month without countermeasures. Resistive exercise slows it."
+    "space": "Weight-bearing bones lose mineral in 0 g, on average 1% to 1.5% a month (NASA). Resistive exercise slows it."
    },
    "skin": {
     "hazard": "Radiation",
@@ -43252,9 +43257,9 @@
       "population": {
        "high": 99,
        "low": 70,
-       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -43353,7 +43358,7 @@
       "population": {
        "high": 100,
        "low": 40,
-       "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+       "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
        "status": "in",
        "verified": false
       },
@@ -43589,9 +43594,9 @@
       "population": {
        "high": 10,
        "low": 6,
-       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -43814,7 +43819,7 @@
       "population": {
        "high": 37.2,
        "low": 36.1,
-       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
        "status": "in",
        "verified": false
       },
@@ -44515,9 +44520,9 @@
       "population": {
        "high": 99,
        "low": 70,
-       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -44616,7 +44621,7 @@
       "population": {
        "high": 100,
        "low": 40,
-       "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+       "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
        "status": "in",
        "verified": false
       },
@@ -44852,9 +44857,9 @@
       "population": {
        "high": 10,
        "low": 6,
-       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -45077,7 +45082,7 @@
       "population": {
        "high": 37.2,
        "low": 36.1,
-       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
        "status": "in",
        "verified": false
       },
@@ -45778,9 +45783,9 @@
       "population": {
        "high": 99,
        "low": 70,
-       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -45879,7 +45884,7 @@
       "population": {
        "high": 100,
        "low": 40,
-       "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+       "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
        "status": "in",
        "verified": false
       },
@@ -46115,9 +46120,9 @@
       "population": {
        "high": 10,
        "low": 6,
-       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -46340,7 +46345,7 @@
       "population": {
        "high": 37.2,
        "low": 36.1,
-       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
        "status": "in",
        "verified": false
       },
@@ -47041,9 +47046,9 @@
       "population": {
        "high": 99,
        "low": 70,
-       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
+       "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -47142,7 +47147,7 @@
       "population": {
        "high": 100,
        "low": 40,
-       "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
+       "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
        "status": "in",
        "verified": false
       },
@@ -47378,9 +47383,9 @@
       "population": {
        "high": 10,
        "low": 6,
-       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
+       "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
        "status": "in",
-       "verified": false
+       "verified": true
       },
       "raw_level": 0,
       "readings_today": 1,
@@ -47603,7 +47608,7 @@
       "population": {
        "high": 37.2,
        "low": 36.1,
-       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
+       "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
        "status": "in",
        "verified": false
       },
@@ -51226,11 +51231,13 @@
   "window": "2024-05-08 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -51249,6 +51256,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:a:social:day-30"
     ],
@@ -51281,6 +51289,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -51311,13 +51320,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -51341,6 +51351,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -51356,14 +51367,20 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rejected_rules": [],
+  "rewritten": 0
  },
  "/api/suggestions/h [as h]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -51382,6 +51399,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:social:day-30"
     ],
@@ -51414,6 +51432,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -51444,13 +51463,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -51474,6 +51494,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -51489,14 +51510,20 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rejected_rules": [],
+  "rewritten": 0
  },
  "/api/suggestions/k [as k]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -51515,6 +51542,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:k:social:day-30"
     ],
@@ -51547,6 +51575,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -51577,13 +51606,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -51607,6 +51637,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Walk outside without a phone, 20 minutes",
@@ -51622,14 +51653,20 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rejected_rules": [],
+  "rewritten": 0
  },
  "/api/suggestions/t [as t]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -51648,6 +51685,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:social:day-30"
     ],
@@ -51680,6 +51718,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -51710,13 +51749,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -51740,6 +51780,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Cook a dish from a crewmate's home city",
@@ -51755,6 +51796,10 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rejected_rules": [],
+  "rewritten": 0
  }
 }

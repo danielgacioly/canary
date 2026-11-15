@@ -19,10 +19,12 @@ interface Session {
   bump: () => void
   setStep: (i: number) => Promise<void>
   setLocation: (loc: string | null) => Promise<void>
-  emergency: boolean
-  setEmergency: (v: boolean) => void
+  /** true opens Guided Response on the chooser; a protocol id opens that protocol directly. */
+  emergency: boolean | string
+  setEmergency: (v: boolean | string) => void
   /** Open Guided Response already on this protocol (from its page on the Protocols page); null opens the picker. */
   startProtocol: (id: string | null) => void
+  /** The protocol id Guided Response was opened on, if any. */
   emergencyPid: string | null
   askOpen: boolean
   setAskOpen: (v: boolean) => void
@@ -56,10 +58,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // A remembered person without a session token is not signed in.
   const [me, setMeState] = useState<string | null>(api.hasCrewSession() ? load('canary.me') : null)
   const [rev, setRev] = useState(0)
-  const [emergency, setEmergencyRaw] = useState(false)
-  const [emergencyPid, setEmergencyPid] = useState<string | null>(null)
-  const setEmergency = useCallback((v: boolean) => { setEmergencyRaw(v); if (!v) setEmergencyPid(null) }, [])
-  const startProtocol = useCallback((id: string | null) => { setEmergencyPid(id); setEmergencyRaw(true) }, [])
+  const [emergency, setEmergency] = useState<boolean | string>(false)
+  const startProtocol = useCallback((id: string | null) => setEmergency(id ?? true), [])
+  const emergencyPid = typeof emergency === 'string' ? emergency : null
   const [askOpen, setAskOpen] = useState(false)
   const [askSeed, setAskSeed] = useState<string | null>(null)
   const askAbout = useCallback((q: string) => { setAskSeed(q); setAskOpen(true) }, [])

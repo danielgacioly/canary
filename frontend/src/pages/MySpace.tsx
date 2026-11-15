@@ -1,11 +1,11 @@
 // My space: one private page per astronaut. Locked, it only asks "Choose your profile".
-// Inside: Health (numbers), Goals (with the patches), Suggestions (the AI slot), Trends (the charts, route
-// /me/dashboard), My information and Settings (photo, PIN, lock).
+// Inside: Health (numbers and briefings), Goals (with the patches), Suggestions (from the assistant), Trends (the charts,
+// route /me/dashboard), My information and Settings (photo, PIN, lock).
 import { useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { protocolPath } from './Protocols'
 import { api } from '../api/client'
-import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
+import type { Briefing, CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
 import type { Pt } from '../lib/scale'
 import BloodChart from '../components/BloodChart'
 import BodyView from '../components/BodyView'
@@ -13,11 +13,12 @@ import { GoalRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import Trend from '../components/Trend'
-import { Icon, Loading, Patch, Tabs, WaitingForData } from '../components/ui'
+import { Icon, Loading, Patch, Status, Tabs, WaitingForData } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
 import { bonePctOfPreflight, learningNote, nasaLine, num, ORIGIN } from '../lib/health'
 import { squareJpeg } from '../lib/image'
+import { NO_MODEL } from '../lib/assistant'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
@@ -50,7 +51,7 @@ function Inside({ me }: { me: string }) {
         <div className="grow"><h1>{person.name}</h1><p className="muted">{person.role}</p></div>
       </div>
       <Tabs value={tab} options={TABS} onChange={t => nav(t === 'health' ? '/me' : `/me/${t}`)} />
-      {tab === 'health' && <BodyView d={d} onCheck={setCheck} />}
+      {tab === 'health' && <><BodyView d={d} onCheck={setCheck} /><BriefingsCard me={me} /></>}
       {tab === 'goals' && <GoalsTab me={me} onCheck={setCheck} />}
       {tab === 'suggestions' && <SuggestionsTab me={me} />}
       {tab === 'dashboard' && <DashboardTab d={d} me={me} />}
@@ -58,6 +59,35 @@ function Inside({ me }: { me: string }) {
       {tab === 'settings' && <SettingsTab d={d} me={me} />}
       {check && <Check kind={check} onClose={() => setCheck(null)} />}
     </div>
+  )
+}
+
+/* ---------------------------------------------------------------- briefings: what goes to Earth, approved by the medical team */
+/** Seconds until a queued message arrives, in words a person reads at a glance. */
+const eta = (s: number) => (s < 90 ? `${Math.max(1, Math.round(s))} s` : `${Math.round(s / 60)} min`)
+
+/** Read-only for the astronaut: only the medical team approves a briefing before it is queued for Earth. */
+function BriefingsCard({ me }: { me: string }) {
+  const { data, error } = useApi<Briefing[]>(() => api.briefings(me), [me])
+  const now = Date.now() / 1000
+  return (
+    <section className="card line rise briefings" aria-labelledby="briefings-h" style={{ ['--d' as string]: 1 }}>
+      <div className="section-head"><h2 id="briefings-h">Briefings</h2></div>
+      <p className="small muted">The weekly briefing about you goes to the flight surgeon on Earth once the medical team has approved it. You can read it here.</p>
+      {error ? <p className="small err" role="alert">Could not load your briefings.</p>
+        : !data ? <span className="lbl">Loading briefings…</span>
+        : !data.length ? <p className="small muted">No briefing yet. The medical team prepares one, and it appears here.</p>
+        : data.map(b => (
+          <article key={b.id} className="briefing-row">
+            <div className="row wrap">
+              <Status level={b.status === 'draft' ? 1 : 0}>{b.status === 'draft' ? 'Waiting for the medical team' : b.status === 'queued' ? 'Queued for Earth' : b.status}</Status>
+              <span className="small muted num">Day {b.day} · {b.bytes} bytes</span>
+              {b.status === 'queued' && b.deliver_at != null && <span className="small dim">{b.deliver_at > now ? `Arrives on Earth in ${eta(b.deliver_at - now)}` : 'Arrived on Earth'}</span>}
+            </div>
+            <pre className="brief-text">{b.text}</pre>
+          </article>
+        ))}
+    </section>
   )
 }
 
@@ -114,6 +144,40 @@ function PatchStrip({ p }: { p: GoalsResponse['profile'] }) {
   )
 }
 
+/* ---------------------------------------------------------------- suggestions: the assistant, fed by your own data */
+const FALLBACK_REASONS: Record<string, string> = {
+  numbers_rejected: 'the model used numbers that are not in your data',
+  parse_error: 'the model reply could not be read',
+  'model:bad_output': 'the model reply was not in the expected form',
+  'model:refusal': 'the model declined to rephrase them',
+  'model:max_tokens': 'the model reply was cut off',
+  'api:timeout': 'the AI service did not answer in time',
+  'api:rate_limit': 'the AI service is busy',
+  'api:connection': 'no link to the AI service',
+  'api:status': 'the AI service returned an error',
+  'api:error': 'the AI service could not be used',
+  'loop:timeout': 'the model took longer than the time limit',
+}
+
+function suggestionSlot(d: Suggestions): { tag: string; note: string } {
+  const total = d.items.length
+  const n = d.rewritten ?? (d.mode === 'ai' ? total : 0)
+  const reason = d.fallback_reason ? (FALLBACK_REASONS[d.fallback_reason] ?? 'the model could not be used') : null
+  if (d.mode === 'ai') {
+    const partial = n < total
+    return {
+      tag: `AI · ${d.provider}${partial ? ` · ${n} of ${total} rephrased` : ''}`,
+      note: partial
+        ? `A model rephrased ${n} of them and every number was checked; the rest keep the rule text${reason ? ` because ${reason}` : ''}.`
+        : 'A model rephrased them; every number was checked.',
+    }
+  }
+  if (d.configured) {
+    return { tag: 'Model connected · rule text kept', note: `The rule text is shown${reason ? ` because ${reason}` : ''}.` }
+  }
+  return { tag: NO_MODEL, note: 'Rules write them from the same data.' }
+}
+
 /* ---------------------------------------------------------------- suggestions: the outside and the inside, side by side */
 const TOP = 3
 function SuggestionsTab({ me }: { me: string }) {
@@ -144,9 +208,13 @@ function SuggestionsTab({ me }: { me: string }) {
       </div>
     </article>
   )
+  const slot = suggestionSlot(data)
   return (
     <div className="suggest">
-      <p className="small muted rise">Picked from your own numbers and where you are. Only you see them.</p>
+      <div className="slot-line rise">
+        <span className="tag">{slot.tag}</span>
+        <span className="small muted">Picked from your own numbers and where you are. {slot.note} Only you see them.</span>
+      </div>
       <div className="suggest-list">{data.items.slice(0, TOP).map(card)}</div>
       {data.items.length > TOP && (
         <details className="suggest-more">

@@ -5,7 +5,7 @@ your own normal". The population range here is the safety limit: it says "outsid
 and, past a critical limit, it raises the level to 2 on its own, whatever the personal numbers say.
 
 Every entry has a `source`. `checked` lists the numbers that were read on the guideline's own page (with the link,
-on 2026-11-14); `verified` stays False while any number of the entry is still a prototype assumption or quoted
+on 2026-11-14, the pulse, hypothermia, glucose 54 and sleep pages on 2026-11-15); `verified` stays False while any number of the entry is still a prototype assumption or quoted
 from memory. Critical limits are marked as prototype assumptions unless a guideline gives them. These are not
 diagnostic thresholds. Limits NASA sets for flight live in standards.py (NASA-STD-3001).
 """
@@ -25,11 +25,17 @@ MEDLINE_FEVER = "https://medlineplus.gov/ency/article/003090.htm"
 ADA_LOW = "https://diabetes.org/living-with-diabetes/hypoglycemia-low-blood-glucose"
 CDC_SLEEP = "https://www.cdc.gov/sleep/about/index.html"
 OSD575 = "https://osdr.nasa.gov/bio/repo/data/studies/OSD-575"
+MEDLINE_PULSE = "https://medlineplus.gov/ency/article/003399.htm"
+MEDLINE_HYPOTHERMIA = "https://medlineplus.gov/ency/article/000038.htm"
+# ADA and EASD joint position statement (International Hypoglycaemia Study Group), Diabetologia 2017, doi 10.1007/s00125-016-4146-6
+ADA_EASD_54 = "https://europepmc.org/article/PMC/PMC6518070"
+# National Sleep Foundation 2015 recommendations (Hirshkowitz et al., Sleep Health 2015), the table of the release
+NSF_SLEEP = "https://www.eurekalert.org/news-releases/554948"
 
 POPULATION: Dict[str, dict] = {
     "hr": {"low": 40, "high": 100, "critical_low": 30, "critical_high": 150,
-           "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
-           "checked": [f"high 100 bpm: {MEDLINE_VITALS}"], "verified": False},
+           "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
+           "checked": [f"high 100 bpm: {MEDLINE_VITALS}", f"athletes 40 to 60 bpm: {MEDLINE_PULSE}"], "verified": False},
     "sbp": {"low": 90, "high": 129, "critical_low": 70, "critical_high": 180,
             "source": "Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. "
                       "MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption",
@@ -44,16 +50,17 @@ POPULATION: Dict[str, dict] = {
     "temp": {"low": 36.1, "high": 37.2, "critical_low": 35.0, "critical_high": 39.3,
              "source": "MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at "
                        "39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a "
-                       "cool personal normal (36.4) is not flagged every day. Critical low 35 (hypothermia): quoted from memory",
-             "checked": [f"fever above 37.2 to 37.5, act at 39.4: {MEDLINE_FEVER}", f"usual 36.5 to 37.3: {MEDLINE_VITALS}"], "verified": False},
+                       "cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35)",
+             "checked": [f"fever above 37.2 to 37.5, act at 39.4: {MEDLINE_FEVER}", f"usual 36.5 to 37.3: {MEDLINE_VITALS}",
+                         f"hypothermia below 35: {MEDLINE_HYPOTHERMIA}"], "verified": False},
     "gluc": {"low": 70, "high": 99, "critical_low": 54, "critical_high": None,
              "source": "ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the "
-                       "Inspiration4 laboratory (65 to 99, OSD-575). Critical 54 (ADA level 2): quoted from memory",
-             "checked": [f"low 70: {ADA_LOW}", f"high 99: {OSD575}"], "verified": False},
+                       "Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia",
+             "checked": [f"low 70: {ADA_LOW}", f"high 99: {OSD575}", f"below 54 serious: {ADA_EASD_54}"], "verified": True},
     "sleep": {"low": 6, "high": 10, "critical_low": None, "critical_high": None,
               "source": "CDC: adults need 7 hours or more (the app's sleep goal is 7 h, and NASA-STD-3001 V1 6001 plans an 8.5 h sleep period). "
-                        "The range 6 to 10 h is the National Sleep Foundation's 'may be appropriate' band, quoted from memory",
-              "checked": [f"7 h or more for adults: {CDC_SLEEP}"], "verified": False},
+                        "The range 6 to 10 h is the National Sleep Foundation's 2015 'may be appropriate' band for adults 26 to 64 (7 to 9 h recommended)",
+              "checked": [f"7 h or more for adults: {CDC_SLEEP}", f"6 and 10 h may be appropriate (26 to 64): {NSF_SLEEP}"], "verified": True},
     "water": {"low": {"F": 1.6, "M": 2.0}, "high": None, "critical_low": None, "critical_high": None,
               "source": "EFSA 2010: adequate intake from drinks about 1.6 L (women) and 2.0 L (men)", "checked": [], "verified": False},
     "exer": {"low": 21, "high": None, "critical_low": None, "critical_high": None,

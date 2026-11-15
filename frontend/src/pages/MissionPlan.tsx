@@ -11,7 +11,7 @@ import { LineChart, Loading } from '../components/ui'
 import { useApi, useSession } from '../state/session'
 
 const BODY: Record<string, string[]> = {
-  g0: ['Bone loss at the full 0 g rate, about 1% a month without exercise', 'Fluids shift toward the head: watch the eyes', 'Space sickness is common in the first 72 hours'],
+  g0: ['Bone loss at the full 0 g rate, 1% to 1.5% a month on average (NASA)', 'Fluids shift toward the head: watch the eyes', 'Space sickness is common in the first 72 hours'],
   gp: ['Re-adaptation to weight in the first 30 days after 0 g: dizziness when standing', 'Bone loss slows to about 40% of the 0 g rate', 'Fine, sharp dust outside'],
   g1: ['Bone slowly recovers', 'Baseline training: Canary learns each person\'s normal'],
 }

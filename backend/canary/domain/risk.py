@@ -148,7 +148,7 @@ def _fatigue(crew_id: str, day: int) -> dict:
     log = goals._log(crew_id)
     if not any(goals.is_done(crew_id, "mood", d, day, log) for d in (day, day - 1, day - 2)):
         ev.append({"checkin": "missing_mood", "value": None, "baseline": None, "z": None, "origin": "user",
-                   "source": f"goal:{crew_id}:mood:day{day}", "points": FATIGUE["checkins"]["missing_mood"],
+                   "source": f"goals:{crew_id}:mood:day{day}", "points": FATIGUE["checkins"]["missing_mood"],
                    "text": "No mood check-in for 3 days"})
         signals += 1
     score = round(sum(e["points"] for e in ev), 2)
@@ -229,6 +229,8 @@ EXTRA_RANGES = {
                      "source": "prototype assumption: a low 24 h urine volume is a kidney-stone factor", "verified": False},
 }
 RULES = {**A.value("risk.rules"), "sans": {**A.value("risk.rules")["sans"], "weak": "The Amsler grid is a weak indicator of SANS: a clear grid does not rule it out."}}
+# How a storm event is described, by where it came from (the `origin` of the space event).
+STORM_BASIS = {"real": "NASA's records of May 2024, replayed", "donki": "NASA DONKI, live", "simulated": "simulated"}
 VISION_ITEMS = ("Eye discomfort", "Blurred vision")
 INDICATOR_RISK = {**{i: "fatigue" for i in FATIGUE["weights"]}, "hr": "cardio", "sbp": "cardio", "dbp": "cardio", "spo2": "cardio", "vo2": "cardio",
                   "bone": "bone_muscle", "grip": "bone_muscle", "exer": "bone_muscle", "gluc": "nutrition",
