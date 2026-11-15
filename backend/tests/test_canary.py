@@ -1721,7 +1721,7 @@ def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
     assert "crew.1.name" in bad(1, name="K")
     assert "crew.0.role" in bad(0, role="")
     assert "crew.2.pin" in bad(2, pin="12a4")
-    assert "already used by seat 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
+    assert "already used by person 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
     assert "crew.0.dob" in bad(0, dob="2030-01-01") and "crew.0.dob" in bad(0, dob="1900-01-01") and "crew.0.dob" in bad(0, dob="1990-02-31")
     assert "at least 140" in bad(1, height_cm=100)["crew.1.height_cm"]
     assert "crew.1.weight_kg" in bad(1, weight_kg=200)

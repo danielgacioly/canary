@@ -395,7 +395,7 @@ def _crew_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
             if not auth.valid_pin(pin):
                 raise FieldError(g("pin"), "pin must be exactly 4 digits")
             if pin in pins.values():
-                raise FieldError(g("pin"), "each seat needs its own pin")
+                raise FieldError(g("pin"), "each person needs their own pin")
             pins[seat] = pin
             people.append(p)
         except FieldError as e:
@@ -685,6 +685,16 @@ def bootstrap() -> Optional[dict]:
     return None
 
 
+def drop_package_story() -> None:
+    """The crew changed (registered by hand or cleared): the scenes, the package marker and the space events of a loaded
+    package describe people who are no longer in the crew, so they go. Events made through the API (`ev_`) and imported
+    from DONKI stay. Loading a package again brings the story back."""
+    with _transaction() as c:
+        c.execute("DELETE FROM scenes")
+        c.execute(f"DELETE FROM space_events WHERE id NOT LIKE '{CONTROL_EVENT_PREFIX}%' AND id NOT LIKE 'donki:%'")
+        _set(c, "package", None)
+
+
 def reload_for_preset(preset: str) -> bool:
     """The plan changed to a preset while a bundled package is loaded: replace the observations, space events, scenes and
     package goal history with those of `odyssey1-<preset>`. Check-ins, goals ticked in the app, the registered crew and
@@ -708,6 +718,14 @@ def reload_for_preset(preset: str) -> bool:
 
 
 # ---------------------------------------------------------------- uploads (zip, or CSV files)
+def upload_label(items: Sequence[Tuple[str, bytes]]) -> str:
+    """What Mission Control reads as the loaded package after an upload: the zip's name, the one CSV's name, or "3 CSV files"."""
+    names = [pathlib.PurePosixPath((n or "").replace("\\", "/")).name for n, _ in items]
+    if len(names) == 1 and names[0]:
+        return names[0][:80]
+    return f"{len(names)} CSV files"
+
+
 def files_from_upload(items: Sequence[Tuple[str, bytes]]) -> Dict[str, bytes]:
     """Package files from an upload: one .zip, or several CSV files named like the package files."""
     if len(items) == 1 and items[0][0].lower().endswith(".zip"):

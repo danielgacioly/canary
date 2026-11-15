@@ -179,10 +179,10 @@ def test_duplicate_pin_and_duplicate_id_are_refused_on_the_field():
     form = [person(0, pin="7001"), person(1, pin="7001"), person(2, pin="7003")]
     r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
     assert r.status_code == 422
-    assert [(e["field"], "already used by seat 1" in e["message"]) for e in r.json()["detail"]] == [("crew.1.pin", True)]
+    assert [(e["field"], "already used by person 1" in e["message"]) for e in r.json()["detail"]] == [("crew.1.pin", True)]
     form = [person(0, seat="x1", pin="7001"), person(1, seat="x1", pin="7002")]
     r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
-    assert r.status_code == 422 and [e["field"] for e in r.json()["detail"]] == ["crew.1.seat"] and "seat 1" in r.json()["detail"][0]["message"]
+    assert r.status_code == 422 and [e["field"] for e in r.json()["detail"]] == ["crew.1.seat"] and "used by person 1" in r.json()["detail"][0]["message"]
     form = [person(0, seat="cabin")]
     r = client.post("/api/control/register", headers=ctl(), json={"crew": form, "mission": MISSION})
     assert r.status_code == 422 and r.json()["detail"][0]["field"] == "crew.0.seat"

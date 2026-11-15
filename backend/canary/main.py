@@ -1061,7 +1061,7 @@ class RegisterIn(BaseModel):
 
 
 def _check_registration(body: RegisterIn) -> None:
-    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between seats, ages at launch."""
+    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between people, ages at launch."""
     errs: List[dict] = []
     if not 1 <= len(body.crew) <= registry.MAX_CREW:
         errs.append({"field": "crew", "message": f"Register between 1 and {registry.MAX_CREW} people"})
@@ -1077,13 +1077,13 @@ def _check_registration(body: RegisterIn) -> None:
         if ids[i] in registry.RESERVED_IDS:
             errs.append({"field": f"crew.{i}.seat", "message": f"ID {ids[i]} is reserved; pick another"})
         elif ids[i] in seen_id:
-            errs.append({"field": f"crew.{i}.seat", "message": f"ID is already used by seat {seen_id[ids[i]] + 1}; each seat needs its own"})
+            errs.append({"field": f"crew.{i}.seat", "message": f"ID is already used by person {seen_id[ids[i]] + 1}; each person needs their own"})
         seen_id.setdefault(ids[i], i)
         age = validation.age_on(date.fromisoformat(p.dob), launch)
         if not SEAT_AGE[0] <= age <= SEAT_AGE[1]:
             errs.append({"field": f"crew.{i}.dob", "message": f"Date of birth gives an age of {age} at launch; it must be between {SEAT_AGE[0]} and {SEAT_AGE[1]}"})
         if p.pin in seen:
-            errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by seat {seen[p.pin] + 1}; each seat needs its own"})
+            errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by person {seen[p.pin] + 1}; each person needs their own"})
         seen.setdefault(p.pin, i)
     if errs:
         raise validation.ValidationFailure(errs)
@@ -1100,9 +1100,9 @@ def control_register(body: RegisterIn):
         registry.register(crew, {**body.mission.model_dump(), "rover": rover})
     except ValueError as e:
         raise HTTPException(400, str(e))
+    data.drop_package_story()  # the scenes and storms of a loaded package are about other people
     plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
-    data.reload_for_preset(body.mission.preset)
     mission.set_step(0)
     return control_overview()
 
@@ -1111,6 +1111,7 @@ def control_register(body: RegisterIn):
 def control_clear():
     """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
     registry.clear()
+    data.drop_package_story()
     return control_overview()
 
 
@@ -1212,8 +1213,9 @@ async def control_import(request: Request):
             if int(request.headers.get("content-length") or 0) > data.MAX_UPLOAD_BYTES:
                 raise validation.FieldError("file", "The upload is too large")
             raw = await request.body()
-            files = data.files_from_upload(_multipart_files(ctype, raw))
-            res = await run_in_threadpool(data.import_package, files, "upload", False)
+            parts = _multipart_files(ctype, raw)
+            files = data.files_from_upload(parts)
+            res = await run_in_threadpool(data.import_package, files, data.upload_label(parts), False)
         else:
             raise HTTPException(415, "Send multipart/form-data (a zip or CSV files) or JSON {\"package\": \"name\"}")
     except validation.ValidationFailure as e:

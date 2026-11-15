@@ -226,6 +226,7 @@ def test_a_zip_of_a_package_imports_and_a_second_time_adds_no_readings(monkeypat
     again = client.post("/api/control/import", headers=ctl(), files=[("file", ("pkg.zip", buf.getvalue(), "application/zip"))]).json()
     assert again["accepted"]["observations"] == 0 and again["duplicates"]["observations"] == body["accepted"]["observations"]
     assert len(client.get("/api/scenes").json()) == 6
+    assert data.loaded_package()["name"] == "pkg.zip"  # Mission Control reads the file name, not "upload"
 
 
 def test_loose_csv_files_import_and_unknown_files_are_refused(monkeypatch):
@@ -430,3 +431,43 @@ def test_data_status_never_shows_the_key_when_ingest_is_off(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", "")
     body = client.get("/api/control/data-status", headers=ctl()).json()
     assert body["ingest_configured"] is False
+
+
+def test_the_loaded_package_is_named_by_what_was_uploaded(monkeypatch):
+    monkeypatch.setattr(settings, "mission_package", "")
+    client.post("/api/demo/reset")
+    assert data.upload_label([("my-mission.zip", b"")]) == "my-mission.zip" and data.upload_label([("a.csv", b"")]) == "a.csv"
+    two = {"mission.csv": (MARS / "mission.csv").read_bytes(), "crew.csv": (MARS / "crew.csv").read_bytes()}
+    r = upload(two)
+    assert r.status_code == 200, r.text
+    assert client.get("/api/control/data-status", headers=ctl()).json()["package"] == "2 CSV files"
+
+
+def _register_two():
+    form = data.demo_form()
+    return client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"][:2], "mission": form["mission"]})
+
+
+def test_registering_a_crew_drops_the_scenes_of_a_loaded_package_and_loading_it_again_brings_them_back():
+    client.post("/api/demo/reset")
+    mine = client.post("/api/control/space-events", headers=ctl(), json={"kind": "sep", "start_day": 50, "end_day": 51, "locations": ["mars"],
+                                                                         "extra_dose_msv": 3, "origin": "simulated"})
+    assert mine.status_code == 200, mine.text
+    assert len(client.get("/api/scenes").json()) == 6 and data.loaded_package()["name"] == "odyssey1-mars"
+    from_package = [e["id"] for e in data.events() if not e["id"].startswith("ev_")]
+    assert from_package
+    assert _register_two().status_code == 200
+    assert client.get("/api/scenes").json() == [] and data.loaded_package() is None
+    left = [e["id"] for e in data.events()]
+    assert not set(from_package) & set(left) and any(i.startswith("ev_") for i in left)  # the API-made event stays
+    assert client.get("/api/control/data-status", headers=ctl()).json()["package"] is None
+    r = client.post("/api/control/import", headers=ctl(), json={"package": "odyssey1-mars"})
+    assert r.status_code == 200 and len(client.get("/api/scenes").json()) == 6 and data.loaded_package()["name"] == "odyssey1-mars"
+
+
+def test_clearing_everything_also_drops_the_package_story():
+    client.post("/api/demo/reset")
+    assert len(client.get("/api/scenes").json()) == 6
+    assert client.post("/api/control/clear", headers=ctl()).status_code == 200
+    assert client.get("/api/scenes").json() == [] and data.loaded_package() is None
+    assert not [e for e in data.events() if not e["id"].startswith("ev_")]
