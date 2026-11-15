@@ -5,32 +5,35 @@
 // systems, not a medical atlas.
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { flowMaterial, glowMaterial } from './materials'
+import { fibreMaterial, flowMaterial, glowMaterial } from './materials'
 
 export type Vec = [number, number, number]
 export type Joints = Record<string, Vec>
 export type SystemId = 'brain' | 'eyes' | 'heart' | 'lungs' | 'skeleton' | 'muscles' | 'gut' | 'kidneys' | 'immune' | 'skin'
 
+// One strong, distinct hue per system, so in the overview each colour reads as one thing to click.
 export const SYSTEM_COLOR: Record<SystemId, string> = {
-  brain: '#b28bff', eyes: '#7cf3ff', heart: '#ff5fa8', lungs: '#6fd8ff', skeleton: '#c6fbff',
-  muscles: '#ff7ad9', gut: '#ffd36b', kidneys: '#ffa860', immune: '#9dff9a', skin: '#5ef2ff',
+  brain: '#9d5cff', eyes: '#00f0d8', heart: '#ff2a4d', lungs: '#2f9bff', skeleton: '#eef6ff',
+  muscles: '#ff7a1f', gut: '#ffd60a', kidneys: '#ff3dd8', immune: '#3dff6e', skin: '#c6ff2e',
 }
 
 const v = (p: Vec) => new THREE.Vector3(...p)
 const UP = new THREE.Vector3(0, 1, 0)
 
-export interface Part { mesh: THREE.Mesh; system: SystemId; kind: 'organ' | 'bone' | 'vessel' | 'nerve' }
+export interface Part { mesh: THREE.Mesh; system: SystemId; kind: 'organ' | 'bone' | 'vessel' | 'nerve' | 'muscle' }
+
+const ARTERY = SYSTEM_COLOR.heart, VEIN = '#5a6bff'
 
 /** Look of the real structures that are not plain glowing surfaces: light travelling along vessels and airways. */
 const FLOW: Record<string, { color: string; speed: number; opacity: number }> = {
-  aorta: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, pulmonary_trunk: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
-  vena_cava: { color: '#6f8dff', speed: 0.45, opacity: 1 }, coronaries: { color: '#ff4f8e', speed: 0.9, opacity: 1 },
-  arteries_trunk: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
-  arteries_arm_left: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, arteries_arm_right: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
-  arteries_leg_left: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, arteries_leg_right: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
+  aorta: { color: ARTERY, speed: 0.7, opacity: 1 }, pulmonary_trunk: { color: ARTERY, speed: 0.7, opacity: 1 },
+  vena_cava: { color: VEIN, speed: 0.45, opacity: 1 }, coronaries: { color: ARTERY, speed: 0.9, opacity: 1 },
+  arteries_trunk: { color: ARTERY, speed: 0.7, opacity: 1 },
+  arteries_arm_left: { color: ARTERY, speed: 0.7, opacity: 1 }, arteries_arm_right: { color: ARTERY, speed: 0.7, opacity: 1 },
+  arteries_leg_left: { color: ARTERY, speed: 0.7, opacity: 1 }, arteries_leg_right: { color: ARTERY, speed: 0.7, opacity: 1 },
   airways_left: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 }, airways_right: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 },
   trachea: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 },
-  lung_vessels_left: { color: '#8fe6ff', speed: 0.5, opacity: 0.8 }, lung_vessels_right: { color: '#8fe6ff', speed: 0.5, opacity: 0.8 },
+  lung_vessels_left: { color: '#7cc4ff', speed: 0.5, opacity: 0.8 }, lung_vessels_right: { color: '#7cc4ff', speed: 0.5, opacity: 0.8 },
 }
 
 /** The meshes of anatomy.glb as plain float geometry in world space (the file is meshopt-quantised, with a transform per node). */
@@ -210,7 +213,7 @@ export function buildAnatomy(J: Joints, gltf?: GLTF | null) {
     }
     for (const r of real.meshes) {
       const flow = FLOW[r.name]
-      const mat = flow ? flowMaterial(flow.color, flow.speed, flow.opacity) : glowMaterial(r.color ?? SYSTEM_COLOR[r.system], r.kind === 'bone' ? 0.75 : 0.9)
+      const mat = flow ? flowMaterial(flow.color, flow.speed, flow.opacity) : glowMaterial(SYSTEM_COLOR[r.system], r.kind === 'bone' ? 0.75 : 0.9)
       r.geometry.computeBoundingBox()
       boxes[r.name] = r.geometry.boundingBox!.clone()
       if (r.name === 'aorta') { aortaTop = end(r.geometry, true); aortaBottom = end(r.geometry, false) }
@@ -241,15 +244,15 @@ export function buildAnatomy(J: Joints, gltf?: GLTF | null) {
   if (!real) {
     const aortaPts = [hc, hc.clone().add(new THREE.Vector3(0, 0.07, -0.01)), new THREE.Vector3(0, hc.y + 0.06, -0.07), new THREE.Vector3(0, hc.y - 0.05, -0.085),
       new THREE.Vector3(0, gutTop - 0.08, -0.07), new THREE.Vector3(0, pelvis.y + 0.04, -0.06)]
-    tube(aortaPts, 0.006, 'heart', 'vessel', '#ff4f8e', 0.7)
+    tube(aortaPts, 0.006, 'heart', 'vessel', ARTERY, 0.7)
   }
   // drawn only when the model has no real arteries of the neck and limbs
   const realArteries = !!real?.meshes.some(m => m.name.startsWith('arteries_'))
   for (const s of realArteries ? [] : ['l', 'r']) {
     const sg = s === 'l' ? 1 : -1
-    tube([aortaBottom.clone(), v(J[`${s}-upper-leg`]).add(new THREE.Vector3(0, 0, 0.03)), v(J[`${s}-knee`]).add(new THREE.Vector3(0, 0, -0.01)), v(J[`${s}-ankle`])], 0.0045, 'heart', 'vessel', '#ff4f8e', 0.7)
-    tube([aortaTop.clone(), new THREE.Vector3(sg * 0.025, neck.y, 0), new THREE.Vector3(sg * 0.03, head.y + 0.02, 0.0)], 0.004, 'heart', 'vessel', '#ff4f8e', 0.7)
-    tube([new THREE.Vector3(sg * 0.03, aortaTop.y + 0.02, aortaTop.z + 0.02), v(J[`${s}-shoulder`]), v(J[`${s}-elbow`]).add(new THREE.Vector3(0, 0, 0.012)), v(J[`${s}-hand`])], 0.0038, 'heart', 'vessel', '#ff4f8e', 0.7)
+    tube([aortaBottom.clone(), v(J[`${s}-upper-leg`]).add(new THREE.Vector3(0, 0, 0.03)), v(J[`${s}-knee`]).add(new THREE.Vector3(0, 0, -0.01)), v(J[`${s}-ankle`])], 0.0045, 'heart', 'vessel', ARTERY, 0.7)
+    tube([aortaTop.clone(), new THREE.Vector3(sg * 0.025, neck.y, 0), new THREE.Vector3(sg * 0.03, head.y + 0.02, 0.0)], 0.004, 'heart', 'vessel', ARTERY, 0.7)
+    tube([new THREE.Vector3(sg * 0.03, aortaTop.y + 0.02, aortaTop.z + 0.02), v(J[`${s}-shoulder`]), v(J[`${s}-elbow`]).add(new THREE.Vector3(0, 0, 0.012)), v(J[`${s}-hand`])], 0.0038, 'heart', 'vessel', ARTERY, 0.7)
   }
   centers.heart = hc.clone()
 
@@ -261,9 +264,71 @@ export function buildAnatomy(J: Joints, gltf?: GLTF | null) {
     tube([canalAt(J['spine-4'][1], J['spine-4']), v(J[`${s}-upper-leg`]).add(new THREE.Vector3(0, 0, -0.02)), v(J[`${s}-knee`]).add(new THREE.Vector3(0, 0, -0.03)), v(J[`${s}-ankle`]), v(J[`${s}-toe-3-3`] ?? J[`${s}-toe-1-3`])], 0.003, 'brain', 'nerve', '#c9a6ff', 0.6, 0.35)
   }
   if (!real) centers.brain = new THREE.Vector3(0, top.y - 0.069, head.z + 0.037)
+
+  // ---- optic nerves: from the back of each eye to the chiasm, then the optic tracts back into the brain
+  const le = v(J['l-eye']), re = v(J['r-eye'])
+  const chiasm = le.clone().add(re).multiplyScalar(0.5).add(new THREE.Vector3(0, -0.012, -0.052))
+  for (const [e, sg] of [[le, 1], [re, -1]] as [THREE.Vector3, number][]) {
+    const back = e.clone().add(new THREE.Vector3(-sg * 0.004, -0.002, -0.012))
+    tube([back, back.clone().lerp(chiasm, 0.5).add(new THREE.Vector3(sg * 0.004, 0, 0)), chiasm], 0.0022, 'eyes', 'vessel', SYSTEM_COLOR.eyes, 0.55)
+    tube([chiasm, chiasm.clone().add(new THREE.Vector3(sg * 0.016, 0.003, -0.018)), chiasm.clone().add(new THREE.Vector3(sg * 0.024, 0.008, -0.04))], 0.002, 'eyes', 'vessel', SYSTEM_COLOR.eyes, 0.55)
+  }
   centers.eyes ??= v(J['l-eye']).add(v(J['r-eye'])).multiplyScalar(0.5)
   centers.muscles = v(J['l-knee']).add(new THREE.Vector3(0, 0.2, 0))
   centers.skin = new THREE.Vector3(0, lungY - 0.05, 0.05)
 
   return { group, parts, centers }
+}
+
+/** The muscle layer: the body surface pulled a few millimetres inward, with a fibre coordinate per vertex (the angle
+ *  around the bone it wraps and the position along it), so the shader can draw fibres running along each limb segment.
+ *  It is only shown when Muscles is selected. */
+export function muscleLayer(body: THREE.BufferGeometry, J: Joints): Part {
+  const pos = body.getAttribute('position') as THREE.BufferAttribute, nor = body.getAttribute('normal') as THREE.BufferAttribute
+  const reg = body.getAttribute('_region') as THREE.BufferAttribute
+  type Seg = { a: THREE.Vector3; b: THREE.Vector3; k: number }
+  const seg = (a: string, b: string, k: number): Seg => ({ a: v(J[a]), b: v(J[b]), k })
+  // regions: 0 head, 1 torso, 2 arm, 3 hand, 4 leg, 5 foot
+  const segs: Record<string, Seg[]> = { torso: [{ a: v(J.pelvis), b: v(J.neck), k: 90 }] }
+  for (const s of ['l', 'r']) {
+    segs[`2${s}`] = [seg(`${s}-shoulder`, `${s}-elbow`, 34), seg(`${s}-elbow`, `${s}-hand`, 30)]
+    segs[`3${s}`] = [seg(`${s}-hand`, `${s}-finger-3-4`, 22)]
+    segs[`4${s}`] = [seg(`${s}-upper-leg`, `${s}-knee`, 44), seg(`${s}-knee`, `${s}-ankle`, 34)]
+    segs[`5${s}`] = [seg(`${s}-ankle`, `${s}-toe-2-4`, 22)]
+  }
+  const n = pos.count, P = new Float32Array(n * 3), F = new Float32Array(n * 3)
+  const p = new THREE.Vector3(), q = new THREE.Vector3(), d = new THREE.Vector3(), r = new THREE.Vector3(), ref = new THREE.Vector3(), c = new THREE.Vector3()
+  for (let i = 0; i < n; i++) {
+    p.fromBufferAttribute(pos, i); q.fromBufferAttribute(nor, i)
+    const R = Math.round(reg.getX(i))
+    p.addScaledVector(q, R === 1 ? -0.006 : -0.003)
+    P.set([p.x, p.y, p.z], i * 3)
+    const list = R === 1 || R === 0 ? segs.torso : segs[`${R}${p.x > 0 ? 'l' : 'r'}`]
+    let best: Seg = list[0], bt = 0, bd = Infinity
+    for (const s of list) {
+      d.subVectors(s.b, s.a); const len = d.length(); d.divideScalar(len)
+      const t = THREE.MathUtils.clamp(q.subVectors(p, s.a).dot(d) / len, 0, 1)
+      const dist = c.copy(s.a).addScaledVector(d, t * len).distanceTo(p)
+      if (dist < bd) { bd = dist; best = s; bt = t }
+    }
+    d.subVectors(best.b, best.a).normalize()
+    ref.set(0, 0, 1).addScaledVector(d, -d.z); if (ref.lengthSq() < 1e-4) ref.set(1, 0, 0).addScaledVector(d, -d.x); ref.normalize()
+    r.subVectors(p, best.a).addScaledVector(d, -r.subVectors(p, best.a).dot(d)).normalize()
+    const ang = Math.atan2(q.crossVectors(ref, r).dot(d), ref.dot(r))
+    F.set([ang, list === segs.torso ? 0.5 : bt, best.k], i * 3)   // the trunk has no tendon ends
+  }
+  const idx = body.getIndex()!, keep: number[] = []
+  for (let i = 0; i < idx.count; i += 3) {
+    const a = idx.getX(i), b = idx.getX(i + 1), e = idx.getX(i + 2)
+    if (reg.getX(a) > 0.5 && reg.getX(b) > 0.5 && reg.getX(e) > 0.5) keep.push(a, b, e)
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3))
+  g.setAttribute('normal', nor.clone())
+  g.setAttribute('aFiber', new THREE.BufferAttribute(F, 3))
+  g.setIndex(keep)
+  const mesh = new THREE.Mesh(g, fibreMaterial(SYSTEM_COLOR.muscles))
+  mesh.userData = { system: 'muscles', kind: 'muscle', glow: 1 }
+  mesh.visible = false
+  return { mesh, system: 'muscles', kind: 'muscle' }
 }

@@ -8,7 +8,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { buildAnatomy, type Joints, type Part, type SystemId } from './anatomy'
+import { buildAnatomy, muscleLayer, type Joints, type Part, type SystemId } from './anatomy'
 import { bodyMaterial, NO_DATA_COLOR, STATUS_COLOR } from './materials'
 
 export type Lens = 'physical' | 'mental'
@@ -121,6 +121,9 @@ export class HologramScene {
     let built
     try { built = buildAnatomy(joints, anatomy) } catch { built = buildAnatomy(joints) }
     const { group, parts, centers } = built
+    const muscles = muscleLayer(geometry, joints)
+    group.add(muscles.mesh)
+    parts.push(muscles)
     this.scene.add(group)
     this.parts = parts
     this.centers = centers
@@ -159,7 +162,9 @@ export class HologramScene {
     this.selected = sys
     this.zoomUntil = 0
     const c = sys ? this.centers[sys] : null
-    this.focus = c ? { target: c.clone(), dist: sys === 'muscles' || sys === 'skeleton' || sys === 'skin' ? 3.2 : 1.9 } : { target: this.homeTarget.clone(), dist: 4.4 }
+    // Radiation exposure is the whole body: the camera steps back to show all of it
+    this.focus = sys === 'skin' ? { target: this.homeTarget.clone(), dist: 4.8 }
+      : c ? { target: c.clone(), dist: sys === 'muscles' || sys === 'skeleton' ? 3.2 : sys === 'eyes' ? 1.0 : 1.9 } : { target: this.homeTarget.clone(), dist: 4.4 }
     this.applyStatus()
   }
 
@@ -171,7 +176,8 @@ export class HologramScene {
       const lvl = this.status[sys] ?? 0
       const c = lvl < 0 ? NO_DATA_COLOR : STATUS_COLOR[lvl]
       ;(u.uTint.value[i] as THREE.Vector4).set(c.r, c.g, c.b, lvl ? (lvl < 0 ? 0.45 : 0.55) : 0)
-      u.uBoost.value[i] = sys === this.hovered ? 0.6 : sys === this.selected ? 0.9 : 0
+      // muscles and radiation draw their own layer when selected; lighting the shell too would only blur it
+      u.uBoost.value[i] = sys === this.selected && (sys === 'muscles' || sys === 'skin') ? 0 : sys === this.hovered ? 0.6 : sys === this.selected ? 0.9 : 0
     })
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
@@ -184,7 +190,7 @@ export class HologramScene {
 
   private pick(): SystemId | null {
     this.ray.setFromCamera(this.pointer, this.camera)
-    const targets = [...this.parts.filter(p => p.kind !== 'nerve' || this.lens > 0.5).map(p => p.mesh), ...(this.body ? [this.body] : [])]
+    const targets = [...this.parts.filter(p => (p.kind !== 'nerve' || this.lens > 0.5) && (p.kind !== 'muscle' || this.selected === 'muscles')).map(p => p.mesh), ...(this.body ? [this.body] : [])]
     const hits = this.ray.intersectObjects(targets, false)
     if (!hits.length) return null
     const organ = hits.find(h => h.object.userData.kind === 'organ')
@@ -240,11 +246,11 @@ export class HologramScene {
     }
     // Focus: with a system selected everything else fades out, so the selected one reads on its own.
     const ease = Math.min(1, dt * 5), sel = this.selected
-    const shellSelected = sel === 'skin' || sel === 'muscles'
     if (this.body) {
       const u = this.body.material.uniforms
       u.uLens.value = this.lens
-      u.uDim.value += ((sel && !shellSelected ? 0.22 : 1) - u.uDim.value) * ease
+      u.uDim.value += ((sel && sel !== 'skin' ? (sel === 'muscles' ? 0.12 : 0.22) : 1) - u.uDim.value) * ease
+      u.uRad.value += ((sel === 'skin' ? 1 : 0) - u.uRad.value) * ease
     }
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
@@ -253,8 +259,11 @@ export class HologramScene {
       // `glow` keeps dense meshes from summing to white when everything is on; a selected system is alone, so it
       // gets close to full brightness.
       const g = p.mesh.userData.glow ?? 1
-      const want = !sel ? g ** 0.6 : p.system === sel ? g ** 0.4 : 0.06 * g ** 0.6
+      const want = p.kind === 'muscle' ? (sel === 'muscles' ? 1 : 0)
+        // overview: organs bright in their own colour, the white skeleton held back so it does not veil them
+        : !sel ? (p.kind === 'bone' ? 0.5 * g ** 0.6 : g ** 0.45) : p.system === sel ? g ** 0.4 : 0.06 * g ** 0.6
       const k = p.mesh.userData.k = (p.mesh.userData.k ?? want) + (want - (p.mesh.userData.k ?? want)) * ease
+      if (p.kind === 'muscle') p.mesh.visible = k > 0.01
       m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1) * k
       if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.copy(p.mesh.userData.base).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
     }
