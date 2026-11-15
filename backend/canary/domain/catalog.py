@@ -1,7 +1,7 @@
-"""Static mission data: places, crew, indicators, body systems, goals, badges and the demo story.
+"""Static mission data: places, indicators, body systems, goals and badges (and the views of the registered crew).
 
 Everything numeric that comes from literature is marked `source` so it can be
-checked before the pitch. Crew members and their baselines are fictional.
+checked before the pitch.
 """
 from typing import Dict, List, Optional
 
@@ -56,57 +56,14 @@ def day_label(day: int, location: str, leg_start: int = 0) -> str:
     return f"Day {day}"
 
 
-# ---------------------------------------------------------------- crew (fictional)
-CREW: List[dict] = [
-    {"id": "h", "name": "Helena Duarte", "role": "Commander", "initials": "HD", "home": "São Paulo, Brazil",
-     "cbc_subject": "C002", "age": 46, "sex": "F",
-     "base": {"sleep": 7.4, "react": 265, "mood": 4.1, "stress": 2.0, "social": 70, "hr": 58, "bp": 116,
-              "temp": 36.5, "spo2": 98, "gluc": 88, "exer": 95, "water": 2.6, "grip": 34, "bone": 0, "dsst": 62, "span": 7.0, "kss": 3.0, "tlx": 40, "vo2": 38.5}},
-    {"id": "k", "name": "Kenji Mori", "role": "Crew medical officer", "initials": "KM", "home": "Sapporo, Japan",
-     "cbc_subject": "C001", "age": 41, "sex": "M",
-     "base": {"sleep": 7.0, "react": 280, "mood": 3.9, "stress": 2.2, "social": 60, "hr": 62, "bp": 121,
-              "temp": 36.6, "spo2": 97.5, "gluc": 92, "exer": 90, "water": 2.4, "grip": 40, "bone": 0, "dsst": 58, "span": 6.8, "kss": 3.3, "tlx": 45, "vo2": 41.0}},
-    {"id": "a", "name": "Amara Okafor", "role": "Flight engineer", "initials": "AO", "home": "Lagos, Nigeria",
-     "cbc_subject": "C003", "age": 38, "sex": "F",
-     "base": {"sleep": 7.8, "react": 250, "mood": 4.3, "stress": 1.8, "social": 90, "hr": 55, "bp": 110,
-              "temp": 36.4, "spo2": 98.5, "gluc": 85, "exer": 110, "water": 2.8, "grip": 31, "bone": 0, "dsst": 66, "span": 7.2, "kss": 2.8, "tlx": 38, "vo2": 44.0}},
-    {"id": "t", "name": "Tomás Rivera", "role": "Geologist", "initials": "TR", "home": "Valparaíso, Chile",
-     "cbc_subject": "C004", "age": 44, "sex": "M",
-     "base": {"sleep": 6.9, "react": 290, "mood": 3.8, "stress": 2.4, "social": 55, "hr": 66, "bp": 124,
-              "temp": 36.7, "spo2": 97.8, "gluc": 95, "exer": 85, "water": 2.3, "grip": 44, "bone": 0, "dsst": 55, "span": 6.5, "kss": 3.5, "tlx": 48, "vo2": 39.5}},
-]
-CREW_BY_ID = {c["id"]: c for c in CREW}
-
-# ---------------------------------------------------------------- personal records
-# Registered by Mission Control before flight (the future admin flow). Fictional people.
-# Private: the astronaut and the medical team. Ages follow the mission clock from LAUNCH_DATE.
-LAUNCH_DATE = "2035-06-01"
-RECORDS: Dict[str, dict] = {
-    "h": {"dob": "1988-09-14", "sex": "Female", "nationality": "Brazilian", "languages": ["Portuguese", "English", "Spanish"],
-          "agency": "Brazilian Space Agency (AEB)", "flights": 2, "days_in_space": 214,
-          "height_cm": 168, "weight_kg": 61.5, "blood_type": "O−", "skin_type": "III", "handedness": "Right",
-          "vision": "No correction", "allergies": ["Penicillin"], "medications": [], "conditions": [],
-          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"},
-    "k": {"dob": "1993-11-02", "sex": "Male", "nationality": "Japanese", "languages": ["Japanese", "English"],
-          "agency": "Japan Aerospace Exploration Agency (JAXA)", "flights": 1, "days_in_space": 181,
-          "height_cm": 174, "weight_kg": 70.2, "blood_type": "A+", "skin_type": "III", "handedness": "Left",
-          "vision": "Glasses for reading", "allergies": [], "medications": [], "conditions": [],
-          "diet": "No restrictions", "vaccinations": "Up to date (checked L-90)",
-          "eva": "none", "emergency_contact": "Aiko Mori, sister, through Mission Control family support"},
-    "a": {"dob": "1997-02-20", "sex": "Female", "nationality": "Nigerian", "languages": ["English", "Yoruba", "French"],
-          "agency": "European Space Agency (ESA)", "flights": 0, "days_in_space": 0,
-          "height_cm": 171, "weight_kg": 64.0, "blood_type": "B+", "skin_type": "VI", "handedness": "Right",
-          "vision": "No correction", "allergies": ["Peanuts"], "medications": [], "conditions": [],
-          "diet": "No peanuts", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"},
-    "t": {"dob": "1990-12-05", "sex": "Male", "nationality": "Chilean", "languages": ["Spanish", "English"],
-          "agency": "NASA (international partner seat)", "flights": 1, "days_in_space": 12,
-          "height_cm": 182, "weight_kg": 81.4, "blood_type": "O+", "skin_type": "IV", "handedness": "Right",
-          "vision": "Contact lenses", "allergies": [], "medications": ["Antihistamine as needed (seasonal)"], "conditions": ["Seasonal allergic rhinitis"],
-          "diet": "Vegetarian", "vaccinations": "Up to date (checked L-90)",
-          "eva": "surface", "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"},
-}
+# ---------------------------------------------------------------- the registered crew
+# Filled in place by registry.load() from what Mission Control registered (or a mission package imported): from one to
+# six people, with nothing but what was registered. The engine has no crew of its own; the demo crew lives with the
+# sheet generator (data/demo_crew.json) and reaches the engine only as the odyssey1 packages' crew.csv.
+CREW: List[dict] = []
+CREW_BY_ID: Dict[str, dict] = {}
+RECORDS: Dict[str, dict] = {}  # each person's registered record, by id (private: the person and the medical team)
+MAX_CREW = 6
 
 # ---------------------------------------------------------------- indicators
 # dir: which way is bad. sd: personal day-to-day spread used for the z-score.
@@ -280,23 +237,6 @@ BADGES: List[dict] = [
     {"id": "fortnight", "name": "Fortnight", "desc": "14-day streak", "streak": 14, "area": "both"},
     {"id": "first_responder", "name": "First Responder", "desc": "Took part in a guided response", "emergency": True, "area": "both"},
 ]
-
-# ---------------------------------------------------------------- demo story
-STORY: List[dict] = [
-    {"loc": "earth", "day": -30, "me": "h", "storm": None, "when": "30 days before launch",
-     "text": "The crew measures everything it will measure in space. From here on, Canary compares each person with themselves, never with an average."},
-    {"loc": "rocket", "day": 2, "me": "t", "storm": None, "when": "Day 2, in orbit",
-     "text": "Tomás has a fast pulse and has barely had any water. Space sickness. The alert already comes with what to do."},
-    {"loc": "transit", "day": 147, "me": "h", "storm": None, "when": "Day 147, on the way to Mars",
-     "text": "Helena's sleep, mood, focus and time with the crew have been slipping together for two weeks. None would matter alone. Together they do."},
-    {"loc": "transit", "day": 152, "me": "h", "storm": "sep", "when": "Day 152, replaying 10 May 2024",
-     "text": "This storm really happened: the strongest in 20 years. The readings are NASA's records from that day. What if a crew had been in its path?"},
-    {"loc": "transit", "day": 153, "me": "k", "storm": None, "when": "Day 153, dinner",
-     "text": "Tomás has a seizure. Earth will not know for 5 minutes. Hold EMERGENCY, pick Seizure and follow the steps."},
-    {"loc": "mars", "day": 222, "me": "a", "storm": "mars", "when": "Sol 12 on Mars, replaying 20 May 2024",
-     "text": "That day the Curiosity rover measured radiation 51 times above normal. The chart is that record. The crew stays inside."},
-]
-
 
 # ---------------------------------------------------------------- hazard matrix (hazard x indicator)
 # The team's matrix "matriz-perigos-indicadores". Hazards: R radiation, I isolation & confinement, D distance from

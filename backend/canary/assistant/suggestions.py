@@ -12,11 +12,10 @@ from typing import Dict, List, Optional
 
 from .. import db
 from ..domain import advice, goals, health, mission, risk, telemetry
-from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS
+from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS, RECORDS
 from . import guard
 from .providers import ProviderRequest, get_provider
 
-LANGUAGE = {"h": "Portuguese", "k": "Japanese", "a": "Yoruba", "t": "Spanish"}
 HOBBIES = {
     "g0": ["Sketch Earth or the stars from the window, ten minutes a day", "Grow lettuce or radishes in the plant chamber",
            "Learn one song on the cabin keyboard", "Build a playlist for each week of the mission"],
@@ -37,6 +36,12 @@ VERIFY = {sid: {"indicator": ind, "after_days": n} for sid, (ind, n) in {
 def _r(x: Optional[float], dp: int):
     """A reading as the app shows it; None stays None (no reading, or no normal of their own yet)."""
     return None if x is None else int(round(x)) if dp == 0 else round(x, dp)
+
+
+def _language(crew_id: str) -> Optional[str]:
+    """A language a person speaks besides English, first of their registered languages (None when they list none)."""
+    langs = (RECORDS.get(crew_id) or {}).get("languages") or []
+    return next((x for x in langs if x.strip().lower() != "english"), None)
 
 
 def _week_counts(crew_id: str, today: int) -> Dict[str, int]:
@@ -165,8 +170,12 @@ def candidates(f: dict) -> List[dict]:
 
     if w.get("leisure", 0) <= 3 or md["level"]:
         others = [c for c in CREW if c["id"] != f["crew_id"]]
-        mate = others[int(telemetry.h01(f"mate:{f['crew_id']}:{f['day'] // 7}") * len(others)) % len(others)]
-        hobby = _pick(HOBBIES[f["gravity_key"]] + [f"Learn ten words of {LANGUAGE[mate['id']]} a day with {mate['name'].split(' ')[0]}"], f["crew_id"], f["day"])
+        mates = [c for c in others if _language(c["id"])]  # crewmates who speak something besides English
+        options = list(HOBBIES[f["gravity_key"]])
+        if mates:
+            mate = mates[int(telemetry.h01(f"mate:{f['crew_id']}:{f['day'] // 7}") * len(mates)) % len(mates)]
+            options.append(f"Learn ten words of {_language(mate['id'])} a day with {mate['name'].split(' ')[0]}")
+        hobby = _pick(options, f["crew_id"], f["day"])
         add("hobby", "mental", 50, "Start something just for you",
             f"You made time for something you enjoy on {w.get('leisure', 0)} of the last 7 days. A small hobby gives the week a shape.",
             [hobby, "Fifteen minutes is enough", "Tell someone about it at dinner"],

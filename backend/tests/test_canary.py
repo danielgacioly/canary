@@ -578,7 +578,8 @@ def test_osd569_rows_are_real_and_keep_the_original_label():
     rows = [r for r in real if r["source"] == "nasa:osd569"]
     assert len(rows) == 4 * 7 * 7
     h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
-    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C002", "F")["lymphocytes"]
+    shown = nasa.blood("h", "F")  # built from h's own real observations in the loaded package, not from a subject id
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == shown["lymphocytes"] and shown["subject"] == "C002"
     assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
     # pre-flight collections set the baseline of the simulated rows
     pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
@@ -753,11 +754,14 @@ def test_inside_the_population_range_the_personal_baseline_still_raises_level_tw
 
 
 def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the_seed():
+    from canary.domain import simdata
+    seeds = {c["id"]: c for c in simdata.load_demo_crew()["crew"]}  # the generator's seeds: the engine has none
     for c in catalog.CREW:
+        assert "base" not in c
         for ind, B in health.baselines(c["id"]).items():
             sd = catalog.INDICATORS[ind]["sd"]
             assert B["from"] == "preflight" and B["n"] >= health.MIN_PREFLIGHT, (c["id"], ind)
-            assert abs(B["mean"] - c["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
+            assert abs(B["mean"] - seeds[c["id"]]["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
             assert B["sd"] >= sd  # the floor
     _day(100)
     d = client.get("/api/crew/h", headers=as_("h")).json()["indicators"]["sleep"]
@@ -821,7 +825,7 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
 
 def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
     from canary.domain import nasa
-    b = nasa.blood("C001", "M")
+    b = nasa.blood("k", "M")  # k's own real blood observations in the demo package
     assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
                                                             "creatinine", "potassium", "calcium", "crp"}
     for k, a in b["analytes"].items():
@@ -1519,7 +1523,7 @@ def test_the_blood_files_are_corrected_and_each_seat_reads_a_subject_of_its_own_
     assert snap["cbc"]["an"]["hgb"]["unit"] == "grams_per_deciliter"
     assert snap["cbc"]["an"]["hgb"]["F"] == {"min": 11.7, "max": 15.5} and snap["cbc"]["an"]["hgb"]["M"] == {"min": 13.2, "max": 17.1}
     i4_sex = {"C001": "M", "C002": "F", "C003": "F", "C004": "M"}  # OSD-569 sample metadata
-    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in catalog.CREW)
+    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in simdata.load_demo_crew()["crew"])  # the generator's seeds
     assert simdata.lab_range(snap, "creatinine", "F") == (0.5, 1.05) and simdata.lab_range(snap, "crp", "F") is None
     assert "glucose" not in snap["cmp"]["an"]  # left out on purpose (R+45 samples processed late)
 

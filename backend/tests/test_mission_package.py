@@ -37,7 +37,7 @@ def test_files_exist(pkg):
 def test_mission_and_legs(pkg, preset):
     m = read(pkg, "mission.csv")
     assert len(m) == 1 and m[0]["preset"] == preset and m[0]["simulated_time"] == "12:00"
-    assert m[0]["simulated_today"] == "2035-05-02" and m[0]["callsign"] == registry.DEMO_MISSION["callsign"]
+    assert m[0]["simulated_today"] == "2035-05-02" and m[0]["callsign"] == gd.DEMO_MISSION["callsign"]
     legs = [{"start": int(r["start_day"]), "end": int(r["end_day"]), "location": r["location"]} for r in read(pkg, "legs.csv")]
     assert legs == [{k: l[k] for k in ("start", "end", "location")} for l in plan.preset_legs(preset)]
 
@@ -50,11 +50,11 @@ def test_mars_legs_equal_default_plan():
 
 def test_crew_matches_registry():
     rows = read("odyssey1-mars", "crew.csv")
-    assert [r["id"] for r in rows] == [c["id"] for c in registry.DEMO_CREW]
-    for r, c in zip(rows, registry.DEMO_CREW):
+    assert [r["id"] for r in rows] == [c["id"] for c in gd.DEMO_CREW]
+    for r, c in zip(rows, gd.DEMO_CREW):
         assert (r["name"], r["role"], r["initials"], r["home"]) == (c["name"], c["role"], c["initials"], c["home"])
         assert r["sex"][0] == c["sex"] and r["pin"] in ("1001", "1002", "1003", "1004")
-        assert r["languages"].split(";") == registry.DEMO_RECORDS[c["id"]]["languages"]
+        assert r["languages"].split(";") == gd.DEMO_RECORDS[c["id"]]["languages"]
         assert "base" not in r and "cbc_subject" not in r and r["prior_dose_msv"] == ""
     assert all(f in rows[0] for f in registry.RECORD_FIELDS)
 
@@ -129,12 +129,12 @@ def test_goal_log_reproduces_the_old_simulated_history():
     assert all(r["done"] == "1" for r in rows) and len(done) == len(rows)
     for r in rows:
         assert 8 * 60 <= minutes(r["done_at_time"]) < 12 * 60 or 18 * 60 <= minutes(r["done_at_time"]) < 22 * 60
-    log = {c["id"]: {} for c in registry.DEMO_CREW}
+    log = {c["id"]: {} for c in gd.DEMO_CREW}
     for r in rows:
         log[r["crew_id"]][(int(r["day"]), r["goal_id"])] = (1, r["done_at_time"])
     last = max(l["end"] for l in plan.get()["legs"])
     for today in (-30, -5, 2, 147, 152, 153, 222, 400):
-        for c in registry.DEMO_CREW:
+        for c in gd.DEMO_CREW:
             for day in range(gd.HISTORY_START, last + 1):
                 for gid in goals.daily_goal_ids(plan.location_at(day)):
                     assert goals.is_done(c["id"], gid, day, today, log[c["id"]], "12:00") == reference_sim_done(c["id"], gid, day, today), (c["id"], gid, day, today)
@@ -142,4 +142,4 @@ def test_goal_log_reproduces_the_old_simulated_history():
 
 def test_scenes():
     rows = read("odyssey1-mars", "scenes.csv")
-    assert [(int(r["day"]), r["location"], r["person"]) for r in rows] == [(s["day"], s["loc"], s["me"]) for s in catalog.STORY]
+    assert [(int(r["day"]), r["location"], r["person"]) for r in rows] == [(s["day"], s["loc"], s["me"]) for s in gd.STORY]

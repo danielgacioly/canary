@@ -349,9 +349,13 @@ def _crew_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
     for i, r in enumerate(rows):
         g = lambda k: f"crew.{i}.{k}"  # noqa: E731
         try:
-            seat = V.one_of(r, "id", "id", registry.SEATS, required=True, field=g("id"))
+            seat = str(r.get("id") or "").strip()
+            if not seat:
+                raise FieldError(g("id"), "id is required")
+            if not registry.ID_RE.match(seat) or seat in registry.RESERVED_IDS:
+                raise FieldError(g("id"), f"id must be letters, digits, - and _ (at most 20) and not one of {', '.join(registry.RESERVED_IDS)}")
             if seat in seen:
-                raise FieldError(g("id"), f"seat {seat} appears twice")
+                raise FieldError(g("id"), f"id {seat} appears twice")
             seen.add(seat)
             p: Dict[str, Any] = {"seat": seat,
                                  "name": V.text(r, "name", "Name", 2, 60, True, field=g("name")).strip(),
@@ -398,8 +402,8 @@ def _crew_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
             errs.append({"field": e.field, "message": f"{f}: {e.message} ({_lines(rows, i)})"})
     if errs:
         raise ValidationFailure(errs)
-    if rows and sorted(seen) != sorted(registry.SEATS):
-        raise ValidationFailure([{"field": "crew", "message": f"{f}: register each of the four seats once ({', '.join(registry.SEATS)})"}])
+    if not 1 <= len(people) <= registry.MAX_CREW:
+        raise ValidationFailure([{"field": "crew", "message": f"{f}: register between 1 and {registry.MAX_CREW} people, one per row"}])
     return people, pins
 
 
@@ -543,7 +547,7 @@ def prepare(source: Source) -> dict:
                            "goal_log": [], "scenes": [], "present": sorted(files)}
     if "mission.csv" in parsed:
         out["mission"] = run(_mission_file, parsed["mission.csv"])
-    cur = registry.mission_info() or registry.DEMO_MISSION
+    cur = registry.mission_info() or registry.EMPTY_MISSION
     mname = (out["mission"] or {}).get("name") or cur.get("name") or "Mission plan"
     if "legs.csv" in parsed:
         out["plan"] = run(_legs_file, parsed["legs.csv"], mname)
@@ -619,7 +623,7 @@ def _write(c, p: dict) -> int:
         cur = plan.get()
         _set(c, "plan", {**p["plan"], "preset": cur.get("preset")})
     if p["crew"]:
-        m = p["mission"] or registry.mission_info() or registry.DEMO_MISSION
+        m = p["mission"] or registry.mission_info() or registry.EMPTY_MISSION
         legs = p["plan"]["legs"] if p["plan"] else plan.get()["legs"]
         rover = any(plan.is_rover(l["location"]) for l in legs)
         _set(c, "registry", {"crew": p["crew"], "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover}})
@@ -644,6 +648,20 @@ def _after_settings(p: dict) -> None:
 
 
 # ---------------------------------------------------------------- bundled packages by name, and the plan preset
+DEFAULT_PACKAGE = "odyssey1-mars"
+
+
+def demo_form() -> dict:
+    """What Mission Control's 'fill with the demo crew' button puts in the form: the crew and mission of the bundled package
+    (CANARY_MISSION_PACKAGE, else odyssey1-mars), read from its crew.csv and mission.csv like an import would read them.
+    `prior_dose_msv` is left empty so the form shows the estimate from days in space."""
+    d = package_dir(settings.mission_package or DEFAULT_PACKAGE)
+    read = lambda n: _csv_rows((d / n).read_text(encoding="utf-8-sig"))  # noqa: E731
+    people, pins = _crew_file(read("crew.csv"))
+    m = _mission_file(read("mission.csv"))
+    return {"crew": [{**p, "pin": pins[p["seat"]], "prior_dose_msv": None} for p in people],
+            "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")}}
+
 def package_dir(name: str) -> pathlib.Path:
     """Folder of a bundled package (under data/missions). Only plain names that exist are accepted: no paths, no `..`."""
     if not isinstance(name, str) or not PACKAGE_NAME.match(name):

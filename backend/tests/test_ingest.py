@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from canary import db  # noqa: E402
 from canary.config import settings  # noqa: E402
-from canary.domain import catalog, data, goals, selftests, telemetry  # noqa: E402
+from canary.domain import catalog, data, goals, selftests, simdata, telemetry  # noqa: E402
 from canary.main import app  # noqa: E402
 
 client = TestClient(app)
@@ -234,7 +234,9 @@ def test_loose_csv_files_import_and_unknown_files_are_refused(monkeypatch):
     r = upload({"notes.csv": b"a,b\n1,2\n"})
     assert r.status_code == 422 and "Unknown file" in r.json()["errors"][0]["message"]
     r = upload({"observations.csv": b"crew_id,day,indicator,value,unit\nh,1,sleep,7,h\n"})
-    assert r.status_code == 200 and r.json()["accepted"]["observations"] == 1 and n_obs() == 1
+    assert r.status_code == 422 and "Unknown crew id" in r.json()["errors"][0]["message"]  # nobody is registered yet
+    r = upload({"crew.csv": (MARS / "crew.csv").read_bytes(), "observations.csv": b"crew_id,day,indicator,value,unit\nh,1,sleep,7,h\n"})
+    assert r.status_code == 200 and r.json()["accepted"]["observations"] == 1 and r.json()["accepted"]["crew"] == 4 and n_obs() == 1
 
 
 def test_a_bundled_package_loads_by_name_and_paths_are_refused():
@@ -283,7 +285,7 @@ def test_start_up_loads_the_package_once_and_only_when_empty(monkeypatch):
 def test_reset_loads_the_mars_package_and_the_scenes_are_the_demo_bookmarks():
     s = client.get("/api/scenes").json()
     assert len(s) == 6 and [x["index"] for x in s] == list(range(6))
-    assert [(x["day"], x["location"], x["person"]) for x in s] == [(st["day"], st["loc"], st["me"]) for st in catalog.STORY]
+    assert [(x["day"], x["location"], x["person"]) for x in s] == [(st["day"], st["loc"], st["me"]) for st in simdata.load_demo_crew()["story"]]
     assert set(s[0]) == {"index", "day", "location", "person", "storm", "when", "text"} and s[0]["storm"] is None
     assert [e["id"] for e in data.events()] == ["replay-2024-05-10-sep", "replay-2024-05-20-rad"] and data.events()[0]["locations"] == ["transit", "moon"]
     assert data.mission_time() == "12:00" and data.loaded_package() == {"name": "odyssey1-mars", "preset": "mars", "bundled": True}

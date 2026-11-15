@@ -429,7 +429,7 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     return {"crew": {k: c[k] for k in ("id", "name", "role", "initials", "home", "age")}, "mission": ms, **snap,
             "trends": trends, "goals": goals.personal_today(crew_id, ms, snap),
             "profile": goals.profile(crew_id, ms["day"]),
-            "blood": nasa.blood(c["cbc_subject"], c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
+            "blood": nasa.blood(crew_id, c["sex"]), "events": events, "standard_profile": standards.crew_profile(crew_id),
             "system_info": {k: {"space": v2["space"], "hazard": v2["hazard"]} for k, v2 in SYSTEMS.items()},
             "ops": privacy.operational(snap), "care_by": privacy.care_by(crew_id), "access": access,
             "care_events": care.events(crew_id, ms["day"])}
@@ -965,7 +965,8 @@ def control_overview():
 @app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
 def control_demo():
     """What the 'fill with the demo crew' button puts in the form."""
-    return {"crew": registry.demo_form(), "mission": registry.DEMO_MISSION, "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
+    form = data.demo_form()
+    return {"crew": form["crew"], "mission": form["mission"], "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
             "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"],
             # the itinerary each profile gives, with and without its rover leg, for the review step
             "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS}}
@@ -985,7 +986,7 @@ def _trim_list(v: List[str], what: str, max_items: int = 20, max_len: int = 60) 
 
 class SeatIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    seat: str = Field(pattern="^(h|k|a|t)$")
+    seat: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$")  # the person's id; left out, s1 to s6 in order
     name: str = Field(min_length=2, max_length=60)
     role: str = Field(min_length=2, max_length=60)
     home: str = Field(default="", max_length=80)
@@ -1055,44 +1056,50 @@ class MissionRegIn(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    crew: List[SeatIn] = Field(min_length=4, max_length=4)
+    crew: List[SeatIn]  # one to six people (checked in _check_registration, which answers on the `crew` field)
     mission: MissionRegIn
 
 
 def _check_registration(body: RegisterIn) -> None:
-    """The rules that need more than one field: the profile exists, PINs differ between seats, ages at launch."""
+    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between seats, ages at launch."""
     errs: List[dict] = []
+    if not 1 <= len(body.crew) <= registry.MAX_CREW:
+        errs.append({"field": "crew", "message": f"Register between 1 and {registry.MAX_CREW} people"})
     if body.mission.preset not in plan.PRESETS:
         errs.append({"field": "mission.preset", "message": "Mission profile must be one of: " + ", ".join(plan.PRESETS)})
     elif body.mission.rover and not plan.has_rover(body.mission.preset):
         errs.append({"field": "mission.rover", "message": f"{plan.PRESETS[body.mission.preset]['name']} has no rover leg; the rover is for the Moon and Mars profiles"})
     launch = date.fromisoformat(body.mission.launch_date)
     seen: dict = {}
+    ids = registry.assign_ids([p.seat for p in body.crew])
+    seen_id: dict = {}
     for i, p in enumerate(body.crew):
+        if ids[i] in registry.RESERVED_IDS:
+            errs.append({"field": f"crew.{i}.seat", "message": f"ID {ids[i]} is reserved; pick another"})
+        elif ids[i] in seen_id:
+            errs.append({"field": f"crew.{i}.seat", "message": f"ID is already used by seat {seen_id[ids[i]] + 1}; each seat needs its own"})
+        seen_id.setdefault(ids[i], i)
         age = validation.age_on(date.fromisoformat(p.dob), launch)
         if not SEAT_AGE[0] <= age <= SEAT_AGE[1]:
             errs.append({"field": f"crew.{i}.dob", "message": f"Date of birth gives an age of {age} at launch; it must be between {SEAT_AGE[0]} and {SEAT_AGE[1]}"})
         if p.pin in seen:
             errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by seat {seen[p.pin] + 1}; each seat needs its own"})
         seen.setdefault(p.pin, i)
-    if sorted(p.seat for p in body.crew) != sorted(registry.SEATS):
-        errs.append({"field": "crew", "message": "Register each of the four seats once"})
     if errs:
         raise validation.ValidationFailure(errs)
 
 
 @app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
 def control_register(body: RegisterIn):
-    """Register the four crew seats and the mission, then start the mission clock from the beginning."""
+    """Register the crew (one to six people) and the mission, then start the mission clock from the beginning. PINs are stored hashed."""
     _check_registration(body)
-    crew = [s.model_dump() for s in body.crew]
+    ids = registry.assign_ids([s.seat for s in body.crew])
+    crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
     try:
-        registry.register([{k: v for k, v in p.items() if k != "pin"} for p in crew], {**body.mission.model_dump(), "rover": rover})
+        registry.register(crew, {**body.mission.model_dump(), "rover": rover})
     except ValueError as e:
         raise HTTPException(400, str(e))
-    for p in crew:
-        auth.set_pin(p["seat"], p["pin"])
     plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
     data.reload_for_preset(body.mission.preset)

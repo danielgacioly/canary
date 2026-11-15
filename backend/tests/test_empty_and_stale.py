@@ -29,6 +29,16 @@ def reset(monkeypatch, package):
     assert client.post("/api/demo/reset").status_code == 200
 
 
+def reset_crew(monkeypatch):
+    """No data at all, but the demo crew registered through Mission Control (an empty package registers nobody)."""
+    reset(monkeypatch, "")
+    assert catalog.CREW == []
+    form = data.demo_form()
+    r = client.post("/api/control/register", headers=tokens()[2], json={"crew": form["crew"], "mission": form["mission"]})
+    assert r.status_code == 200, r.text
+    assert [c["id"] for c in catalog.CREW] == list(gc.CREW_IDS)
+
+
 @pytest.fixture(autouse=True)
 def restore(monkeypatch):
     monkeypatch.setattr(settings, "live_space_weather", False)
@@ -97,7 +107,7 @@ def check_empty(out, crew=gc.CREW_IDS):
 
 @pytest.mark.parametrize("d", [-30, 100])
 def test_an_empty_system_answers_every_endpoint_for_every_role(monkeypatch, d):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     assert data.count_observations() == 0 and data.events() == []
     day(d)
     check_empty(every_get())
@@ -125,12 +135,12 @@ def test_no_data_does_not_hide_a_non_data_alert(monkeypatch):
 
 
 def test_a_registered_crew_with_no_measurements_is_empty_too(monkeypatch):
-    """Canary Control registers the crew (the four seats until phase 5 opens it to 1 to 6) and loads the preset's package;
+    """Canary Control registers the crew and loads the preset's package;
     with every reading removed the system is empty again."""
     reset(monkeypatch, "")
     ctl = tokens()[2]
-    form = [{**p, "pin": str(2001 + i)} for i, p in enumerate(registry.demo_form())]
-    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**registry.DEMO_MISSION, "launch_date": "2036-03-01"}})
+    form = [{**p, "pin": str(2001 + i)} for i, p in enumerate(data.demo_form()["crew"])]
+    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**data.demo_form()["mission"], "launch_date": "2036-03-01"}})
     assert r.status_code == 200, r.text
     remove_all_observations()
     day(60)
@@ -160,7 +170,7 @@ def test_a_system_with_no_crew_at_all_answers_too(monkeypatch):
 
 # ---------------------------------------------------------------- learning the normal
 def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     add("h", "sleep", 99, 7.6)
     add("h", "sleep", 100, 7.4)
     b = health.baselines("h")["sleep"]
@@ -176,7 +186,7 @@ def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatc
 
 
 def test_after_enough_preflight_readings_the_baseline_is_the_persons_own(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     for i, v in enumerate([6.8, 7.0, 7.2, 6.9, 7.1]):
         add("h", "sleep", -20 + i, v)
     b = health.baselines("h")["sleep"]
@@ -188,7 +198,7 @@ def test_after_enough_preflight_readings_the_baseline_is_the_persons_own(monkeyp
 
 
 def test_a_person_who_starts_in_flight_learns_from_their_first_two_weeks(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     for i in range(5):
         add("k", "sleep", 3 + i, 7.0)
     b = health.baselines("k")["sleep"]
@@ -199,7 +209,7 @@ def test_a_person_who_starts_in_flight_learns_from_their_first_two_weeks(monkeyp
 
 
 def test_a_population_critical_single_reading_still_raises_level_two_while_learning(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     add("h", "hr", 40, 180)  # no normal of their own yet (one reading), but 180 bpm at rest is past the safety limit
     ms = {**day(100), "day": 40, "location": plan.location_at(40), "learning": False}
     d = health.indicator("h", "hr", ms)
@@ -220,7 +230,7 @@ def test_every_indicator_has_a_max_age_from_how_often_it_is_measured():
 
 
 def test_a_reading_older_than_max_age_is_stale_and_a_recent_one_is_current(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     add("h", "sleep", 10, 3.0)  # sleep: max_age 3 days
     o = telemetry.observation("h", "sleep", 13)
     assert o["value"] == 3.0 and o["age_days"] == 3 and o["stale"] is False  # carried forward, within max_age: still current
@@ -236,7 +246,7 @@ def test_a_reading_older_than_max_age_is_stale_and_a_recent_one_is_current(monke
 
 
 def test_current_averages_only_the_days_that_are_not_stale_and_renormalises_the_weights(monkeypatch):
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     add("h", "react", 5, 330)  # old: from day 9 on it is stale (react: max_age 3)
     day(100)
     h = {"X-Canary-Viewer": gc._token(client, "/api/crew/h/session", gc.PINS["h"])}
@@ -292,7 +302,7 @@ def test_missing_some_indicators_breaks_nothing_and_alerts_nothing_for_them(monk
 def test_the_writing_routes_work_on_an_empty_system_too(monkeypatch):
     """Ask the assistant, draft a briefing, tick a goal, save a check-in, accept a suggestion: none may fail on no data, and
     none may turn missing data into a notice."""
-    reset(monkeypatch, "")
+    reset_crew(monkeypatch)
     day(100)
     h = tokens()[0]["h"]
     for q in ("how am i", "how is my sleep", "what about my pulse and radiation risk", "goals for today", "bone and kidney"):

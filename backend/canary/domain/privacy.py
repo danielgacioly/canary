@@ -15,13 +15,14 @@ from . import care, plan
 from .catalog import CREW, CREW_BY_ID, LOCATIONS, SYSTEMS
 
 
-def medical_officer() -> str:
-    """Id of the crew member whose role is medical officer (the first person when nobody has that role)."""
-    return next((c["id"] for c in CREW if "medical officer" in c["role"].lower()), CREW[0]["id"] if CREW else "")
+def medical_officer() -> Optional[str]:
+    """Id of the crew member whose role is medical officer; None when nobody on board has that role."""
+    return next((c["id"] for c in CREW if "medical officer" in c["role"].lower()), None)
 
 
-def substitute() -> str:
-    """Id of who receives the medical officer's own alerts: the commander, else the first other person (else the officer)."""
+def substitute() -> Optional[str]:
+    """Id of who receives the medical officer's own alerts: the commander, else the first other person, else the officer.
+    Without a medical officer it is the same choice among everybody (None only when nobody is registered)."""
     mo = medical_officer()
     others = [c for c in CREW if c["id"] != mo]
     return next((c["id"] for c in others if "commander" in c["role"].lower()), others[0]["id"] if others else mo)
@@ -76,16 +77,26 @@ def operational(snap: dict) -> dict:
     return out
 
 
-def alerts_to(crew_id: str) -> str:
-    """Id of who receives this person's alerts on board: the medical officer, or the substitute for the officer's own."""
-    return substitute() if crew_id == medical_officer() else medical_officer()
+def alerts_to(crew_id: str) -> Optional[str]:
+    """Id of who receives this person's alerts on board: the medical officer, or the substitute for the officer's own.
+    With no medical officer on board, the substitute (the commander, else the first other person, else the person)."""
+    mo = medical_officer()
+    if mo is None:
+        return next((c["id"] for c in CREW if c["id"] != crew_id and "commander" in c["role"].lower()),
+                    next((c["id"] for c in CREW if c["id"] != crew_id), crew_id if crew_id in CREW_BY_ID else None))
+    return substitute() if crew_id == mo else mo
 
 
 def care_by(crew_id: str) -> str:
     """Who receives this person's alerts on board."""
     who = alerts_to(crew_id)
+    if who is None:
+        return "Nobody on board"
     c = CREW_BY_ID[who]
-    return f"{c['name']} ({'substitute medical officer' if who == substitute() and who != medical_officer() else 'medical officer'})"
+    mo = medical_officer()
+    if mo is None:
+        return f"{c['name']} (no medical officer on board)"
+    return f"{c['name']} ({'substitute medical officer' if who == substitute() and who != mo else 'medical officer'})"
 
 
 PHOTO_PREFIXES = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")

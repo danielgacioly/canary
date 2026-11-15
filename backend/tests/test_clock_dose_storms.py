@@ -44,9 +44,11 @@ def day(d):
 
 
 def empty_database(monkeypatch):
-    """No package at all: the app starts empty (demo crew registered, no measurements, no scenes)."""
+    """No package at all: the app starts empty (no measurements, no scenes), then Mission Control registers the demo crew."""
     monkeypatch.setattr(settings, "mission_package", "")
     assert client.post("/api/demo/reset").status_code == 200
+    form = data.demo_form()
+    assert client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"], "mission": form["mission"]}).status_code == 200
 
 
 # ---------------------------------------------------------------- clock

@@ -1,0 +1,301 @@
+{
+ "_comment": "The demo crew as the sheet generator (data/generate_dataset.py, simdata.Generator) uses it. The engine never reads this file: it knows only who is registered, and the odyssey1 packages register this crew through crew.csv. `base` and `cbc_subject` are generator seeds; `goal_p` is the chance of a routine goal being done in the mock goal log.",
+ "mission": {
+  "callsign": "Odyssey 1",
+  "name": "Mars reference mission",
+  "launch_date": "2035-06-01",
+  "preset": "mars"
+ },
+ "crew": [
+  {
+   "id": "h",
+   "name": "Helena Duarte",
+   "role": "Commander",
+   "initials": "HD",
+   "home": "São Paulo, Brazil",
+   "sex": "F",
+   "cbc_subject": "C002",
+   "base": {
+    "sleep": 7.4,
+    "react": 265,
+    "mood": 4.1,
+    "stress": 2.0,
+    "social": 70,
+    "hr": 58,
+    "bp": 116,
+    "temp": 36.5,
+    "spo2": 98,
+    "gluc": 88,
+    "exer": 95,
+    "water": 2.6,
+    "grip": 34,
+    "bone": 0,
+    "dsst": 62,
+    "span": 7.0,
+    "kss": 3.0,
+    "tlx": 40,
+    "vo2": 38.5
+   },
+   "pin": "1001",
+   "goal_p": 0.86
+  },
+  {
+   "id": "k",
+   "name": "Kenji Mori",
+   "role": "Crew medical officer",
+   "initials": "KM",
+   "home": "Sapporo, Japan",
+   "sex": "M",
+   "cbc_subject": "C001",
+   "base": {
+    "sleep": 7.0,
+    "react": 280,
+    "mood": 3.9,
+    "stress": 2.2,
+    "social": 60,
+    "hr": 62,
+    "bp": 121,
+    "temp": 36.6,
+    "spo2": 97.5,
+    "gluc": 92,
+    "exer": 90,
+    "water": 2.4,
+    "grip": 40,
+    "bone": 0,
+    "dsst": 58,
+    "span": 6.8,
+    "kss": 3.3,
+    "tlx": 45,
+    "vo2": 41.0
+   },
+   "pin": "1002",
+   "goal_p": 0.84
+  },
+  {
+   "id": "a",
+   "name": "Amara Okafor",
+   "role": "Flight engineer",
+   "initials": "AO",
+   "home": "Lagos, Nigeria",
+   "sex": "F",
+   "cbc_subject": "C003",
+   "base": {
+    "sleep": 7.8,
+    "react": 250,
+    "mood": 4.3,
+    "stress": 1.8,
+    "social": 90,
+    "hr": 55,
+    "bp": 110,
+    "temp": 36.4,
+    "spo2": 98.5,
+    "gluc": 85,
+    "exer": 110,
+    "water": 2.8,
+    "grip": 31,
+    "bone": 0,
+    "dsst": 66,
+    "span": 7.2,
+    "kss": 2.8,
+    "tlx": 38,
+    "vo2": 44.0
+   },
+   "pin": "1003",
+   "goal_p": 0.9
+  },
+  {
+   "id": "t",
+   "name": "Tomás Rivera",
+   "role": "Geologist",
+   "initials": "TR",
+   "home": "Valparaíso, Chile",
+   "sex": "M",
+   "cbc_subject": "C004",
+   "base": {
+    "sleep": 6.9,
+    "react": 290,
+    "mood": 3.8,
+    "stress": 2.4,
+    "social": 55,
+    "hr": 66,
+    "bp": 124,
+    "temp": 36.7,
+    "spo2": 97.8,
+    "gluc": 95,
+    "exer": 85,
+    "water": 2.3,
+    "grip": 44,
+    "bone": 0,
+    "dsst": 55,
+    "span": 6.5,
+    "kss": 3.5,
+    "tlx": 48,
+    "vo2": 39.5
+   },
+   "pin": "1004",
+   "goal_p": 0.74
+  }
+ ],
+ "records": {
+  "h": {
+   "dob": "1988-09-14",
+   "sex": "Female",
+   "nationality": "Brazilian",
+   "languages": [
+    "Portuguese",
+    "English",
+    "Spanish"
+   ],
+   "agency": "Brazilian Space Agency (AEB)",
+   "flights": 2,
+   "days_in_space": 214,
+   "height_cm": 168,
+   "weight_kg": 61.5,
+   "blood_type": "O−",
+   "skin_type": "III",
+   "handedness": "Right",
+   "vision": "No correction",
+   "allergies": [
+    "Penicillin"
+   ],
+   "medications": [],
+   "conditions": [],
+   "diet": "No restrictions",
+   "vaccinations": "Up to date (checked L-90)",
+   "eva": "surface",
+   "emergency_contact": "Rafael Duarte, spouse, through Mission Control family support"
+  },
+  "k": {
+   "dob": "1993-11-02",
+   "sex": "Male",
+   "nationality": "Japanese",
+   "languages": [
+    "Japanese",
+    "English"
+   ],
+   "agency": "Japan Aerospace Exploration Agency (JAXA)",
+   "flights": 1,
+   "days_in_space": 181,
+   "height_cm": 174,
+   "weight_kg": 70.2,
+   "blood_type": "A+",
+   "skin_type": "III",
+   "handedness": "Left",
+   "vision": "Glasses for reading",
+   "allergies": [],
+   "medications": [],
+   "conditions": [],
+   "diet": "No restrictions",
+   "vaccinations": "Up to date (checked L-90)",
+   "eva": "none",
+   "emergency_contact": "Aiko Mori, sister, through Mission Control family support"
+  },
+  "a": {
+   "dob": "1997-02-20",
+   "sex": "Female",
+   "nationality": "Nigerian",
+   "languages": [
+    "English",
+    "Yoruba",
+    "French"
+   ],
+   "agency": "European Space Agency (ESA)",
+   "flights": 0,
+   "days_in_space": 0,
+   "height_cm": 171,
+   "weight_kg": 64.0,
+   "blood_type": "B+",
+   "skin_type": "VI",
+   "handedness": "Right",
+   "vision": "No correction",
+   "allergies": [
+    "Peanuts"
+   ],
+   "medications": [],
+   "conditions": [],
+   "diet": "No peanuts",
+   "vaccinations": "Up to date (checked L-90)",
+   "eva": "surface",
+   "emergency_contact": "Chidi Okafor, brother, through Mission Control family support"
+  },
+  "t": {
+   "dob": "1990-12-05",
+   "sex": "Male",
+   "nationality": "Chilean",
+   "languages": [
+    "Spanish",
+    "English"
+   ],
+   "agency": "NASA (international partner seat)",
+   "flights": 1,
+   "days_in_space": 12,
+   "height_cm": 182,
+   "weight_kg": 81.4,
+   "blood_type": "O+",
+   "skin_type": "IV",
+   "handedness": "Right",
+   "vision": "Contact lenses",
+   "allergies": [],
+   "medications": [
+    "Antihistamine as needed (seasonal)"
+   ],
+   "conditions": [
+    "Seasonal allergic rhinitis"
+   ],
+   "diet": "Vegetarian",
+   "vaccinations": "Up to date (checked L-90)",
+   "eva": "surface",
+   "emergency_contact": "Lucía Rivera, mother, through Mission Control family support"
+  }
+ },
+ "story": [
+  {
+   "loc": "earth",
+   "day": -30,
+   "me": "h",
+   "storm": null,
+   "when": "30 days before launch",
+   "text": "The crew measures everything it will measure in space. From here on, Canary compares each person with themselves, never with an average."
+  },
+  {
+   "loc": "rocket",
+   "day": 2,
+   "me": "t",
+   "storm": null,
+   "when": "Day 2, in orbit",
+   "text": "Tomás has a fast pulse and has barely had any water. Space sickness. The alert already comes with what to do."
+  },
+  {
+   "loc": "transit",
+   "day": 147,
+   "me": "h",
+   "storm": null,
+   "when": "Day 147, on the way to Mars",
+   "text": "Helena's sleep, mood, focus and time with the crew have been slipping together for two weeks. None would matter alone. Together they do."
+  },
+  {
+   "loc": "transit",
+   "day": 152,
+   "me": "h",
+   "storm": "sep",
+   "when": "Day 152, replaying 10 May 2024",
+   "text": "This storm really happened: the strongest in 20 years. The readings are NASA's records from that day. What if a crew had been in its path?"
+  },
+  {
+   "loc": "transit",
+   "day": 153,
+   "me": "k",
+   "storm": null,
+   "when": "Day 153, dinner",
+   "text": "Tomás has a seizure. Earth will not know for 5 minutes. Hold EMERGENCY, pick Seizure and follow the steps."
+  },
+  {
+   "loc": "mars",
+   "day": 222,
+   "me": "a",
+   "storm": "mars",
+   "when": "Sol 12 on Mars, replaying 20 May 2024",
+   "text": "That day the Curiosity rover measured radiation 51 times above normal. The chart is that record. The crew stays inside."
+  }
+ ]
+}
