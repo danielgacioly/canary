@@ -26,7 +26,7 @@ VOLATILE_KEYS = {"created_at", "sent_at", "deliver_at", "fetched_at", "at", "upd
 NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", "estimated_days",
               "no_data", "learning", "max_age", "baseline_need",
               "personal_ids", "patches", "what",
-              "protocol"}  # the crew warnings name the Protocols page they belong to  # phase 4: a system or a person with no data yet; an indicator still learning its normal
+              "protocol", "rejected_rules"}  # the crew warnings name the Protocols page they belong to; the suggestion rule ids a rewrite broke  # phase 4: a system or a person with no data yet; an indicator still learning its normal
 
 
 def new_client(db_path: Optional[str] = None):

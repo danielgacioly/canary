@@ -15,6 +15,7 @@ Public API:
                                                                     on every AssistantResponse (plan.md Phase 4)
 - validate_claims(claims, allowed) -> (kept, dropped)               legacy {text, source_ids} claims
 - unknown_numbers(text, facts_blob) -> [number, ...]                briefing and suggestions entries
+- text_violations(text, ctx=..., subject_crew_id=...) -> [rule id]  free text: briefing lines, suggestion "why"
 """
 import json
 import pathlib
@@ -34,8 +35,11 @@ RULES: Dict[str, Any] = json.loads(RULES_PATH.read_text())
 
 
 def _fold(text: str) -> str:
-    """Lower-case, accents removed and curly apostrophes straightened, so 'Tomás' matches 'tomas'."""
-    t = unicodedata.normalize("NFKD", text.replace("’", "'"))
+    """Lower-case text for matching: format characters (zero-width space, soft hyphen, BOM: Unicode category Cf) removed,
+    compatibility forms folded (full-width letters become ASCII), accents removed and curly apostrophes straightened,
+    so 'Tomás' matches 'tomas', 'não' matches 'nao' and 'suic\u200bide' matches 'suicide'."""
+    visible = "".join(ch for ch in text.replace("’", "'") if unicodedata.category(ch) != "Cf")
+    t = unicodedata.normalize("NFKD", visible)
     return "".join(ch for ch in t if not unicodedata.combining(ch)).lower()
 
 
@@ -141,8 +145,13 @@ _UNITS = {
 _UNIT_ALT = r"mSv/day|mg/dL|mmHg|°C|ºC|bpm|hours?|hrs?|h|minutes?|mins?|min|ms|seconds?|secs?|s|percent|%|mSv|mg|kg|litres?|liters?|L|C"
 # In the assistant's text a number glued to letters (SpO2, PHQ-2, day147, kb:...@1) is a name, not a value.
 _TEXT_NUM = re.compile(r"(?<![\w.\-/@#:])(?P<num>-?\d+(?:\.\d+)?)(?:\s?(?P<unit>/\s?\d+|(?:" + _UNIT_ALT + r"))(?![A-Za-z]))?")
-# In tool data every digit run counts (ids such as telemetry:h:sleep:day147 hold the day).
-_BLOB_NUM = re.compile(r"(?P<num>\d+(?:\.\d+)?)(?:\s?(?P<unit>/\s?\d+|(?:" + _UNIT_ALT + r"))(?![A-Za-z]))?")
+# In tool data a number is a value only when it is not part of a name: a sign counts only at the start of a token, so
+# the minus in 2026-11-15 is a separator. Ids and sources are not scanned at all (see _ID_KEYS, _ID_TEXT).
+_BLOB_NUM = re.compile(r"(?<![\w.])(?P<num>-?\d+(?:\.\d+)?)(?:\s?(?P<unit>/\s?\d+|(?:" + _UNIT_ALT + r"))(?![A-Za-z]))?")
+# Keys whose values are identifiers, not measurements: their digits (day147, kb:...@1) never count as a known number.
+_ID_KEYS = frozenset({"source", "sources", "source_ids", "chunk_id", "id", "doc_id"})
+# A whole string that is one identifier: prefix:rest with no spaces, e.g. telemetry:h:hr:day147, kb:CARD-BRAIN@1#summary.
+_ID_TEXT = re.compile(r"^[a-z][a-z0-9_]*:\S*$", re.I)
 
 
 def _unit(u: Optional[str]) -> Optional[str]:
@@ -155,8 +164,9 @@ def _unit(u: Optional[str]) -> Optional[str]:
 
 
 def _dec(s: Any) -> Optional[Decimal]:
+    """The number with its sign (a negative claim such as "-30 bpm" needs a negative value)."""
     try:
-        return abs(Decimal(str(s)))
+        return Decimal(str(s))
     except (InvalidOperation, ValueError):
         return None
 
@@ -168,7 +178,9 @@ def _blob_values(blob: str) -> List[Tuple[Decimal, Optional[str]]]:
     def walk(x: Any) -> None:
         if isinstance(x, dict):
             u = _unit(x["unit"]) if isinstance(x.get("unit"), str) else None
-            for v in x.values():
+            for k, v in x.items():
+                if k in _ID_KEYS:
+                    continue
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     d = _dec(v)
                     if d is not None:
@@ -186,6 +198,8 @@ def _blob_values(blob: str) -> List[Tuple[Decimal, Optional[str]]]:
             scan(x)
 
     def scan(s: str) -> None:
+        if _ID_TEXT.match(s.strip()):  # an id or a source: its digits are not a value
+            return
         for m in _BLOB_NUM.finditer(s):
             d = _dec(m.group("num"))
             if d is not None:
@@ -205,22 +219,28 @@ def _places(num: str) -> int:
 
 
 def _known(num: str, unit: Optional[str], have: Sequence[Tuple[Decimal, Optional[str]]]) -> bool:
-    """A stated number is known when a tool value rounds to it (6.08 -> "6.1"; sign ignored, so a -1.3 delta
-    supports "1.3 h below"). With a unit, a value tagged with a different unit does not count, so "104 bpm"
-    is rejected when 104 exists only as "104 ms". A whole number only rounds from a value tagged with the
-    same unit ("104 bpm" from 104.37 bpm); otherwise it must match exactly."""
+    """A stated number is known when a tool value rounds to it (6.08 -> "6.1"). The sign is kept for a negative
+    claim, which needs a negative value ("-30 bpm" is not "30"). A positive claim matches the magnitude of a
+    value, so a -1.3 delta supports "1.3 h below". With a unit, a value tagged with a different unit does not
+    count, so "104 bpm" is rejected when 104 exists only as "104 ms". A whole number only rounds from a value
+    tagged with the same unit ("104 bpm" from 104.37 bpm); otherwise it must match exactly."""
     v = _dec(num)
     if v is None:
         return True
+    negative = v < 0
+    mag = abs(v)
     q = Decimal(1).scaleb(-_places(num))
     for b, bu in have:
         if unit and bu and bu != unit:
             continue
-        if b == v:
+        if negative and b >= 0:
+            continue
+        a = abs(b)
+        if a == mag:
             return True
         if _places(num) == 0 and not (unit and bu == unit):
             continue
-        if b.quantize(q, ROUND_HALF_UP) == v or b.quantize(q, ROUND_HALF_EVEN) == v:
+        if a.quantize(q, ROUND_HALF_UP) == mag or a.quantize(q, ROUND_HALF_EVEN) == mag:
             return True
     return False
 
@@ -230,7 +250,7 @@ def _unknown(text: str, blob: str) -> List[Tuple[str, Optional[str]]]:
     out = []
     for m in _TEXT_NUM.finditer(text):
         num, unit = m.group("num"), _unit(m.group("unit"))
-        if not _known(num.lstrip("-"), unit, have):
+        if not _known(num, unit, have):
             out.append((num, unit))
     return out
 
@@ -315,6 +335,32 @@ def _privacy_rule(text: str, others) -> Optional[str]:
     if _matches(_POST_RE["G-PRIV-02"], text):
         return "G-PRIV-02"
     return None
+
+
+# Precheck rules that also catch medication advice and mental-health diagnosis when they appear in free text
+# (G-DIAG-01/02 are question forms, so they stay question-only).
+_TEXT_PRE_IDS = ("G-DOSE-01", "G-DOSE-02", "G-DOSE-03", "G-DOSE-04", "G-DIAG-03", "G-DIAG-04")
+
+
+def text_violations(text: str, *, ctx: Optional[ToolContext] = None, subject_crew_id: Optional[str] = None) -> List[str]:
+    """The rule ids a free text (a briefing line, a suggestion's "why") breaks: medication or dose advice, diagnosis and
+    "safe" wording, wellbeing read as a diagnosis, and another crew member's health or crew averages. "Other" means anyone
+    except the subject; with no subject every crew member counts as other. Empty list when the text is clean."""
+    subject = subject_crew_id if subject_crew_id is not None else (ctx.crew_id if ctx is not None else "")
+    folded = _fold(text)
+    hits: List[str] = []
+    for rule, pats, gated in _PRE:
+        if rule["id"] in _TEXT_PRE_IDS and (any(p.search(folded) for p in pats) or _gated_hit(gated, folded)):
+            hits.append(rule["id"])
+    hits += [rid for rid in _WORDING if _matches(_POST_RE[rid], text) or _gated_hit(_POST_GATED[rid], folded)]
+    others = _other_people(subject)
+    if _mentions_other_health(text, others):
+        hits.append("G-PRIV-01")
+    if _matches(_POST_RE["G-PRIV-02"], text):
+        hits.append("G-PRIV-02")
+    if _matches(_POST_RE["G-WELL-01"], text):
+        hits.append("G-WELL-01")
+    return list(dict.fromkeys(hits))
 
 
 def _parse(response: Union[AssistantResponse, dict, str]) -> AssistantResponse:

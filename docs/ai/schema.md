@@ -361,3 +361,9 @@ The model only rewrites computed facts as prose. Same rules: numbers must exist 
 ```
 
 Sections stay in priority order, so the first lines are enough on a slow link. If validation fails, the existing `briefing.template()` text is used (`mode = "template"`).
+
+**Approval and visibility.** `POST /api/briefings/{id}/approve` needs a viewer: the astronaut themself or the medical team (`require_self`), 404 for an unknown id, 409 unless the status is `draft`. Approval updates only a draft and queues one `briefing` message to Earth. A `briefing` message is private like `advice` and `alert` in `GET /api/messages`: only the medical team sees it, never the crew or Mission Control.
+
+**Wording and privacy on every line.** Each heading, line and list item of a draft, and each suggestion `why`, is checked by `guard.text_violations(text, subject_crew_id=...)`: medication or dose advice (including Portuguese and Spanish), diagnosis wording, "safe" reassurance, wellbeing read as a diagnosis, and another crew member's health. A violating draft keeps the template (`mode = "template"`); a violating suggestion keeps its rule text. The rule ids go to `assistant_log` (question `briefing` or `suggestions`, metadata only) and, for suggestions, to `rejected_rules`.
+
+**Multilingual rules.** `guard_rules.json` patterns match text with accents removed and format characters (zero-width, soft hyphen, BOM) dropped, so `não` matches `nao`. Portuguese and Spanish phrases are written without accents. Radiation dose questions stay allowed in all three languages; new rules G-EMERG-04, G-DOSE-04, G-DIAG-04 and G-INJECT-02 cover the phrases added with them.

@@ -36,7 +36,33 @@
         "\\bself[- ]?harm\\w*\\b",
         "\\bend (my|his|her|their) (own )?life\\b",
         "\\b(want|wants|wanted) to die\\b",
-        "\\b(don'?t|do not|doesn'?t) want to (live|be alive|wake up)\\b"
+        "\\b(don'?t|do not|doesn'?t) want to (live|be alive|wake up)\\b",
+        "\\bquero (me )?matar\\b",
+        "\\bquiero (morir|matarme|me matar)\\b",
+        "\\bquero morrer\\b",
+        "\\bnao quero (mais )?viver\\b",
+        "\\bno quiero vivir\\b",
+        "\\bquiero acabar con mi vida\\b",
+        "\\bquero acabar com (a )?minha vida\\b",
+        "\\bending it all\\b",
+        "\\bend it all\\b",
+        "\\bfeel(ing)? like ending (it|my life|everything)\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-04",
+      "mode": "emergency",
+      "answer": "emergency",
+      "description": "Acute emergencies in Portuguese, Spanish and English that are not in the rules above: stroke, breathing, chest pain, fainting, bleeding, shaking on the floor.",
+      "patterns": [
+        "\\b(estou|esta|ta|estamos|estao) tendo (um |uma )?(derrame|infarto|avc)\\b",
+        "\\b(having|am having|is having) (a |an )?stroke\\b",
+        "\\bisn'?t breathing\\b|\\bis not breathing\\b|\\bstopped breathing\\b",
+        "\\bnao consigo respirar\\b|\\bnao consegue respirar\\b|\\bno puedo respirar\\b|\\bno consigue respirar\\b|\\bno respira\\b|\\bnao respira\\b|\\bno esta respirando\\b|\\bnao esta respirando\\b",
+        "\\bdor (no peito|de peito|forte no peito)\\b|\\bdolor (en el pecho|de pecho)\\b",
+        "\\bdesmai\\w*\\b|\\bdesmay\\w*\\b|\\bse desmayo\\b",
+        "\\b(sangramento|sangrado|sangrando|sangra|sangre|hemorragia)\\s+(forte|intenso|intensa|grave|muito|bastante|mucho|fuerte|severo|abundante|sem parar)\\b|\\b(sangrando|sangra|sangre) (muito|mucho)\\b",
+        "\\bshaking on the (floor|ground)\\b|\\b(convulsing|jerking) on the (floor|ground)\\b"
       ]
     },
     {
@@ -55,6 +81,18 @@
       ]
     },
     {
+      "id": "G-INJECT-02",
+      "mode": "refused",
+      "answer": "inject",
+      "description": "Portuguese, Spanish and English attempts to make the assistant ignore its rules or play a doctor without limits.",
+      "patterns": [
+        "\\b(ignore|ignora|ignorar|desconsidere|desconsidera|esqueca|esquece|olvida|olvide)\\s+(\\w+\\s+){0,3}?(regras|reglas|instrucoes|instrucciones|protocolos?|limites|restricciones)\\b",
+        "\\b(finja|finge|finjas|finjam)\\s+(que\\s+)?(ser\\s+)?(e\\s+|eres\\s+|es\\s+)?(um\\s+|uma\\s+|un\\s+|una\\s+)?(medic[oa]|doutor[a]?|doctor[a]?)\\b",
+        "\\b(eres|es|voce e|voce eh|tu eres)\\s+(um |uma |un |una )?(medic[oa]|doutor[a]?|doctor[a]?)\\s+(sin|sem)\\s+(limites|restricciones|restricoes)\\b",
+        "\\byou (are|'re) (\\w+ )?(with|without) (no|any) (limits|restrictions)\\b"
+      ]
+    },
+    {
       "id": "G-DOSE-01",
       "mode": "refused",
       "answer": "dosing",
@@ -70,14 +108,14 @@
           "patterns": [
             "\\b(should|must) (i|we|he|she|they) take\\b",
             "\\b\\d+(\\.\\d+)?\\s?(ml|millilit\\w*|units?)\\b",
-            "\\b(doses?|dosage|dosing)\\b"
+            "\\b(doses?|dosage|dosing|dosis|dosificaci\\w*|dosagem)\\b"
           ]
         },
         {
           "unless": "radiation",
           "override": "medication",
           "patterns": [
-            "\\b(dose|dosage|dosing)\\b"
+            "\\b(dose|dosage|dosing|dosis|dosagem)\\b"
           ]
         }
       ]
@@ -92,7 +130,10 @@
         "\\b(stop|quit) taking\\b",
         "\\bpain ?killers?\\b",
         "\\bsleeping (pills?|tablets?)\\b",
-        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b"
+        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
+        "\\b(pop|take|swallow) (a |an |some |a couple of |a few |two |three |\\d+ )*(pain ?relievers?|painkillers?|sleeping pills?|sleep meds?|sleeping meds?|tylenol|advil|aleve|motrin)\\b",
+        "\\bhow (many|much) (tylenol|advil|aleve|motrin|excedrin|nyquil|benadryl|ambien)\\b",
+        "\\b(double|triple) (up )?(on )?(my |the |his |her |their )?(sleep |sleeping |pain )?(meds?|medications?|medicines?|pills?|tablets?)\\b"
       ],
       "gated": [
         {
@@ -122,6 +163,27 @@
       ]
     },
     {
+      "id": "G-DOSE-04",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "Dosing in Portuguese and Spanish: how many pills, a dose of a remedy, a sleep remedy; with a medication word, 'can I take' in either language.",
+      "patterns": [
+        "\\bquantos comprimidos\\b|\\bcuantos comprimidos\\b|\\bcuantas pastillas\\b|\\bquantas pilulas\\b",
+        "\\bdose de (remedio|medicamento|comprimido)\\b",
+        "\\bremedio para dormir\\b|\\bpastillas? para dormir\\b|\\bpastilla para dormir\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b(posso|puedo|devo|debo|deberia|deveria) tomar\\b",
+            "\\bquanto(s)? .{0,20}(posso|devo) tomar\\b",
+            "\\bcuanto(s)? .{0,20}(puedo|debo) tomar\\b"
+          ]
+        }
+      ]
+    },
+    {
       "id": "G-DIAG-01",
       "mode": "refused",
       "answer": "diagnosis",
@@ -141,7 +203,8 @@
         "\\bcould (it|this|that) be (something )?(serious|bad|dangerous)\\b",
         "\\bam i (sick|ill)\\b",
         "\\bwhat'?s? (is )?wrong with (me|my)\\b",
-        "\\bis (something|anything) wrong with (me|my)\\b"
+        "\\bis (something|anything) wrong with (me|my)\\b",
+        "\\bcould ([\\w'-]+ ){0,4}?be (an? )?(meningitis|encephalitis|appendicitis|pneumonia|sepsis|aneurysm|embolism|leukemia|diabetes|stroke|tumou?r|cancer|infection|disease|disorder|syndrome|fracture|concussion)\\b"
       ]
     },
     {
@@ -154,6 +217,18 @@
         "\\b(do|could|might|can|may) (i|he|she) (have|be having|be suffering from|suffer from|have got|be getting|be developing)\\s+(an? )?(clinical |major )?(depression|anxiety disorder|an anxiety disorder|ptsd|post-?traumatic stress( disorder)?|bipolar( disorder)?|burn-?out|panic disorder|ocd|adhd|psychosis|eating disorder|mental illness)\\b",
         "\\b(is|could|might) (this|it|that)( be)? (an? )?(clinical |major |real )?(depression|anxiety disorder|ptsd|bipolar( disorder)?|burn-?out|panic disorder|psychosis|nervous breakdown|breakdown|mental illness)\\b",
         "\\b(have i got|do i suffer from|am i suffering from|am i showing signs of|signs (that|of) i (have|am))\\b.{0,30}\\b(depress\\w*|anxiety|ptsd|bipolar|burn-?out|disorder)\\b"
+      ]
+    },
+    {
+      "id": "G-DIAG-04",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "Diagnosis requests in Portuguese and Spanish: 'I have depression', 'is it a stroke', 'could it be meningitis'. Feelings ('estou triste') go through.",
+      "patterns": [
+        "\\b(eu )?(tenho|tem|estou com)\\s+(um |uma )?(depressao|cancer|tumor|avc|derrame|infarto|burnout|meningite)\\b",
+        "\\b(tengo|tienes|tiene)\\s+(una? )?(depresion|cancer|tumor|derrame|infarto|burnout|meningitis)\\b",
+        "\\b(e|es|sera|pode ser|puede ser|poderia ser|podria ser|seria) (um |uma |un |una )?(derrame|infarto|avc|tumor|tumour|cancer|meningite|meningitis|depressao|depresion|burnout)\\b",
+        "\\b(poderia|podia|pode|seria|sera|puede|podria)\\s+(ser\\s+)?(um |uma |un |una )?(meningite|meningitis|derrame|infarto|cancer|tumor|depressao|depresion)\\b"
       ]
     }
   ],
@@ -193,7 +268,8 @@
         "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)",
         "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|drops?|puffs?)\\b",
         "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (medication|medicine|meds)\\b",
-        "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b"
+        "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b",
+        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(him|her|them|me|us|someone|the crew|a |an |some |more |another |extra |\\d+ )*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b"
       ],
       "gated": [
         {
@@ -221,7 +297,8 @@
       "patterns": [
         "\\byou (have|'ve got|have got|are suffering from|suffer from|are showing signs of) (an? )?([\\w-]+ ){0,2}(disease|disorder|infection|syndrome|cancer|tumou?r|stroke|condition|illness|concussion|diabetes|hypertension|arrhythmia|anemia|anaemia|pneumonia|fracture)\\b",
         "\\b(this|it|that) (is|looks like|sounds like|could be|might be|is probably|is likely) (an? )?(sign of (an? )?)?([\\w-]+ ){0,2}(stroke|heart attack|tumou?r|cancer|infection|disease|disorder|syndrome|concussion|fracture|arrhythmia)\\b",
-        "\\b(diagnosed with|the diagnosis is|my diagnosis|i diagnose)\\b"
+        "\\b(diagnosed with|the diagnosis is|my diagnosis|i diagnose)\\b",
+        "\\b(has|have|having|suffers? from|suffering from|likely has|probably has|may have|might have)\\s+(an?\\s+|the\\s+|early\\s+|mild\\s+|severe\\s+|clinical\\s+|major\\s+|chronic\\s+)*(depression|anxiety( disorder)?|ptsd|bipolar( disorder)?|burn-?out|panic disorder|disorder|syndrome|infection|tumou?r|cancer|stroke|diabetes|arrhythmia|concussion|fracture)\\b"
       ]
     },
     {
@@ -291,12 +368,14 @@
       "\\b(medications?|medicines?|meds|drugs?|pills?|tablets?|capsules?|painkillers?|pain ?killers?|sleeping (pills?|tablets?)|injections?|inhalers?|syrups?|drops|puffs?|lozenges?|suppositor\\w*)\\b",
       "\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
       "\\b(mg|mcg|ug|milligrams?|micrograms?)\\b(?!\\s*/\\s*dl)",
-      "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)"
+      "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)",
+      "\\b(remedios?|medicament\\w*|medicac\\w*|comprimidos?|pastillas?|pilulas?|xarope|analgesic\\w*|calmante\\w*|ibuprofeno|dipirona|paracetamol|melatonina|dormir)\\b"
     ],
     "radiation": [
       "\\b(radiation|radioactiv\\w*|irradiat\\w*|sieverts?|millisieverts?|msv|mgy|gray|dosimet\\w*|cosmic|solar (storm|flare|particle\\w*|event)|particle (storm|event)|spe|storm|shelter\\w*|exposure)\\b",
       "\\b(career|mission|lifetime|cumulative) (dose|doses|limit)\\b",
-      "\\b(evas?|space ?walks?|extravehicular)\\b"
+      "\\b(evas?|space ?walks?|extravehicular)\\b",
+      "\\b(radiacao|radiacion|radiac\\w*|sievert\\w*|dosimetro\\w*)\\b"
     ]
   }
 }

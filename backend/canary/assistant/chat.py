@@ -37,6 +37,7 @@ UNKNOWN = ("I don't know that from the data on board. The crew medical officer c
 GROUNDED_LIMITATION = "Built from rules over your data, without the AI model."
 
 SUGGESTIONS_LOG = "suggestions"  # assistant_log.question of a suggestions build (not a chat turn)
+BRIEFING_LOG = "briefing"        # assistant_log.question of a briefing draft build (not a chat turn)
 
 FIXED_LABELS = {"contact_cmo": "Talk to the crew medical officer",
                 "send_briefing": "Prepare a message for the flight surgeon"}
@@ -258,8 +259,11 @@ def ask(crew_id: str, question: str, viewer: Optional[dict] = None) -> dict:
                 "guard": _guard(rid, [rid] if rid else [])}
         return _log(ctx, question, resp, provider, None, t0, flags=[rid] if rid else [])
 
-    out = provider.complete(ProviderRequest(task="chat", system=SYSTEM_PROMPT, question=_user_message(ctx, question),
-                                            ctx=ctx, deadline=t0 + settings.llm_timeout_s))
+    try:
+        out = provider.complete(ProviderRequest(task="chat", system=SYSTEM_PROMPT, question=_user_message(ctx, question),
+                                                ctx=ctx, deadline=t0 + settings.llm_timeout_s))
+    except Exception:  # noqa: BLE001 - a provider bug is an API failure: the grounded answer is used, the text is never shown
+        out = ProviderResult(ok=False, guard_exit="api:error", error=GUARD_EXITS["api:error"])
     flags = list(out.notes)
     if out.ok:
         goals = _goals(ctx)
@@ -334,8 +338,8 @@ def record(crew_id: str, question: str, stored: dict, provider: str, model: Opti
 # ---------------------------------------------------------------- reading the log
 
 def history(crew_id: str, limit: int = 20) -> List[dict]:
-    rows = db.q("SELECT id,question,response,created_at FROM assistant_log WHERE crew_id=? AND question != ? "
-                "ORDER BY id DESC LIMIT ?", (crew_id, SUGGESTIONS_LOG, limit))
+    rows = db.q("SELECT id,question,response,created_at FROM assistant_log WHERE crew_id=? AND question NOT IN (?,?) "
+                "ORDER BY id DESC LIMIT ?", (crew_id, SUGGESTIONS_LOG, BRIEFING_LOG, limit))
     return [{"id": r["id"], "question": r["question"], "created_at": r["created_at"], **json.loads(r["response"])} for r in rows][::-1]
 
 

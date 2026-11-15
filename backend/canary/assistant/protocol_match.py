@@ -8,18 +8,21 @@ Emergencies never wait for a model: with no provider (the default) this is the r
 import json
 
 from ..domain import protocol_match, protocols
-from .providers import ProviderRequest, get_provider
+from .providers import ProviderRequest, ProviderResult, get_provider
 
 
 def match(text: str) -> dict:
     res = protocol_match.match(text)
     provider = get_provider()
     mode = "rules"
-    out = provider.complete(ProviderRequest(
-        task="protocol_match",
-        system="Name the protocol ids, best first, that fit what the person describes. Only ids from the list. No advice.",
-        question=text[:500],
-        context=[{"protocols": [{"id": p, "name": protocols.name(p)} for p in protocols.order() if p != "triage"], "rules": res["matches"]}]))
+    try:
+        out = provider.complete(ProviderRequest(
+            task="protocol_match",
+            system="Name the protocol ids, best first, that fit what the person describes. Only ids from the list. No advice.",
+            question=text[:500],
+            context=[{"protocols": [{"id": p, "name": protocols.name(p)} for p in protocols.order() if p != "triage"], "rules": res["matches"]}]))
+    except Exception:  # noqa: BLE001 - a provider bug keeps the rule matches; the model's text is never used then
+        out = ProviderResult(ok=False)
     if out.ok and out.answer:
         try:
             ids = [i for i in json.loads(out.answer) if isinstance(i, str) and i in protocols.bank()["protocols"] and i != "triage"][:protocol_match.LIMIT]

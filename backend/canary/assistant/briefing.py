@@ -9,7 +9,7 @@ a slow link. The astronaut sees the briefing and approves it before it is queued
 import json
 import pathlib
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import ValidationError
 
@@ -17,9 +17,9 @@ from .. import db
 from ..config import settings
 from ..domain import goals, health, mission
 from ..domain.catalog import CREW_BY_ID, LOCATIONS
-from . import guard
+from . import chat, guard
 from .contracts import BriefingDraft
-from .providers import ProviderRequest, get_provider
+from .providers import GUARD_EXITS, ProviderRequest, ProviderResult, get_provider
 
 PROMPT_VERSION = "briefing_v1"
 SYSTEM_PROMPT = (pathlib.Path(__file__).resolve().parent / "prompts" / f"{PROMPT_VERSION}.md").read_text()
@@ -89,51 +89,74 @@ def render(f: dict, draft: BriefingDraft) -> str:
     return "\n".join(lines)
 
 
-def check_draft(data, f: dict, allowed: List[str]) -> Optional[str]:
-    """The rendered text when the draft passes every check, else None."""
+def check_draft(data, f: dict, allowed: List[str], crew_id: str) -> Tuple[Optional[str], List[str]]:
+    """(the rendered text, []) when the draft passes every check; (None, rule ids) when the wording or privacy rules
+    (guard.text_violations) catch a heading, line or list item; (None, []) for any other failure."""
     try:
         draft = BriefingDraft.model_validate(data)
     except (ValidationError, ValueError, TypeError):
-        return None
+        return None, []
     if not draft.sections or any(s not in allowed for sec in draft.sections for ln in sec.lines for s in ln.source_ids):
-        return None
+        return None, []
     written = [sec.heading for sec in draft.sections] + [ln.text for sec in draft.sections for ln in sec.lines]
     written += draft.missing_information + draft.needs_medical_review
     if guard.unknown_numbers("\n".join(written), json.dumps(f)):  # only what the model wrote; the header is ours
-        return None
-    return render(f, draft)
+        return None, []
+    rules = list(dict.fromkeys(rid for item in written for rid in guard.text_violations(item, subject_crew_id=crew_id)))
+    if rules:
+        return None, rules
+    return render(f, draft), []
 
 
 def build(crew_id: str) -> dict:
+    t0 = time.monotonic()
     f = facts(crew_id)
     allowed = allowed_sources(crew_id, f)
     provider = get_provider()
-    out = provider.complete(ProviderRequest(
-        task="briefing", system=SYSTEM_PROMPT,
-        question="Write this week's briefing. Allowed source ids: " + json.dumps(allowed),
-        context=[{"facts": f}]))
-    text, mode = template(f), "template"
+    try:
+        out = provider.complete(ProviderRequest(
+            task="briefing", system=SYSTEM_PROMPT,
+            question="Write this week's briefing. Allowed source ids: " + json.dumps(allowed),
+            context=[{"facts": f}]))
+    except Exception:  # noqa: BLE001 - a provider bug leaves the template in place; nothing from the provider is shown
+        out = ProviderResult(ok=False, guard_exit="api:error", error=GUARD_EXITS["api:error"])
+    text, mode, rules = template(f), "template", []
     if out.ok and out.data is not None:
-        checked = check_draft(out.data, f, allowed)
+        checked, rules = check_draft(out.data, f, allowed, crew_id)
         if checked:
             text, mode = checked, "ai"
     bid = db.x("INSERT INTO briefings(crew_id,day,status,facts,text,mode,created_at) VALUES(?,?,?,?,?,?,?)",
                (crew_id, f["day"], "draft", json.dumps(f), text, mode, time.time()))
+    # The audit sees that a draft was built, how, and which rules it broke: rule ids only, never the text.
+    flags = rules + ([out.guard_exit] if out.guard_exit else [])
+    chat.record(crew_id, chat.BRIEFING_LOG, {"mode": mode, "status": "draft", "briefing_id": bid, "rule_ids": rules},
+                provider.name, out.model if out.model else None, mode, flags, t0, out.input_tokens, out.output_tokens)
     return get(bid)
 
 
-def approve(bid: int) -> dict:
-    b = get(bid)
-    delay = LOCATIONS[mission.state()["location"]]["delay_s"] / settings.delay_speedup
-    now = time.time()
-    db.x("UPDATE briefings SET status='queued', sent_at=?, deliver_at=? WHERE id=?", (now, now + delay, bid))
-    db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-         (b["crew_id"], "earth", "briefing", b["text"], now, now + delay))
+def approve(bid: int) -> Optional[dict]:
+    """Queue a draft for Earth. Only a draft is updated (WHERE status='draft'), so a second approval changes nothing and
+    queues no second message. None when the briefing does not exist or is not a draft any more (the route answers 404/409)."""
+    with db._lock:  # the update and the message are one step: a draft cannot be queued twice
+        b = get(bid)
+        if b is None or b["status"] != "draft":
+            return None
+        delay = LOCATIONS[mission.state()["location"]]["delay_s"] / settings.delay_speedup
+        now = time.time()
+        if db.write("UPDATE briefings SET status='queued', sent_at=?, deliver_at=? WHERE id=? AND status='draft'",
+                    (now, now + delay, bid)) != 1:
+            return None
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             (b["crew_id"], "earth", "briefing", b["text"], now, now + delay))
     return get(bid)
 
 
-def get(bid: int) -> dict:
-    r = db.q("SELECT * FROM briefings WHERE id=?", (bid,))[0]
+def get(bid: int) -> Optional[dict]:
+    """The briefing with its facts parsed, or None when there is no such id."""
+    rows = db.q("SELECT * FROM briefings WHERE id=?", (bid,))
+    if not rows:
+        return None
+    r = rows[0]
     return {**r, "facts": json.loads(r["facts"]), "bytes": len(r["text"].encode())}
 
 

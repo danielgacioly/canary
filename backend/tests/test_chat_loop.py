@@ -682,3 +682,65 @@ def test_briefing_template_never_prints_none():
     f = briefing.facts("h")
     f["movers"] = [{"name": "Sleep", "value": 6.1, "baseline": None, "unit": "h", "z": None}]
     assert "still learning your normal" in briefing.template(f) and "None" not in briefing.template(f)
+
+
+# ---------------------------------------------------------------- item 4: briefing and suggestion text gets the chat wording and privacy rules
+
+def test_briefing_draft_with_diagnosis_dosing_privacy_or_safe_wording_keeps_the_template(monkeypatch):
+    f = briefing.facts("h")
+    allowed = briefing.allowed_sources("h", f)
+    d = _draft(f, allowed, text="Likely has early depression; Kenji Mori also sleeps badly. Give her melatonin.")
+    d["sections"][1]["lines"] = [{"text": "This is perfectly safe.", "source_ids": [allowed[0]]}]
+    use(monkeypatch, ScriptedProvider(messages=[final(d)]), briefing)
+    b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
+    assert b["mode"] == "template" and "This is perfectly safe" not in b["text"] and "melatonin" not in b["text"]
+
+
+def test_suggestion_rewrite_with_diagnosis_and_dosing_is_rejected_for_that_item_only(monkeypatch):
+    items = suggestions.candidates(suggestions.facts("h"))
+    bad, good = items[0]["id"], items[1]["id"]
+    rewrites = {"items": [{"id": s["id"], "why": "A gentler way to say it."} for s in items]}
+    rewrites["items"][0]["why"] = "You have clinical depression; take a sleeping pill, unlike Kenji"
+    use(monkeypatch, ScriptedProvider(messages=[final(rewrites)]), suggestions)
+    s = client.get("/api/suggestions/h", headers=as_("h")).json()
+    by = {x["id"]: x for x in s["items"]}
+    assert by[bad]["source"] == "rules" and "sleeping pill" not in by[bad]["why"]
+    assert by[good]["source"] == "ai" and by[good]["why"] == "A gentler way to say it."
+    assert s["rejected_rules"] and "G-WELL-01" in s["rejected_rules"]
+
+
+# ---------------------------------------------------------------- item 5: any provider failure falls back, never a 500
+
+def _gemini_turn(parts):
+    return {"modelVersion": "gemini-test", "candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": parts}}]}
+
+
+def _last_flags():
+    return json.loads(db.q("SELECT guard_flags FROM assistant_log ORDER BY id DESC LIMIT 1")[0]["guard_flags"])
+
+
+@pytest.mark.parametrize("turn", [
+    _gemini_turn([{"functionCall": {"args": {}}}]),          # a function call without a name
+    _gemini_turn(["just a string, not a part"]),              # a part that is not an object
+    _gemini_turn([{"text": "x"}, 7]),                         # a number as a part
+])
+def test_malformed_gemini_parts_end_in_the_grounded_fallback(monkeypatch, turn):
+    p = use(monkeypatch, ScriptedProvider(messages=[turn]))
+    r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": QUESTION}, headers=as_("h"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "fallback" and "model:bad_output" in _last_flags()
+    assert p.calls == 1
+
+
+@pytest.mark.parametrize("exc", [RuntimeError("secret-key-xyz boom"), KeyError("parts"), AttributeError("x")])
+def test_unexpected_provider_error_falls_back_without_leaking_it(monkeypatch, exc):
+    use(monkeypatch, ScriptedProvider(turns=[exc]))
+    r = client.post("/api/assistant/ask", json={"crew_id": "h", "question": QUESTION}, headers=as_("h"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "fallback"
+    assert "secret-key-xyz" not in r.text and "boom" not in r.text
+    assert "api:error" in _last_flags()
+    row = db.q("SELECT response, guard_flags FROM assistant_log ORDER BY id DESC LIMIT 1")[0]
+    assert "secret-key-xyz" not in row["response"] and "secret-key-xyz" not in row["guard_flags"]

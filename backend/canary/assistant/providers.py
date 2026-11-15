@@ -305,6 +305,8 @@ class ToolCallingProvider:
             uses = self._tool_calls(msg)
             if not uses:
                 return self._finish(out, msg, req.task)
+            if any(not isinstance(b, dict) or not isinstance(b.get("name"), str) or not b["name"] for b in uses):
+                return self._fail(out, "model:bad_output")  # a call without a tool name cannot be answered
 
             # Echo native model content unchanged, including thinking signatures.
             messages.append(content)
@@ -382,8 +384,16 @@ class GeminiProvider(ToolCallingProvider):
 
     @staticmethod
     def _candidate(msg: dict) -> dict:
-        candidates = msg.get("candidates") or []
-        return candidates[0] if candidates else {}
+        candidates = msg.get("candidates")
+        first = candidates[0] if isinstance(candidates, list) and candidates else None
+        return first if isinstance(first, dict) else {}
+
+    @staticmethod
+    def _parts(msg: dict) -> list:
+        """The object parts of the first candidate; anything else in a part list is not content and is skipped."""
+        content = GeminiProvider._candidate(msg).get("content")
+        parts = content.get("parts") if isinstance(content, dict) else None
+        return [p for p in parts if isinstance(p, dict)] if isinstance(parts, list) else []
 
     def _stop(self, out: ProviderResult, msg: Any) -> Optional[ProviderResult]:
         """Handle the stop reasons that end a call before content is read."""
@@ -405,18 +415,18 @@ class GeminiProvider(ToolCallingProvider):
         return {"functionResponse": response}
 
     def _text(self, msg: dict) -> str:
-        parts = (self._candidate(msg).get("content") or {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        return "".join(p.get("text", "") for p in self._parts(msg) if not p.get("thought") and isinstance(p.get("text"), str)).strip()
 
     @staticmethod
     def _user_message(content: Any) -> dict:
         return {"role": "user", "parts": [{"text": content}] if isinstance(content, str) else content}
 
     def _model_message(self, msg: dict) -> dict:
-        return self._candidate(msg).get("content") or {}
+        content = self._candidate(msg).get("content")
+        return content if isinstance(content, dict) else {}
 
     def _tool_calls(self, msg: dict) -> list:
-        return [p["functionCall"] for p in self._model_message(msg).get("parts", []) if "functionCall" in p]
+        return [p["functionCall"] for p in self._parts(msg) if "functionCall" in p]
 
 
 class AnthropicProvider(ToolCallingProvider):
@@ -462,7 +472,7 @@ class AnthropicProvider(ToolCallingProvider):
 
     @staticmethod
     def _text(msg: dict) -> str:
-        return "".join(p.get("text", "") for p in msg.get("content", []) if p.get("type") == "text").strip()
+        return "".join(p.get("text", "") for p in msg.get("content", []) if isinstance(p, dict) and p.get("type") == "text").strip()
 
     @staticmethod
     def _user_message(content: Any) -> dict:
@@ -475,7 +485,7 @@ class AnthropicProvider(ToolCallingProvider):
     @staticmethod
     def _tool_calls(msg: dict) -> list:
         return [{"id": p.get("id"), "name": p.get("name"), "args": p.get("input", {})}
-                for p in msg.get("content", []) if p.get("type") == "tool_use"]
+                for p in msg.get("content", []) if isinstance(p, dict) and p.get("type") == "tool_use"]
 
     @staticmethod
     def _result_block(block: dict, payload: dict) -> dict:

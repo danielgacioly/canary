@@ -338,26 +338,28 @@ def ranked(crew_id: str, f: dict) -> List[dict]:
 MAX_WHY = 300  # a rewritten "why" longer than this is not one warm sentence: keep the rule text
 
 
-def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Optional[str], List[str], Any]:
-    """Ask the model to rephrase each "why". Returns (accepted rewrites by id, fallback reason or None,
-    rejected numbers, the ProviderResult or None). Each item is checked on its own."""
+def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Optional[str], List[str], Any, List[str]]:
+    """Ask the model to rephrase each "why". Returns (accepted rewrites by id, fallback reason or None, rejected numbers,
+    the ProviderResult or None, rejected rule ids). Each item is checked on its own: a rewrite with an invented number
+    or with wording/privacy rule violations (guard.text_violations) keeps the rule text."""
     try:
         out = provider.complete(ProviderRequest(task="suggestions",
                                                 system="Rephrase each 'why' warmly in one sentence. Use only the numbers given. Never diagnose.",
                                                 question=json.dumps([{"id": s["id"], "why": s["why"]} for s in items]),
                                                 context=[{"facts": f}]))
     except Exception:  # noqa: BLE001 - a provider bug must not break the page; the rule text stays
-        return {}, "api:error", [], None
+        return {}, "api:error", [], None, []
     if not out.ok:
-        return {}, out.guard_exit or ("api:error" if provider.configured else None), [], out
+        return {}, out.guard_exit or ("api:error" if provider.configured else None), [], out, []
     try:
         raw = json.loads(out.answer)
         pairs = [(r["id"], r["why"]) for r in raw]
     except (ValueError, KeyError, TypeError):
-        return {}, "parse_error", [], out
+        return {}, "parse_error", [], out, []
     ids, blob = {s["id"] for s in items}, json.dumps(f)
     accepted: Dict[str, str] = {}
     rejected: List[str] = []
+    rules: List[str] = []
     for sid, why in pairs:
         if sid not in ids or not isinstance(why, str):
             continue
@@ -368,11 +370,15 @@ def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Opti
         if unknown:
             rejected += unknown
             continue
+        broken = guard.text_violations(why, subject_crew_id=f["crew_id"])
+        if broken:
+            rules += broken
+            continue
         accepted[sid] = why
     reason = None
     if len(accepted) < len(items):
-        reason = "numbers_rejected" if rejected else "model:bad_output"  # else: missing, empty or too long
-    return accepted, reason, list(dict.fromkeys(rejected)), out
+        reason = "numbers_rejected" if rejected else "rules_rejected" if rules else "model:bad_output"  # else: missing, empty or too long
+    return accepted, reason, list(dict.fromkeys(rejected)), out, list(dict.fromkeys(rules))
 
 
 def build(crew_id: str) -> dict:
@@ -381,7 +387,7 @@ def build(crew_id: str) -> dict:
     items = ranked(crew_id, f)
     provider = get_provider()
     configured = bool(getattr(provider, "configured", False))
-    rewrites, reason, rejected, out = _rewrite(provider, f, items)
+    rewrites, reason, rejected, out, rules = _rewrite(provider, f, items)
     for s in items:
         if s["id"] in rewrites:
             s["why"], s["source"] = rewrites[s["id"]], "ai"
@@ -394,14 +400,14 @@ def build(crew_id: str) -> dict:
     for s in items:
         s["accepted"] = f"sg_{s['id']}" in taken
     # The medical audit sees that a build happened and how, never what the suggestions say (astronaut-only).
-    flags = ([reason] if reason else []) + (list(out.notes) if out else [])
+    flags = ([reason] if reason else []) + rules + (list(out.notes) if out else [])
     chat.record(crew_id, chat.SUGGESTIONS_LOG,
                 {"mode": mode, "status": "suggestions", "provider": provider.name, "model": model,
-                 "rewritten": n, "total": len(items), "fallback_reason": reason},
+                 "rewritten": n, "total": len(items), "fallback_reason": reason, "rejected_rules": rules},
                 provider.name, model, mode, flags, t0,
                 out.input_tokens if out else 0, out.output_tokens if out else 0)
     return {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
-            "fallback_reason": reason, "rejected_numbers": rejected, "day": f["day"], "items": items,
+            "fallback_reason": reason, "rejected_numbers": rejected, "rejected_rules": rules, "day": f["day"], "items": items,
             "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
 
 
