@@ -3,7 +3,7 @@
 Code computes the facts; the model (when connected) only writes the prose, and
 guard.unknown_numbers rejects any text with numbers that are not in the facts.
 Sections are in priority order so the first lines are enough on a slow link.
-The astronaut sees the briefing and approves it before it is queued for Earth.
+The astronaut can read their own briefing; the medical team reviews and approves it before it is queued for Earth.
 """
 import json
 import time

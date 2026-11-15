@@ -161,7 +161,7 @@ def test_briefing_is_approved_then_queued():
     at(2)
     b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
     assert b["status"] == "draft" and "WHAT WORRIES" in b["text"]
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h")).json()["status"] == "queued"
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=_med()).json()["status"] == "queued"
 
 
 def test_medical_endpoints_need_the_pin():

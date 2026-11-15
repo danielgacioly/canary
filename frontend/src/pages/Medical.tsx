@@ -171,7 +171,7 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
     <div className="med-cols">
       <section className="col">
         <div className="section-head"><h2>Weekly briefing</h2></div>
-        <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The crew member approves it before it is queued for Earth.</p>
+        <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The medical team approves it before it is queued for Earth.</p>
         <p className="small dim">{st ? (st.configured ? `Model: ${st.provider}` : 'No model connected: template text from the same facts.') : '…'}</p>
         <div className="row wrap">{ov.crew.map(c => <button key={c.id} className={`btn sm ${who === c.id ? 'pri' : ''}`} onClick={() => setWho(c.id)}>{c.name.split(' ')[0]}</button>)}</div>
         <button className="btn pri" disabled={gen.busy} onClick={() => gen.run(async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) })}>{gen.busy ? 'Generating…' : 'Generate briefing'}</button>
@@ -182,7 +182,7 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
         {b ? (
           <>
             <div className="row wrap"><Status level={b.status === 'draft' ? 1 : 0}>{b.status}</Status><span className="small muted num">{b.mode === 'ai' ? 'AI prose' : 'template'} · {b.bytes} bytes</span>
-              {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the crew member and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
+              {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the medical team and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
             <ActionError error={approve.error} />
             <pre className="brief-text">{b.text}</pre>
           </>

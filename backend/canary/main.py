@@ -854,15 +854,14 @@ def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
     return briefing.build(body.crew_id)
 
 
-@app.post("/api/briefings/{bid}/approve", tags=["assistant"])
-def briefing_approve(bid: int, v: dict = Depends(viewer)):
-    """The astronaut approves their own briefing before it is queued for Earth. Nobody else can."""
+@app.post("/api/briefings/{bid}/approve", tags=["assistant"], dependencies=[Depends(require_medical)])
+def briefing_approve(bid: int):
+    """The medical team approves a briefing before it is queued for Earth. Nobody else can: the sign-in is checked
+    first, so a caller without it learns nothing about which briefings exist."""
     try:
-        b = briefing.get(bid)
+        briefing.get(bid)
     except LookupError:
         raise HTTPException(404, "no such briefing")
-    if v["id"] != b["crew_id"]:
-        raise HTTPException(403, "only the astronaut approves their briefing")
     return briefing.approve(bid)
 
 

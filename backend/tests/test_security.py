@@ -50,30 +50,34 @@ def _briefing(cid="h") -> dict:
     return client.post("/api/briefings", json={"crew_id": cid}, headers=crew(cid)).json()
 
 
-def test_only_the_astronaut_approves_their_briefing():
+def test_only_the_medical_team_approves_a_briefing():
     b = _briefing("h")
-    assert client.post(f"/api/briefings/{b['id']}/approve").status_code == 403
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=crew("k")).status_code == 403
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=medical()).status_code == 403
-    r = client.post(f"/api/briefings/{b['id']}/approve", headers=crew("h"))
+    url = f"/api/briefings/{b['id']}/approve"
+    assert client.post(url).status_code == 401
+    assert client.post(url, headers=crew("h")).status_code == 401  # not even the astronaut it is about
+    assert client.post(url, headers=crew("k")).status_code == 401
+    assert client.get(f"/api/briefings/h", headers=crew("h")).json()[0]["status"] == "draft"  # nothing was queued
+    r = client.post(url, headers=medical())
     assert r.status_code == 200 and r.json()["status"] == "queued"
 
 
-def test_a_missing_briefing_is_404_not_a_crash():
-    assert client.post("/api/briefings/999999/approve", headers=crew("h")).status_code == 404
+def test_a_missing_briefing_is_404_for_the_medical_team_and_401_for_everyone_else():
+    assert client.post("/api/briefings/999999/approve", headers=medical()).status_code == 404
+    assert client.post("/api/briefings/999999/approve").status_code == 401  # a caller without sign-in learns nothing about ids
+    assert client.post("/api/briefings/999999/approve", headers=crew("h")).status_code == 401
 
 
 def test_approving_twice_sends_one_briefing():
     b = _briefing("h")
     for _ in range(2):
-        assert client.post(f"/api/briefings/{b['id']}/approve", headers=crew("h")).status_code == 200
+        assert client.post(f"/api/briefings/{b['id']}/approve", headers=medical()).status_code == 200
     sent = [m for m in client.get("/api/messages", headers=crew("h")).json() if m["kind"] == "briefing"]
     assert len(sent) == 1
 
 
 def test_a_briefing_message_is_private():
     b = _briefing("h")
-    client.post(f"/api/briefings/{b['id']}/approve", headers=crew("h"))
+    client.post(f"/api/briefings/{b['id']}/approve", headers=medical())
     kinds = lambda headers=None: [m["kind"] for m in client.get("/api/messages", headers=headers or {}).json()]  # noqa: E731
     assert "briefing" not in kinds()
     assert "briefing" not in kinds(crew("k"))
