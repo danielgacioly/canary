@@ -9,6 +9,7 @@ import type { AlertEvent, ControlOverview, GroundForm, MissionForm, SeatForm } f
 import Timeline from '../components/Timeline'
 import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
+import EmergencyBanner from '../components/EmergencyBanner'
 import Hazards from '../components/Hazards'
 import PinPad from '../components/PinPad'
 import Stars from '../components/Stars'
@@ -90,6 +91,7 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   const loadDemoData = async () => { await api.controlDemoData(); registered() }
   return (
     <div className="control">
+      <EmergencyBanner />
       <header className="control-top">
         <span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${clockLine(ov.mission.clock)} · ${ov.mission.place.name}` : 'No mission registered'}</span>

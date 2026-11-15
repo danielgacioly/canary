@@ -8,6 +8,7 @@ import GuidedResponse from '../features/GuidedResponse'
 import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 import { WaitingForControl } from '../pages/MissionInfo'
+import EmergencyBanner from './EmergencyBanner'
 import { CrewDots, Dot } from './People'
 import { CanaryMark, Icon } from './ui'
 
@@ -26,13 +27,14 @@ export default function Shell() {
 
   return (
     <div className="shell">
+      <EmergencyBanner />
       <aside className="side">
         <NavLink to="/crew" className="brand"><CanaryMark />CANARY</NavLink>
         {NAV.map(g => (
           <div key={g.group}>
             <div className="group">{g.group}</div>
             {g.items.map(([to, icon, label]) => (
-              <NavLink key={to} to={to} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
+              <NavLink key={to} to={to} aria-label={label} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
                 <Icon name={icon} /><span>{label}</span>
                 {to === '/me' && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
               </NavLink>
@@ -40,10 +42,10 @@ export default function Shell() {
           </div>
         ))}
         <div className="group">Support</div>
-        <button className="nav" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
-        <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
-        <NavLink to="/settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
-        <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
+        <button className="nav" aria-label="Ask Canary" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
+        <NavLink to="/medical" aria-label="Medical console" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
+        <NavLink to="/settings" aria-label="Settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
+        <NavLink to="/about" aria-label="About and data" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
         <div className="foot"><ProfileChip mine={mine} /></div>
       </aside>
 

@@ -215,6 +215,7 @@ export interface ProtocolMatch {
   fallback: { id: string; name: string; sign: string } | null
 }
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
+export interface OpenEmergency { id: number; patient: string | null; patient_id: string | null; protocol: string | null; started_at: number }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
 export interface Claim { text: string; source_ids: string[] }
 export interface AssistantAnswer {

@@ -1349,3 +1349,15 @@ button.prow { width: 100%; text-align: left; }
 /* ---------- canary pulse: a soft ring for live markers (off under reduced motion) ---------- */
 @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--canary) 55%, transparent); } 70% { box-shadow: 0 0 0 10px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .pulse { animation: pulse-ring 1.8s var(--ease-out, ease-out) infinite; }
+
+/* ---- cabin-wide emergency alarm, the fixed SOS button on small screens */
+.alarm { position: fixed; top: 0; left: 0; right: 0; z-index: 70; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 16px; background: var(--nasa-red); color: #fff; font-size: 14px; }
+.alarm .dot { background: #fff; flex: none; }
+.alarm a { color: #fff; text-decoration: underline; white-space: nowrap; }
+body.has-alarm { padding-top: 40px; }
+body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
+@media (max-width: 860px) {
+  .topbar { padding-right: 168px; }
+  .topbar .sos { position: fixed; top: 13px; right: 10px; z-index: 65; background: var(--bg); }
+  body.has-alarm .topbar .sos { top: 53px; }
+}

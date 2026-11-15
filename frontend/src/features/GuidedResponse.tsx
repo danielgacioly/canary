@@ -72,7 +72,8 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
   const [i, setI] = useState(0)
-  const [patient, setPatient] = useState<string | null>(null)
+  const [patient, setPatient] = useState<string | null>(null)  // chosen first: a crew id, or '' for someone not on the crew
+  const [escalated, setEscalated] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [stepAt, setStepAt] = useState(Date.now())
   const [voice, setVoice] = useState(prefs.voice)
@@ -82,12 +83,36 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
-    api.startEmergency(me).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
+    // One emergency at a time: if one is already open (the dialog was closed before), pick it up instead of opening a second.
+    api.emergenciesOpen().then(async open => {
+      if (open.length) {
+        const e = await api.emergencyEvent(open[0].id, {})
+        if (e.patient) setPatient(e.patient)
+        if (e.protocol) setPid(e.protocol)
+        setEscalated(e.log.some(l => /Escalated/.test(l[1])))
+        return e
+      }
+      return api.startEmergency(me)
+    }).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
     const t = setInterval(() => setNow(Date.now()), 250)
     return () => { clearInterval(t); try { speechSynthesis.cancel() } catch { /* no speech */ } }
   }, [me])
 
-  const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`)) }
+  // Log calls keep their order. One made before the emergency id exists waits in `pending` and is sent once it does.
+  const emRef = useRef<Emergency | null>(null)
+  const pending = useRef<{ text?: string; protocol?: string; patient?: string }[]>([])
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
+  const send = (p: { text?: string; protocol?: string; patient?: string; escalate?: boolean }) => {
+    chain.current = chain.current.then(() => api.emergencyEvent(emRef.current!.id, p)).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`))
+  }
+  useEffect(() => {
+    emRef.current = em
+    if (em && pending.current.length) { const q = pending.current; pending.current = []; q.forEach(send) }
+  }, [em])  // eslint-disable-line react-hooks/exhaustive-deps
+  const log = (text: string, extra: { protocol?: string; patient?: string } = {}) => {
+    const p = { text, ...extra }
+    if (emRef.current) send(p); else pending.current.push(p)
+  }
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
 
@@ -119,9 +144,19 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
     log(`${step.q} ${yes ? 'Yes' : 'No'}`)
     go(yes ? step.yes : step.no)
   }
-  const finish = async (outcome: string) => {
+  const escalate = async () => {
+    await chain.current
     try {
-      if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient ?? undefined, protocol: pid ?? undefined })
+      if (!em) throw new Error('The emergency record is not open yet')
+      setEm(await api.emergencyEvent(em.id, { escalate: true }))
+      setEscalated(true)
+      toast('The flight surgeon was asked for a private medical conference. The emergency stays open.')
+    } catch (e) { toast(`Could not reach the flight surgeon: ${errorText(e)}. Press Escalate again.`) }
+  }
+  const finish = async (outcome: string) => {
+    await chain.current
+    try {
+      if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient || undefined, protocol: pid ?? undefined })
     } catch (e) { toast(`The report was not closed: ${errorText(e)}. Press the button again.`); return }
     setDone(true); bump()
     toast(patient ? 'Follow-up goals added for the patient. Report queued for Earth.' : 'Report queued for Earth.')
@@ -139,17 +174,26 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
             <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)} title={eng.voice ? `${eng.voice.name} (${eng.voice.lang})` : undefined} data-voice={eng.voice?.name ?? ''}>Voice {voice ? 'on' : 'off'}</button>
             {eng.checked && !eng.voice && <span className="small dim">No English voice on this device</span>}
           </div>
-          <button className="btn er-btn" onClick={onClose}><Icon name="close" size={18} />Close</button>
+          <button className="btn er-btn" onClick={onClose} title={done ? undefined : 'The emergency stays open; the alarm keeps showing'}><Icon name="close" size={18} />{done ? 'Close' : 'Leave open'}</button>
         </div>
       </div>
 
       <div className="er-body">
         <div className="col" style={{ gap: 18 }}>
           {!P && <span className="lbl">Loading protocols…</span>}
-          {P && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
-          {P && !proto && !done && !describing && (
+          {P && patient === null && !done && (
+            <div className="col" style={{ gap: 18 }}>
+              <p className="er-lead">Who is the patient?</p>
+              <div className="er-choices">
+                {catalog?.crew.map(c => <button key={c.id} className="btn er-btn big" onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}
+                <button className="btn er-btn big" onClick={() => { setPatient(''); log('Patient: not a crew member') }}>Someone else</button>
+              </div>
+            </div>
+          )}
+          {P && patient !== null && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
+          {P && patient !== null && !proto && !done && !describing && (
             <>
-              <p className="er-lead">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
+              <p className="er-lead">Crew alerted: every screen on board shows the alarm. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
               <div className="proto-grid">
                 {P.order.map(id => (
                   <button key={id} className="proto" onClick={() => pick(id)}>
@@ -173,12 +217,15 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
                 <div className="yesno"><button className="y" onClick={() => answer(true)}>YES</button><button className="n" onClick={() => answer(false)}>NO</button></div>
               ) : step.end ? (
                 <div className="col">
-                  <p className="er-lead">Who was the patient?</p>
-                  <div className="er-choices">{catalog?.crew.map(c => <button key={c.id} className={`btn er-btn big ${patient === c.id ? 'pri' : ''}`} onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}</div>
-                  <div className="er-choices" style={{ marginTop: 8 }}>
-                    <button className="btn pri er-btn big" onClick={() => finish('stable')}>Patient stable: close and report</button>
-                    <button className="btn er-btn big" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
+                  <p className="er-lead">How did it end?</p>
+                  <div className="er-choices">
+                    <button className="btn pri er-btn big" onClick={() => finish('stable')}>Stable</button>
+                    <button className="btn er-btn big" onClick={() => finish('transferred to medical officer')}>Transferred to the medical officer</button>
+                    <button className="btn er-btn big" onClick={() => finish('resolved')}>Resolved</button>
+                    <button className="btn er-btn big" onClick={() => finish('escalated to flight surgeon')}>Handed to the flight surgeon</button>
                   </div>
+                  <p className="small muted" style={{ marginTop: 12 }}>Not stable? Ask the flight surgeon for a private medical conference (PMC). The emergency stays open until you choose how it ended.</p>
+                  <button className="btn er-btn big" style={{ alignSelf: 'flex-start' }} disabled={escalated} onClick={escalate}>{escalated ? 'PMC requested' : 'Escalate: request a PMC'}</button>
                 </div>
               ) : (
                 <button className="btn pri er-next" onClick={() => { log(`Done: step ${i + 1}`); go(undefined) }}>Done, next step<Icon name="chev" size={24} /></button>

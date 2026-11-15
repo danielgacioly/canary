@@ -1,6 +1,6 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
-  AlertEvent, AlertEvents, AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
+  AlertEvent, AlertEvents, AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, OpenEmergency, GoalsResponse,
   CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
@@ -155,7 +155,8 @@ export const api = {
   protocolLibrary: () => req<ProtocolLibrary>('/protocols/library'),
   matchProtocol: (text: string) => req<ProtocolMatch>('/protocols/match', { method: 'POST', ...body({ text }) }),
   startEmergency: (responder: string | null) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder }) }),
-  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean }) =>
+  emergenciesOpen: () => req<OpenEmergency[]>('/emergencies/open'),
+  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean; escalate?: boolean }) =>
     req<Emergency>(`/emergencies/${id}`, { method: 'POST', ...body(e) }),
 
   messages: (crew_id?: string) => req<Message[]>(`/messages${crew_id ? `?crew_id=${crew_id}` : ''}`),

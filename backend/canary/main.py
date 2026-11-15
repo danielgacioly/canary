@@ -845,12 +845,18 @@ class EmergencyEvent(BaseModel):
     patient: Optional[str] = None
     outcome: Optional[str] = None
     close: bool = False
+    escalate: bool = False  # ask the flight surgeon for a private medical conference (PMC); the emergency stays open
+
+
+EMERGENCY_OUTCOMES = ("stable", "transferred to medical officer", "escalated to flight surgeon", "resolved")
 
 
 @app.post("/api/emergencies/{eid}", tags=["guided response"])
 def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(require_onboard)):
     e = _emergency(eid)
-    audit.record(actor, "emergency.close" if body.close else "emergency.update", f"emergency:{eid}",
+    if body.close and body.outcome not in EMERGENCY_OUTCOMES:
+        raise validation.FieldError("outcome", "Say how it ended: " + ", ".join(EMERGENCY_OUTCOMES))
+    audit.record(actor, "emergency.close" if body.close else "emergency.escalate" if body.escalate else "emergency.update", f"emergency:{eid}",
                  after={"protocol": body.protocol, "patient": body.patient, "outcome": body.outcome, "close": body.close,
                         "log_entry": bool(body.text)})  # the text of a log entry is not copied here
     log = e["log"]
@@ -861,6 +867,16 @@ def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(requir
         db.x("UPDATE emergencies SET patient=? WHERE id=?", (body.patient, eid))
     if body.text:
         log.append([t, body.text])
+    if body.escalate and not e["ended_at"]:  # a request, not a closing: the emergency stays open
+        ms = mission.state()
+        surgeons = [g["id"] for g in registry.ground() if g["role"] == "flight_surgeon"]
+        delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
+        patient = e["patient"] or body.patient
+        who = (registry.account(patient) or {}).get("name", "the patient") if patient else "the patient"
+        text = f"PMC requested: private medical conference for {who}, {e['protocol'] or 'protocol not chosen yet'}. Guided Response is still open."
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             (actor["id"], surgeons[0] if surgeons else "earth", "pmc", text, time.time(), time.time() + delay))
+        log.append([t, "Escalated: private medical conference requested from the flight surgeon."])
     if body.close and not _emergency(eid)["ended_at"]:  # closing twice does not repeat goals, window or report
         ms = mission.state()
         e = _emergency(eid)
@@ -896,6 +912,18 @@ def emergencies():
 @app.get("/api/emergencies", tags=["guided response"])
 def emergencies_route(actor: dict = Depends(any_person)):
     return emergencies()
+
+
+@app.get("/api/emergencies/open", tags=["guided response"])
+def emergencies_open():
+    """The cabin-wide alarm: who is the patient and which protocol, for every emergency still open. No health values, no sign-in:
+    everyone on board must see it. Read by every screen every few seconds."""
+    out = []
+    for r in db.q("SELECT id,protocol,patient,started_at FROM emergencies WHERE ended_at IS NULL ORDER BY id DESC LIMIT 5"):
+        acct = registry.account(r["patient"]) if r["patient"] else None
+        out.append({"id": r["id"], "patient": acct["name"] if acct else None, "patient_id": r["patient"],
+                    "protocol": protocols.name(r["protocol"]) if r["protocol"] else None, "started_at": r["started_at"]})
+    return out
 
 
 # ---------------------------------------------------------------- messages with communication delay
@@ -937,7 +965,7 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
     # Private to the people in the message and the medical team: advice and alerts go to the medical officer, a briefing
     # carries the sender's own health facts to Earth.
-    private = ("advice", "alert", "alert_earth", "briefing", "emergency", "report", "security")
+    private = ("advice", "alert", "alert_earth", "briefing", "emergency", "report", "security", "pmc")
     rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or (v["me"] & {r["sender"], r["recipient"]})))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
