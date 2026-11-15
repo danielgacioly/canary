@@ -471,3 +471,11 @@ def test_clearing_everything_also_drops_the_package_story():
     assert client.post("/api/control/clear", headers=ctl()).status_code == 200
     assert client.get("/api/scenes").json() == [] and data.loaded_package() is None
     assert not [e for e in data.events() if not e["id"].startswith("ev_")]
+
+
+def test_registering_restarts_the_clock_where_the_story_began():
+    client.post("/api/demo/reset")
+    client.put("/api/mission", json={"day": 152})
+    assert _register_two().status_code == 200
+    m = client.get("/api/mission").json()
+    assert m["day"] == -30 and client.get("/api/scenes").json() == []

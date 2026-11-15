@@ -1100,10 +1100,12 @@ def control_register(body: RegisterIn):
         registry.register(crew, {**body.mission.model_dump(), "rover": rover})
     except ValueError as e:
         raise HTTPException(400, str(e))
+    first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
     data.drop_package_story()  # the scenes and storms of a loaded package are about other people
     plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
-    mission.set_step(0)
+    if first:
+        mission.set_day(first[0]["day"])
     return control_overview()
 
 
