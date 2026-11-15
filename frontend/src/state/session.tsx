@@ -54,7 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [mission, setMission] = useState<Mission | null>(null)
   const [scenes, setScenes] = useState<Scene[]>([])
   // A remembered person without a session token is not signed in.
-  const [me, setMeState] = useState<string | null>(load('canary.viewer') ? load('canary.me') : null)
+  const [me, setMeState] = useState<string | null>(api.hasCrewSession() ? load('canary.me') : null)
   const [rev, setRev] = useState(0)
   const [emergency, setEmergencyRaw] = useState(false)
   const [emergencyPid, setEmergencyPid] = useState<string | null>(null)

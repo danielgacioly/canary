@@ -15,7 +15,7 @@ the app's tone. Its numbers (`faixas`, `referencia_populacao`) are not Canary's:
 
 | Guide | Canary | Kind |
 | --- | --- | --- |
-| `pa_sistolica` | `bp` | indicator |
+| `pa_sistolica` | `sbp` | indicator |
 | `pa_diastolica` | — | none |
 | `fc_repouso` | `hr` | indicator |
 | `temperatura` | `temp` | indicator |
@@ -42,4 +42,4 @@ the app's tone. Its numbers (`faixas`, `referencia_populacao`) are not Canary's:
 | `radiacao_30_dias` | — | none |
 
 Canary indicators the guide does not cover (no text yet): `react`, `stress`, `social`, `dsst`, `span`, `kss`, `tlx`,
-`water`. Write those from the test descriptions in `domain/selftests.py`, marked as the app's own text.
+`water`, `dbp`. Write those from the test descriptions in `domain/selftests.py`, marked as the app's own text.

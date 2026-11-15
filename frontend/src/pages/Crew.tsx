@@ -14,7 +14,7 @@ export default function Crew() {
   const { data, error } = useApi(() => api.overview(), [])
   const { data: plan } = useApi(() => api.plan(), [])
   const nav = useNavigate()
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
   if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
@@ -31,7 +31,7 @@ export default function Crew() {
         <div><h1>{headline}</h1></div>
       </div>
 
-      <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
+      <section data-tour="crew-home" className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
         <div className="orbit">
           {data.people.map((p, i) => (
             <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} aria-label={`Open ${p.name}'s space`}
@@ -48,7 +48,7 @@ export default function Crew() {
         </div>
       </section>
 
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+      <section data-tour="hazards" className="rise" style={{ ['--d' as string]: 2 }}>
         <div className="section-head">
           <h2>Hazards at {ms.place.name}</h2>
           <span className="sub">Tap one to see what it affects.</span>

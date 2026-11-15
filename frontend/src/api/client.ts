@@ -1,50 +1,69 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
-  AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  CheckinResult, ControlDemo, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
+  AlertEvent, AlertEvents, AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, OpenEmergency, GoalsResponse,
+  CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
-let medicalToken: string | null = sessionStorageGet('canary.med')
-// Mission Control (Canary Control) session: a separate token from a separate PIN.
-let controlToken: string | null = sessionStorageGet('canary.ctl')
-// Session token of whoever entered their private space on this terminal (from the 4-digit PIN sign-in).
-let viewerToken: string | null = sessionStorageGet('canary.viewer')
+/** One kind of sign-in per console: crew (a private space), medical (the medical console) or control (Canary Control). */
+export type Kind = 'crew' | 'medical' | 'control'
 
-function sessionStorageGet(k: string): string | null {
-  try { return sessionStorage.getItem(k) } catch { return null }
+// One token store, kept for this browser tab. Every call sends one `Authorization: Bearer` token: the one that fits the call.
+const STORE = 'canary.tokens'
+let tokens: Partial<Record<Kind, string>> = readTokens()
+
+function readTokens(): Partial<Record<Kind, string>> {
+  try { return JSON.parse(sessionStorage.getItem(STORE) ?? '{}') } catch { return {} }
 }
 
-function storeViewer(token: string | null) {
-  viewerToken = token
-  try { token === null ? sessionStorage.removeItem('canary.viewer') : sessionStorage.setItem('canary.viewer', token) } catch { /* private mode */ }
+function setToken(kind: Kind, token: string | null) {
+  const next = { ...tokens }
+  if (token === null) delete next[kind]; else next[kind] = token
+  tokens = next
+  try { Object.keys(next).length ? sessionStorage.setItem(STORE, JSON.stringify(next)) : sessionStorage.removeItem(STORE) } catch { /* private mode */ }
 }
 
-/** The token carries `{id}.{exp}.{sig}`. A 403 on your own space, or any 401/403 after expiry, means it no longer works. */
+/** Calls only one kind of sign-in can make, by path; everything else follows the screen the person is on. */
+function kindFor(path: string, method: string): Kind | null {
+  if (path.startsWith('/control') || path.startsWith('/demo/') || path.startsWith('/setup') || (method !== 'GET' && (path.startsWith('/plan') || path === '/mission'))) return 'control'
+  if (path.startsWith('/medical/')) return 'medical'
+  const here = typeof location === 'undefined' ? '' : location.pathname
+  if (here.startsWith('/control')) return 'control'
+  if (here.startsWith('/medical') || (here.startsWith('/crew/') && tokens.medical)) return 'medical'
+  return null
+}
+
+/** The token a call carries: the kind it needs, else the crew sign-in, else the medical one (the crew pages a medical person reads). */
+function pick(path: string, method: string, as?: Kind): { kind: Kind; token: string } | null {
+  const want = as ?? kindFor(path, method)
+  const kind = want ?? (tokens.crew ? 'crew' : tokens.medical ? 'medical' : tokens.control ? 'control' : null)
+  const token = kind ? tokens[kind] : undefined
+  return kind && token ? { kind, token } : null
+}
+
+/** The token carries `{kind}.{id}.{roles}.{exp}.{jti}.{sig}`. A 403 on your own space, or any 401/403 after expiry, means it no longer works. */
 function sessionLost(path: string, status: number, token: string): boolean {
-  const [id, exp] = token.split('.')
+  const [, id, , exp] = token.split('.')
   if (Number(exp) * 1000 < Date.now()) return true
   const otherPerson = /^\/crew\/([a-z]+)$/.exec(path)
   return status === 403 && !(otherPerson && otherPerson[1] !== id)
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+async function req<T>(path: string, init?: RequestInit & { as?: Kind }): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (medicalToken) headers.Authorization = `Bearer ${medicalToken}`
-  if (controlToken) headers['X-Canary-Control'] = controlToken
-  const sent = viewerToken
-  if (sent) headers['X-Canary-Viewer'] = sent
+  const sent = pick(path, init?.method ?? 'GET', init?.as)
+  if (sent) headers.Authorization = `Bearer ${sent.token}`
   if (init?.body instanceof FormData) delete headers['Content-Type']
   let r: Response
   try {
     r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
   } catch {
-    throw new ApiError(0, 'Cannot reach the Canary server. Check the connection and try again.')
+    throw new ApiError(0, 'Canary is not reachable. Check the connection to the ship\'s server.')
   }
   if (!r.ok) {
     let detail: unknown = r.statusText
     try { detail = (await r.json()).detail ?? detail } catch { /* not json */ }
-    if (sent && sent === viewerToken && (r.status === 401 || r.status === 403) && !/\/(session|pin)$/.test(path) && sessionLost(path, r.status, sent)) {
-      storeViewer(null)
+    if (sent?.kind === 'crew' && sent.token === tokens.crew && (r.status === 401 || r.status === 403) && !/\/(session|pin)$/.test(path) && sessionLost(path, r.status, sent.token)) {
+      setToken('crew', null)
       window.dispatchEvent(new Event('canary:locked'))
     }
     const issues = issuesOf(detail)
@@ -79,6 +98,14 @@ export function errorText(e: unknown): string {
   return e instanceof Error && e.message ? e.message : 'Something went wrong. Try again.'
 }
 
+/** Ask the server to revoke a token (POST /api/session/logout). Best effort: the token is dropped here either way. */
+function endSession(kind: Kind) {
+  const token = tokens[kind]
+  if (!token) return
+  fetch('/api/session/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined)
+  setToken(kind, null)
+}
+
 const body = (b: unknown) => ({ body: JSON.stringify(b) })
 
 export const api = {
@@ -89,6 +116,10 @@ export const api = {
   setLocation: (location: string | null) =>
     req<Mission>('/mission', { method: 'PUT', ...body(location ? { location } : { clear_location: true }) }),
   reset: () => req<Mission>('/demo/reset', { method: 'POST' }),
+  /** Demo only, no sign-in: wipe to nothing registered (the tour registers from the start). */
+  demoStartEmpty: () => req<{ registered: boolean }>('/demo/start-empty', { method: 'POST' }),
+  /** Demo only, no sign-in, only while nothing is registered: load the demo mission (skipping the intro). */
+  demoQuickstart: () => req<{ registered: boolean }>('/demo/quickstart', { method: 'POST' }),
   setDay: (day: number | null) => req<Mission>('/mission', { method: 'PUT', ...body(day === null ? { clear_day: true } : { day }) }),
   plan: () => req<Plan>('/plan'),
   conditions: () => req<PlanConditions>('/plan/conditions'),
@@ -98,13 +129,13 @@ export const api = {
   /** Sign in to a private space with the 4-digit PIN. Stores the session token and returns it. */
   crewSignIn: async (id: string, pin: string) => {
     const r = await req<{ token: string; expires_at: number; crew_id: string }>(`/crew/${id}/session`, { method: 'POST', ...body({ pin }) })
-    storeViewer(r.token)
+    setToken('crew', r.token)
     return r.token
   },
-  crewSignOut: () => storeViewer(null),
+  crewSignOut: () => endSession('crew'),
+  hasCrewSession: () => tokens.crew !== undefined,
   changePin: (id: string, current: string, next: string) =>
     req<{ changed: boolean }>(`/crew/${id}/pin`, { method: 'PUT', ...body({ current, new: next }) }),
-  setup: (name: string, legs: Leg[]) => req<Mission>('/setup', { method: 'POST', ...body({ name, legs }) }),
   crew: () => req<CrewList>('/crew'),
   overview: () => req<CrewOverview>('/crew/overview'),
   photos: () => req<Record<string, string>>('/crew/photos'),
@@ -114,8 +145,8 @@ export const api = {
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
-  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>, photo?: string) =>
-    req<CheckinResult>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload, ...(photo ? { photo } : {}) }) }),
+  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>, photo?: string, origin?: 'sample') =>
+    req<CheckinResult>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload, ...(photo ? { photo } : {}), ...(origin ? { origin } : {}) }) }),
   /** The photo of the display kept with a vitals check-in: the person and the medical team only. */
   checkinPhoto: (crew_id: string, id: number) => req<{ data_url: string }>(`/checkins/${crew_id}/${id}/photo`),
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
@@ -128,11 +159,14 @@ export const api = {
   protocolLibrary: () => req<ProtocolLibrary>('/protocols/library'),
   matchProtocol: (text: string) => req<ProtocolMatch>('/protocols/match', { method: 'POST', ...body({ text }) }),
   startEmergency: (responder: string | null) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder }) }),
-  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean }) =>
+  emergenciesOpen: () => req<OpenEmergency[]>('/emergencies/open'),
+  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean; escalate?: boolean }) =>
     req<Emergency>(`/emergencies/${id}`, { method: 'POST', ...body(e) }),
 
   messages: (crew_id?: string) => req<Message[]>(`/messages${crew_id ? `?crew_id=${crew_id}` : ''}`),
-  send: (sender: string, recipient: string, text: string) => req<Message[]>('/messages', { method: 'POST', ...body({ sender, recipient, text }) }),
+  /** The sender is whoever is signed in. `as` sends only that console's token, so the message is from that person. */
+  send: (as: Kind, recipient: string, text: string) => req<Message[]>('/messages', { method: 'POST', as, ...body({ recipient, text }) }),
+  accountsPublic: () => req<PublicAccounts>('/accounts/public'),
 
   spaceWeather: () => req<SpaceWeather>('/space-weather'),
   rad: () => req<Rad>('/nasa/rad'),
@@ -144,29 +178,26 @@ export const api = {
   approveBriefing: (id: number) => req<Briefing>(`/briefings/${id}/approve`, { method: 'POST' }),
   briefings: (crew_id: string) => req<Briefing[]>(`/briefings/${crew_id}`),
 
-  medicalSignIn: async (pin: string) => {
-    const r = await req<{ token: string }>('/medical/session', { method: 'POST', ...body({ pin }) })
-    medicalToken = r.token
-    try { sessionStorage.setItem('canary.med', r.token) } catch { /* private mode */ }
+  medicalSignIn: async (account_id: string, pin: string) => {
+    const r = await req<{ token: string }>('/medical/session', { method: 'POST', ...body({ account_id, pin }) })
+    setToken('medical', r.token)
     return true
   },
-  medicalSignOut: () => {
-    medicalToken = null
-    try { sessionStorage.removeItem('canary.med') } catch { /* private mode */ }
-  },
-  isMedical: () => medicalToken !== null,
+  medicalSignOut: () => endSession('medical'),
+  isMedical: () => tokens.medical !== undefined,
 
   missionOverview: () => req<MissionOverview>('/mission/overview'),
-  controlSignIn: async (pin: string) => {
-    const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body({ pin }) })
-    controlToken = r.token
-    try { sessionStorage.setItem('canary.ctl', r.token) } catch { /* private mode */ }
+  /** An MCC account and its PIN; without `account_id`, the first-access PIN (only until an MCC account is registered). */
+  controlSignIn: async (pin: string, account_id?: string) => {
+    const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body(account_id ? { account_id, pin } : { pin }) })
+    setToken('control', r.token)
   },
-  controlSignOut: () => { controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
-  isControl: () => controlToken !== null,
+  controlSignOut: () => endSession('control'),
+  isControl: () => tokens.control !== undefined,
   controlOverview: () => req<ControlOverview>('/control/overview'),
   controlDemo: () => req<ControlDemo>('/control/demo'),
-  controlRegister: (crew: SeatForm[], mission: MissionForm) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission }) }),
+  controlOptions: () => req<RegisterOptions>('/control/register-options'),
+  controlRegister: (crew: SeatForm[], mission: MissionForm, ground: GroundForm[]) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission, ground }) }),
   controlDataStatus: () => req<DataStatus>('/control/data-status'),
   controlSpaceEvents: () => req<{ events: SpaceEvent[] }>('/control/space-events'),
   controlAddSpaceEvent: (e: NewSpaceEvent) => req<SpaceEvent>('/control/space-events', { method: 'POST', ...body(e) }),
@@ -180,12 +211,16 @@ export const api = {
     // req leaves the Content-Type out for a FormData body: the browser adds the multipart boundary
     return req<ImportResult>('/control/import', { method: 'POST', body: form, })
   },
-  controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
   controlDemoData: () => req<ControlOverview>('/control/demo-data', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),
   medGoals: () => req<MedGoal[]>('/medical/goals'),
   addMedGoal: (g: { who: string; area: string; title: string; why: string; days: number }) =>
     req<MedGoal[]>('/medical/goals', { method: 'POST', ...body(g) }),
-  delMedGoal: (id: number) => req<MedGoal[]>(`/medical/goals/${id}`, { method: 'DELETE' }),
+  /** Health records are never deleted: this voids the goal, and the server refuses it without a reason. */
+  delMedGoal: (id: number, reason: string) => req<MedGoal[]>(`/medical/goals/${id}`, { method: 'DELETE', ...body({ reason }) }),
+  /** Stored alert events: all of them for the medical console, ids and levels only for Canary Control. */
+  alertEvents: (openOnly = true) => req<AlertEvents>(`/alerts/events?open_only=${openOnly}`),
+  /** The crew medical officer or a flight surgeon acknowledges an alert event (stops its escalation). */
+  ackAlert: (id: number) => req<AlertEvent>(`/alerts/events/${id}/ack`, { method: 'POST' }),
 }

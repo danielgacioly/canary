@@ -13,8 +13,11 @@ from typing import Any, Dict, List, Optional
 PLACEHOLDER = "<volatile>"
 CREW_IDS = ("h", "k", "a", "t")
 PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
-MEDICAL_PIN = "1961"
-CONTROL_PIN = "4242"
+MEDICAL_ACCOUNT = "k"      # Kenji Mori, the crew medical officer (his crew PIN is his medical PIN)
+MEDICAL_PIN = "1002"
+FLIGHT_SURGEON = ("g-fs1", "1961")
+CONTROL_ACCOUNT = "g-mcc1"
+CONTROL_PIN = "4242"       # the MCC account's PIN, and the demo bootstrap PIN
 SCENES = 6
 
 # Keys whose values change on every run (wall clock, random per start). Found by capturing twice and diffing.
@@ -26,7 +29,9 @@ VOLATILE_KEYS = {"created_at", "sent_at", "deliver_at", "fetched_at", "at", "upd
 NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", "estimated_days",
               "no_data", "learning", "max_age", "baseline_need",
               "personal_ids", "patches", "what",
-              "protocol"}  # the crew warnings name the Protocols page they belong to  # phase 4: a system or a person with no data yet; an indicator still learning its normal
+              "protocol",
+              # phase "accounts and roles": roles, ground accounts, the dose waiver and the operating mode
+              "cmo", "ground", "dose_waiver", "waiver", "career", "mission_dose_msv", "career_limit_msv", "mode", "counts", "in_transit"}  # the crew warnings name the Protocols page they belong to  # phase 4: a system or a person with no data yet; an indicator still learning its normal
 
 
 def new_client(db_path: Optional[str] = None):
@@ -55,24 +60,40 @@ def go_to_scene(client, i: int) -> dict:
     PHASE 3 WILL CHANGE THIS: scenes will come from a loaded mission package and a simulated mission date, so this
     helper (and only this one) will set the simulated date of scene i instead. Everything else in this module and in
     test_golden.py must keep working unchanged."""
-    r = client.put("/api/mission", json={"step": i})
+    r = client.put("/api/mission", json={"step": i}, headers=control_headers(client))
     assert r.status_code == 200, r.text
     return r.json()
 
 
-def _token(client, path: str, pin: str) -> str:
-    r = client.post(path, json={"pin": pin})
+def _token(client, path: str, pin: str, **extra) -> str:
+    r = client.post(path, json={"pin": pin, **extra})
     assert r.status_code == 200, (path, r.text)
     return r.json()["token"]
 
 
+def medical_token(client, account_id: str = MEDICAL_ACCOUNT, pin: Optional[str] = None) -> str:
+    """The medical console's token: Kenji (the crew medical officer, PIN 1002) or the flight surgeon g-fs1 (PIN 1961)."""
+    pin = pin or {MEDICAL_ACCOUNT: MEDICAL_PIN, FLIGHT_SURGEON[0]: FLIGHT_SURGEON[1]}[account_id]
+    return _token(client, "/api/medical/session", pin, account_id=account_id)
+
+
+def medical_headers(client, account_id: str = MEDICAL_ACCOUNT) -> dict:
+    return {"Authorization": "Bearer " + medical_token(client, account_id)}
+
+
 def control_headers(client) -> dict:
-    """The Canary Control sign-in header. It stays valid across a reset: the Control PIN comes from the settings, not the database."""
-    return {"X-Canary-Control": _token(client, "/api/control/session", CONTROL_PIN)}
+    """The Canary Control sign-in header: the demo MCC account when it exists, else (nothing registered yet) the bootstrap PIN."""
+    r = client.post("/api/control/session", json={"account_id": CONTROL_ACCOUNT, "pin": CONTROL_PIN})
+    if r.status_code != 200:
+        r = client.post("/api/control/session", json={"pin": CONTROL_PIN})
+    assert r.status_code == 200, r.text
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def reset_demo(client):
-    """POST /api/demo/reset, which wipes the database and so needs the Canary Control sign-in."""
+    """POST /api/demo/reset, which wipes the database and so needs the Canary Control sign-in. Wrong-PIN pauses are forgiven first."""
+    from canary import auth
+    auth.clear_failures()
     return client.post("/api/demo/reset", headers=control_headers(client))
 
 
@@ -87,6 +108,8 @@ def _get(client, path: str, headers: Optional[dict] = None) -> Any:
 PUBLIC_PATHS = ("/api/catalog", "/api/mission", "/api/mission/overview", "/api/crew/overview", "/api/leaderboard",
                 "/api/space-weather", "/api/nasa/rad", "/api/nasa/sources", "/api/plan", "/api/plan/conditions",
                 "/api/protocols", "/api/emergencies")
+# Of the public paths, the ones that now need someone signed in (the capture asks as Helena; the golden keys stay the same).
+SIGNED_IN_PATHS = ("/api/emergencies", "/api/mission/overview")
 CREW_PATHS = ("/api/crew/{c}", "/api/crew/{c}/record", "/api/goals/{c}", "/api/advice/{c}", "/api/checkins/{c}",
               "/api/suggestions/{c}", "/api/messages?crew_id={c}")  # each with the person's own token
 MEDICAL_PATHS = ("/api/crew", "/api/medical/overview", "/api/medical/goals", "/api/medical/care-sensitivity",
@@ -99,12 +122,12 @@ def capture_scene(client) -> Dict[str, Any]:
     """Every GET the frontend makes for the crew (My space, Crew, Mission plan, Ranking), the medical console and
     Canary Control, for the scene the app is in now. Assistant/LLM endpoints and photos are skipped."""
     out = {}  # type: Dict[str, Any]
-    crew_h = {c: {"X-Canary-Viewer": _token(client, f"/api/crew/{c}/session", PINS[c])} for c in CREW_IDS}
-    med = {"Authorization": "Bearer " + _token(client, "/api/medical/session", MEDICAL_PIN)}
-    ctl = {"X-Canary-Control": _token(client, "/api/control/session", CONTROL_PIN)}
+    crew_h = {c: {"Authorization": "Bearer " + _token(client, f"/api/crew/{c}/session", PINS[c])} for c in CREW_IDS}
+    med = medical_headers(client)
+    ctl = control_headers(client)
 
     for p in PUBLIC_PATHS:
-        out[p] = _get(client, p)
+        out[p] = _get(client, p, crew_h["h"] if p in SIGNED_IN_PATHS else None)
     for c in CREW_IDS:
         for t in CREW_PATHS:
             p = t.format(c=c)

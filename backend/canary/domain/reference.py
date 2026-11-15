@@ -30,10 +30,14 @@ POPULATION: Dict[str, dict] = {
     "hr": {"low": 40, "high": 100, "critical_low": 30, "critical_high": 150,
            "source": "MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption",
            "checked": [f"high 100 bpm: {MEDLINE_VITALS}"], "verified": False},
-    "bp": {"low": 90, "high": 129, "critical_low": 70, "critical_high": 180,
-           "source": "Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. "
-                     "MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption",
-           "checked": [f"130 = stage 1 hypertension, above 180 = severe: {AHA_BP}", f"low 90: {MEDLINE_VITALS}"], "verified": False},
+    "sbp": {"low": 90, "high": 129, "critical_low": 70, "critical_high": 180,
+            "source": "Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. "
+                      "MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption",
+            "checked": [f"130 = stage 1 hypertension, above 180 = severe: {AHA_BP}", f"low 90: {MEDLINE_VITALS}"], "verified": False},
+    "dbp": {"low": 60, "high": 79, "critical_low": 40, "critical_high": 120,
+            "source": "Diastolic pressure. AHA: normal below 80, stage 1 hypertension 80 to 89, stage 2 from 90, hypertensive crisis above 120. "
+                      "MedlinePlus: 60 as the lower edge of 90/60 for a healthy adult. Critical low 40: prototype assumption",
+            "checked": [f"80 = stage 1 hypertension, above 120 = crisis: {AHA_BP}", f"low 60: {MEDLINE_VITALS}"], "verified": False},
     "spo2": {"low": 95, "high": 100, "critical_low": 89, "critical_high": None,
              "source": "MedlinePlus: normal 95 to 100%; contact your provider at 92% or lower; 88% or lower needs immediate medical attention (critical below 89)",
              "checked": [f"95 to 100, 92 and 88: {MEDLINE_OXIMETRY}"], "verified": True},

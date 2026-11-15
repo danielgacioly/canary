@@ -60,7 +60,7 @@ def test_crew_matches_registry():
 
 
 def test_mars_observations_equal_engine_file():
-    pkg = [key(r) for r in read("odyssey1-mars", "observations.csv") if r["indicator"] != "dose_rate"]
+    pkg = [key(r) for r in read("odyssey1-mars", "observations.csv") if r["indicator"] not in ("dose_rate", "dose_eq_rate")]
     engine = [key(r) for r in simdata.read_csv(simdata.OBS_FILE)]
     assert pkg == engine
     row = read("odyssey1-mars", "observations.csv")[0]
@@ -73,33 +73,36 @@ def test_observations_match_generator(pkg, preset):
         return
     legs = plan.preset_legs(preset)
     engine = [(r[0], str(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8]) for r in simdata.Generator(legs).observations()]
-    got = [tuple(str(x) for x in key(r)) for r in read(pkg, "observations.csv") if r["indicator"] != "dose_rate"]
+    got = [tuple(str(x) for x in key(r)) for r in read(pkg, "observations.csv") if r["indicator"] not in ("dose_rate", "dose_eq_rate")]
     assert got == [tuple(str(x) if i != 1 else str(x) for i, x in enumerate(e)) for e in engine]
 
 
 @pytest.mark.parametrize("pkg,preset", gd.PACKAGES)
 def test_dose_rate_rows(pkg, preset):
     legs = plan.preset_legs(preset)
-    rows = [r for r in read(pkg, "observations.csv") if r["indicator"] == "dose_rate"]
-    assert [int(r["day"]) for r in rows] == list(range(0, max(l["end"] for l in legs) + 1))
-    for r in rows:
-        assert (r["crew_id"], r["unit"], r["origin"], r["method"], r["source"]) == ("cabin", "mSv/day", "simulated", "dosimeter", "mock:dosimeter")
-        day, loc = int(r["day"]), simdata.location_at(legs, int(r["day"]))
-        # the storm's extra dose is inside the reading of the day the storm starts, when it hits the place
-        extra = sum(float(e[5]) for e in gd.SPACE_EVENTS if e[2] == day and loc in e[4].split(";"))
-        assert float(r["value"]) == pytest.approx(catalog.LOCATIONS[loc]["dose_rate"] + extra)
+    for ind, unit in (("dose_eq_rate", "mSv/day"), ("dose_rate", "mGy/day")):
+        rows = [r for r in read(pkg, "observations.csv") if r["indicator"] == ind]
+        assert [int(r["day"]) for r in rows] == list(range(0, max(l["end"] for l in legs) + 1))
+        for r in rows:
+            assert (r["crew_id"], r["unit"], r["origin"], r["method"], r["source"]) == ("cabin", unit, "simulated", "dosimeter", "mock:dosimeter")
+            day, loc = int(r["day"]), simdata.location_at(legs, int(r["day"]))
+            # the storm's extra dose is inside the reading of the day the storm starts, when it hits the place
+            extra = sum(float(e[5]) for e in gd.SPACE_EVENTS if e[2] == day and loc in e[4].split(";"))
+            eq = catalog.LOCATIONS[loc]["dose_rate"] + extra
+            assert float(r["value"]) == pytest.approx(eq if ind == "dose_eq_rate" else eq / 2.0, rel=1e-3)
 
 
 def test_the_storm_is_in_the_cabin_dosimeter_of_its_start_day():
-    rate = {int(r["day"]): float(r["value"]) for r in read("odyssey1-mars", "observations.csv") if r["indicator"] == "dose_rate"}
+    rate = {int(r["day"]): float(r["value"]) for r in read("odyssey1-mars", "observations.csv") if r["indicator"] == "dose_eq_rate"}
     assert rate[152] == pytest.approx(1.8 + 22) and rate[151] == 1.8 and rate[153] == 1.8
-    assert rate[222] == catalog.LOCATIONS["mars"]["dose_rate"]  # the Mars storm adds no dose
+    assert rate[222] == pytest.approx(catalog.LOCATIONS["mars"]["dose_rate"] + 2)  # the Mars storm adds a simulated 2 mSv
 
 
 def test_space_events():
     ev = {r["id"]: r for r in read("odyssey1-mars", "space_events.csv")}
-    assert (ev["replay-2024-05-10-sep"]["start_day"], ev["replay-2024-05-10-sep"]["locations"], ev["replay-2024-05-10-sep"]["extra_dose_msv"], ev["replay-2024-05-10-sep"]["source"]) == ("152", "transit;moon", "22", "nasa:donki")
-    assert (ev["replay-2024-05-20-rad"]["start_day"], ev["replay-2024-05-20-rad"]["locations"], ev["replay-2024-05-20-rad"]["extra_dose_msv"], ev["replay-2024-05-20-rad"]["source"]) == ("222", "mars", "0", "nasa:rad")
+    a, b = ev["replay-2024-05-10-sep"], ev["replay-2024-05-20-rad"]
+    assert (a["start_day"], a["locations"], a["extra_dose_msv"], a["origin"], a["source"]) == ("152", "transit;moon", "22", "simulated", "simulated")
+    assert (b["start_day"], b["locations"], b["extra_dose_msv"], b["origin"], b["source"]) == ("222", "mars", "2", "simulated", "simulated")
 
 
 def minutes(t):

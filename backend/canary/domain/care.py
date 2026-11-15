@@ -15,11 +15,12 @@ import time
 from typing import List, Optional
 
 from .. import db
+from . import assumptions as A
 from . import protocols
 
 LEVEL = {"full": 0, "limited": 1, "rest": 2}
 # Prototype assumption: no published rule says how much tighter a recovering patient should be watched.
-SENSITIVITY = {"factor": 0.8, "source": "prototype assumption", "verified": False}
+SENSITIVITY = {"factor": A.value("care.sensitivity_factor"), "source": "prototype assumption", "verified": False}
 FACTOR_RANGE = (0.5, 1.0)
 
 

@@ -12,6 +12,7 @@ from canary.config import settings  # noqa: E402
 from canary.domain import protocol_match, protocols  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 
 client = TestClient(app)
 
@@ -74,7 +75,7 @@ def test_triage_is_never_suggested():
 
 
 def test_endpoint_returns_matches_with_the_words():
-    r = client.post("/api/protocols/match", json={"text": "he is shaking and not responding"})
+    r = client.post("/api/protocols/match", json={"text": "he is shaking and not responding"}, headers=crew_headers(client, "h"))
     assert r.status_code == 200
     b = r.json()
     assert b["mode"] == "rules" and b["provider"] == "none" and b["matches"][0]["id"] == "seizure" and b["fallback"] is None
@@ -82,12 +83,12 @@ def test_endpoint_returns_matches_with_the_words():
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t"])
 def test_empty_input_is_422(text):
-    assert client.post("/api/protocols/match", json={"text": text}).status_code == 422
+    assert client.post("/api/protocols/match", json={"text": text}, headers=crew_headers(client, "h")).status_code == 422
 
 
 def test_missing_or_huge_text_is_422():
-    assert client.post("/api/protocols/match", json={}).status_code == 422
-    assert client.post("/api/protocols/match", json={"text": "a" * 501}).status_code == 422
+    assert client.post("/api/protocols/match", json={}, headers=crew_headers(client, "h")).status_code == 422
+    assert client.post("/api/protocols/match", json={"text": "a" * 501}, headers=crew_headers(client, "h")).status_code == 422
 
 
 def test_the_ai_slot_can_only_reorder_known_protocols(monkeypatch):
@@ -117,7 +118,7 @@ def test_every_emergency_protocol_has_keywords():
 # ---------------------------------------------------------------- the Protocols page
 def lib(step=None):
     if step is not None:
-        client.put("/api/mission", json={"step": step})
+        client.put("/api/mission", json={"step": step}, headers=control_headers(client))
     return client.get("/api/protocols/library").json()
 
 
@@ -149,12 +150,12 @@ def test_launch_puts_space_sickness_in_force():
 
 
 def test_care_window_is_for_the_medical_team_only_and_never_names_anyone():
-    client.put("/api/mission", json={"step": 4})
+    client.put("/api/mission", json={"step": 4}, headers=control_headers(client))
     tok = client.post("/api/crew/t/session", json={"pin": "1004"}).json()["token"]
-    em = client.post("/api/emergencies", json={}).json()
-    client.post(f"/api/emergencies/{em['id']}", json={"close": True, "outcome": "stable", "patient": "t", "protocol": "seizure"})
-    med = {"Authorization": "Bearer " + client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]}
-    crew = client.get("/api/protocols/library", headers={"X-Canary-Viewer": tok}).json()
+    em = client.post("/api/emergencies", json={}, headers=crew_headers(client, "h")).json()
+    client.post(f"/api/emergencies/{em['id']}", json={"close": True, "outcome": "stable", "patient": "t", "protocol": "seizure"}, headers=crew_headers(client, "h"))
+    med = medical_headers(client)
+    crew = client.get("/api/protocols/library", headers={"Authorization": "Bearer " + tok}).json()
     anon = client.get("/api/protocols/library").json()
     doc = client.get("/api/protocols/library", headers=med).json()
     assert "care" not in {i["id"] for i in anon["in_force"]} and "care" not in {i["id"] for i in crew["in_force"]}
@@ -166,6 +167,6 @@ def test_care_window_is_for_the_medical_team_only_and_never_names_anyone():
 
 
 def test_crew_overview_warnings_point_to_the_protocol():
-    client.put("/api/mission", json={"step": 3})
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     w = client.get("/api/crew/overview").json()["warnings"]
     assert w and w[0]["protocol"] == "rad"

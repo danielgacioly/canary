@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
+import type { AlertEvent, Briefing, MedGoal, MedicalOverview } from '../api/types'
 import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Icon, Status, Tabs } from '../components/ui'
@@ -47,11 +47,31 @@ export default function Medical() {
   )
 }
 
+const DEMO_MEDICAL_PINS: Record<string, string> = { k: '1002', 'g-fs1': '1961' }
+
+/** Pick the account (the crew medical officer or a ground flight surgeon), then its PIN. */
 function PinGate({ onOk }: { onOk: () => void }) {
+  const { catalog } = useSession()
+  const { data: accounts, error } = useApi(() => api.accountsPublic(), [])
+  const [who, setWho] = useState<string | null>(null)
+  const options = [...(accounts?.crew.filter(c => c.cmo).map(c => ({ id: c.id, name: c.name, role: 'Crew medical officer' })) ?? []),
+    ...(accounts?.ground.filter(g => g.role === 'flight_surgeon').map(g => ({ id: g.id, name: g.name, role: 'Flight surgeon' })) ?? [])]
+  const person = options.find(o => o.id === who)
   return (
     <div className="page med-gate">
-      <PinPad title="Medical console" subtitle="For the medical team. Enter your 4-digit PIN." hint="Demo PIN: 1961"
-        onSubmit={async pin => { await api.medicalSignIn(pin); onOk() }} />
+      {!person && (
+        <div className="col" style={{ gap: 12, alignItems: 'center' }}>
+          <h1>Medical console</h1>
+          <p className="muted">Sign in with your own account.</p>
+          {error && <p className="err">{error}</p>}
+          {accounts && !options.length && <p className="muted">No medical account is registered yet. Canary Control registers them.</p>}
+          {options.map(o => <button key={o.id} className="btn" onClick={() => setWho(o.id)}><b>{o.name}</b> <span className="muted">{o.role}</span></button>)}
+        </div>
+      )}
+      {person && (
+        <PinPad title={person.name} subtitle="Enter your 4-digit PIN" hint={catalog?.mode === 'demo' && DEMO_MEDICAL_PINS[person.id] ? `Demo PIN: ${DEMO_MEDICAL_PINS[person.id]}` : undefined} onCancel={() => setWho(null)}
+          onSubmit={async pin => { await api.medicalSignIn(person.id, pin); onOk() }} />
+      )}
     </div>
   )
 }
@@ -70,6 +90,37 @@ function redRisks(c: Person) {
   return { text: red.length === 1 ? red[0].name : `${red.length} NASA red risks`, title: red.map(r => r.name).join(', '), level: Math.max(...red.map(r => r.level)) }
 }
 
+/** Open alert events with who acknowledged them. The officer on board or a flight surgeon acknowledges; that stops the escalation. */
+function OpenAlerts() {
+  const { rev, bump } = useSession()
+  const [events, setEvents] = useState<AlertEvent[] | null>(null)
+  const ack = useAction('inline')
+  useEffect(() => {
+    const load = () => api.alertEvents(true).then(r => setEvents(r.events)).catch(() => setEvents([]))
+    load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [rev])
+  if (!events?.length) return null
+  return (
+    <section>
+      <div className="section-head"><h2>Open alerts</h2><span className="sub">A critical alert nobody acknowledges goes to the commander, then to the flight surgeon.</span></div>
+      <ul className="plain">
+        {events.map(e => (
+          <li key={e.id} className="row wrap" style={{ gap: 10 }}>
+            <span className={`alert-line s${e.level}`}><span className="dot" /><b>{e.name}</b></span>
+            <span className="grow">{e.title ?? e.key}</span>
+            <span className="small muted num">level {e.level} · since day {e.opened_day}</span>
+            <span className="small muted">{e.acknowledged ? `Acknowledged by ${(e.acknowledged_by_names ?? e.acknowledged_by).join(', ')}` : e.escalation_stage ? `Not acknowledged, escalated (step ${e.escalation_stage})` : 'Not acknowledged'}</span>
+            {!e.acknowledged && <button className="btn sm" disabled={ack.busy} onClick={() => ack.run(async () => { await api.ackAlert(e.id); bump() })}>Acknowledge</button>}
+          </li>
+        ))}
+      </ul>
+      <ActionError error={ack.error} />
+    </section>
+  )
+}
+
 function Triage({ ov }: { ov: MedicalOverview }) {
   const today = useSession().mission?.day ?? 0
   const first = (c: Person) => c.name.split(' ')[0]
@@ -79,6 +130,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
   const unread = Object.keys(ov.crew[0].indicators).filter(k => !anyReading(k))
   return (
     <>
+      <OpenAlerts />
       <section>
         <ul className="triage">
           {ov.crew.map(c => {
@@ -103,19 +155,6 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           })}
         </ul>
       </section>
-      {ov.notices.length > 0 && (
-        <details className="how notices">
-          <summary>Critical alerts sent · {ov.notices.length}</summary>
-          <p className="small dim">Once per episode, to the medical officer or the substitute.</p>
-          <ul className="plain">
-            {ov.notices.map(n => (
-              <li key={`${n.crew_id}${n.alert_id}${n.since_day}`} className="small">
-                <b>{n.name}</b> · {n.title} <span className="muted num">sent day {n.day} to {n.to_name}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
       <section>
         <div className="section-head"><h2>Every indicator, every person</h2><span className="sub">value and deviation (σ) from their own normal</span></div>
         <div className="scroll"><table className="t ind-table">
@@ -230,7 +269,11 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
       <section><div className="section-head"><h2>Active prescriptions</h2></div>
         <div className="col">{(goals ?? []).map((g: MedGoal) => (
           <div key={g.id} className="goal"><div className="grow"><b>{g.title}</b><div className="small dim">{g.who === 'all' ? 'Whole crew' : ov.crew.find(c => c.id === g.who)?.name} · day {g.from_day} to {g.to_day} · {g.area}</div></div>
-            <button className="btn sm" disabled={remove.busy} onClick={() => remove.run(async () => { setData(await api.delMedGoal(g.id)); bump() })}>Remove</button></div>))}
+            <button className="btn sm" disabled={remove.busy} onClick={() => remove.run(async () => {
+              const reason = window.prompt('Why is this goal being removed? It stays in the record, marked as voided.')?.trim()
+              if (!reason) return
+              setData(await api.delMedGoal(g.id, reason)); bump()
+            })}>Remove</button></div>))}
           <ActionError error={remove.error} />
           {!goals?.length && <p className="muted">None. Guided Response adds follow-up care here automatically.</p>}</div>
       </section>
@@ -243,11 +286,16 @@ function Messages() {
   const party = usePartyName()
   const { data } = useApi(() => api.messages(), [])
   const [, tick] = useState(0)
+  useEffect(() => {  // the signal arrived: fetch the text (at most every 2 s, in case the clocks differ)
+    if (!data?.some(m => m.in_transit && m.deliver_at <= Date.now() / 1000)) return
+    const t = setTimeout(bump, 2000)
+    return () => clearTimeout(t)
+  }, [data, bump])
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   const form = useForm({
     initial: { to: 'crew', text: '' },
     validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
-    submit: async f => { await api.send(f.to === 'mission-control' ? 'ship medical team' : 'flight surgeon', f.to, f.text.trim()); form.reset({ to: f.to, text: '' }); bump() },
+    submit: async f => { await api.send('medical', f.to, f.text.trim()); form.reset({ to: f.to, text: '' }); bump() },
   })
   return (
     <div className="grid g2">
@@ -259,7 +307,7 @@ function Messages() {
         <Field form={form} name="text" label="Message" as="textarea" rows={4} hint={`${String(form.values.text).length} of 1000 characters`} />
         <FormError form={form} />
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
-        <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
+        <span className="small dim">Sent as the account signed in to this console{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
       </form>
       <section><div className="section-head"><h2>Sent and received</h2></div>
         <ul className="plain link-log">{(data ?? []).map(m => {
@@ -267,7 +315,7 @@ function Messages() {
           return (
             <li key={m.id} className="small">
               <span className={`dot s${eta ? 1 : 0}`} />
-              <div className="grow"><b>{party(m.sender)} → {party(m.recipient)}</b>{MESSAGE_KIND[m.kind] && <span className="dim"> · {MESSAGE_KIND[m.kind]}</span>}<div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
+              <div className="grow"><b>{party(m.sender)} → {party(m.recipient)}</b>{MESSAGE_KIND[m.kind] && <span className="dim"> · {MESSAGE_KIND[m.kind]}</span>}<div className="muted msg-text">{m.in_transit ? 'In transit' : m.text.slice(0, 220)}</div></div>
               <span className="num dim">{eta ? `in ${eta}s` : 'Delivered'}</span>
             </li>)
         })}</ul>

@@ -19,6 +19,7 @@ from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, health, mission, plan, registry, risk, telemetry  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, add_ground, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 from tests import golden_capture as gc  # noqa: E402
 
 client = TestClient(app)
@@ -28,6 +29,8 @@ def reset(monkeypatch, package):
     monkeypatch.setattr(settings, "mission_package", package)
     monkeypatch.setattr(settings, "live_space_weather", False)
     assert reset_demo(client).status_code == 200
+    if not package:
+        add_ground()  # nothing registered, but the ground accounts exist so the consoles have someone to sign in
 
 
 def reset_crew(monkeypatch):
@@ -35,7 +38,7 @@ def reset_crew(monkeypatch):
     reset(monkeypatch, "")
     assert catalog.CREW == []
     form = data.demo_form()
-    r = client.post("/api/control/register", headers=tokens()[2], json={"crew": form["crew"], "mission": form["mission"]})
+    r = client.post("/api/control/register", headers=tokens()[2], json={"crew": form["crew"], "mission": form["mission"], "ground": form["ground"]})
     assert r.status_code == 200, r.text
     assert [c["id"] for c in catalog.CREW] == list(gc.CREW_IDS)
 
@@ -49,7 +52,7 @@ def restore(monkeypatch):
 
 
 def day(d):
-    return client.put("/api/mission", json={"day": d}).json()
+    return client.put("/api/mission", json={"day": d}, headers=control_headers(client)).json()
 
 
 def add(crew_id, ind, d, value):
@@ -67,9 +70,9 @@ def remove_all_observations():
 
 
 def tokens():
-    crew = {c: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c}/session", gc.PINS[c])} for c in [x["id"] for x in catalog.CREW]}
-    med = {"Authorization": "Bearer " + gc._token(client, "/api/medical/session", gc.MEDICAL_PIN)}
-    ctl = {"X-Canary-Control": gc._token(client, "/api/control/session", gc.CONTROL_PIN)}
+    crew = {c: {"Authorization": "Bearer " + gc._token(client, f"/api/crew/{c}/session", gc.PINS[c])} for c in [x["id"] for x in catalog.CREW]}
+    med = {"Authorization": "Bearer " + gc.medical_token(client, "g-fs1")}
+    ctl = control_headers(client)
     return crew, med, ctl
 
 
@@ -78,7 +81,7 @@ def every_get(crew=gc.CREW_IDS):
     ch, med, ctl = tokens()
     out = {}
     for p in gc.PUBLIC_PATHS:
-        out[p] = gc._get(client, p)
+        out[p] = gc._get(client, p, med if p in gc.SIGNED_IN_PATHS else None)
     for c in crew:
         for t in gc.CREW_PATHS:
             p = t.format(c=c)
@@ -103,7 +106,7 @@ def check_empty(out, crew=gc.CREW_IDS):
         assert s["level"] == 0
         assert all(x["no_data"] for x in s["systems"].values() if x["indicators"])
         assert all(not any(v for _d, v in t if v is not None) for t in s["trends"].values())  # no line to draw
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0
 
 
 @pytest.mark.parametrize("d", [-30, 100])
@@ -129,7 +132,7 @@ def test_a_package_without_observations_is_just_as_empty(monkeypatch, d):
 def test_no_data_does_not_hide_a_non_data_alert(monkeypatch):
     reset(monkeypatch, "odyssey1-mars")
     remove_all_observations()
-    client.put("/api/mission", json={"step": 3})  # the particle storm of the replay: not a thing the data says
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))  # the particle storm of the replay: not a thing the data says
     out = every_get()
     assert any(a["id"] == "storm" for a in out["/api/crew/h [as h]"]["alerts"])
     assert out["/api/crew/h [as h]"]["no_data"] is True
@@ -141,26 +144,27 @@ def test_a_registered_crew_with_no_measurements_is_empty_too(monkeypatch):
     reset(monkeypatch, "")
     ctl = tokens()[2]
     form = [{**p, "pin": str(2001 + i)} for i, p in enumerate(data.demo_form()["crew"])]
-    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**data.demo_form()["mission"], "launch_date": "2036-03-01"}})
+    r = client.post("/api/control/register", headers=ctl, json={"crew": form, "mission": {**data.demo_form()["mission"], "launch_date": "2036-03-01"}, "ground": data.demo_form()["ground"]})
     assert r.status_code == 200, r.text
     remove_all_observations()
     day(60)
-    ch = {c["id"]: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c['id']}/session", str(2001 + i))} for i, c in enumerate(catalog.CREW)}
+    ch = {c["id"]: {"Authorization": "Bearer " + gc._token(client, f"/api/crew/{c['id']}/session", str(2001 + i))} for i, c in enumerate(catalog.CREW)}
     for c in catalog.CREW:
         s = gc._get(client, f"/api/crew/{c['id']}", ch[c["id"]])
         assert s["no_data"] is True and not [a for a in s["alerts"] if not a.get("data")]
     for p in gc.PUBLIC_PATHS:
-        gc._get(client, p)
+        gc._get(client, p, next(iter(ch.values())) if p in gc.SIGNED_IN_PATHS else None)
 
 
 def test_a_system_with_no_crew_at_all_answers_too(monkeypatch):
     reset(monkeypatch, "")
     registry.clear()
+    add_ground()
     assert catalog.CREW == []
     day(10)
     _, med, ctl = tokens()
     for p in gc.PUBLIC_PATHS:
-        gc._get(client, p)
+        gc._get(client, p, med if p in gc.SIGNED_IN_PATHS else None)
     for p in gc.MEDICAL_PATHS:
         gc._get(client, p, med)
     for p in gc.CONTROL_PATHS:
@@ -175,14 +179,14 @@ def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatc
     add("h", "sleep", 99, 7.6)
     add("h", "sleep", 100, 7.4)
     b = health.baselines("h")["sleep"]
-    assert b == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT}
+    assert b == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT, "confidence": "low"}
     ms = day(100)
     d = health.indicator("h", "sleep", ms)
     assert d["learning"] is True and d["z"] is None and d["baseline"] is None and d["bad"] is None and d["value"] == pytest.approx(7.45, abs=0.2)
     assert d["level"] == 0 and d["baseline_from"] == "learning"
     snap = client.get("/api/crew/h", headers=tokens()[0]["h"]).json()
     assert not [a for a in snap["alerts"] if a["id"] == "ind_sleep"]
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0
     assert not any(v["from"] == "catalog" for v in health.baselines("h").values())  # never a seed
 
 
@@ -193,7 +197,8 @@ def test_after_enough_preflight_readings_the_baseline_is_the_persons_own(monkeyp
     b = health.baselines("h")["sleep"]
     assert b["from"] == "preflight" and b["n"] == 5 and b["mean"] == 7.0 and b["sd"] >= catalog.INDICATORS["sleep"]["sd"]
     ms = {**day(100), "day": 50, "location": plan.location_at(50), "learning": False}
-    add("h", "sleep", 50, 3.0)  # far below their own normal
+    add("h", "sleep", 49, 3.0)  # far below their own normal, two days in a row
+    add("h", "sleep", 50, 3.0)
     d = health.indicator("h", "sleep", ms)
     assert d["learning"] is False and d["baseline"] == 7.0 and d["z"] < -2.5 and d["level"] == 2
 
@@ -235,12 +240,12 @@ def test_a_reading_older_than_max_age_is_stale_and_a_recent_one_is_current(monke
     add("h", "sleep", 10, 3.0)  # sleep: max_age 3 days
     o = telemetry.observation("h", "sleep", 13)
     assert o["value"] == 3.0 and o["age_days"] == 3 and o["stale"] is False  # carried forward, within max_age: still current
-    assert telemetry.current("h", "sleep", 13) == pytest.approx(3.0)
+    assert telemetry.current("h", "sleep", 13) is None  # display smoothing counts only days with a reading of their own
     o = telemetry.observation("h", "sleep", 14)
     assert o["value"] == 3.0 and o["age_days"] == 4 and o["stale"] is True  # kept to show "last measured", never counted
-    assert telemetry.current("h", "sleep", 14) == pytest.approx(3.0)  # today is stale, but the two days before still count
     assert telemetry.current("h", "sleep", 16) is None  # all three days are stale
-    assert telemetry.observation("h", "sleep", 5) == {"value": None, "origin": "none", "source": None, "day": None, "age_days": None, "stale": False}
+    none = telemetry.observation("h", "sleep", 5)
+    assert none["value"] is None and none["origin"] == "none" and none["day"] is None and none["age_days"] is None and none["stale"] is False
     ser = dict(telemetry.series("h", "sleep", 16, 7))  # days 10..16: current, then a gap, never a repeated old value
     assert ser[10] == 3.0 and ser[13] == 3.0 and ser[14] is None and ser[15] is None and ser[16] is None
     assert [v for _d, v in telemetry.series("k", "sleep", 16, 7)] == [None] * 7  # nobody measured: no line
@@ -250,7 +255,7 @@ def test_current_averages_only_the_days_that_are_not_stale_and_renormalises_the_
     reset_crew(monkeypatch)
     add("h", "react", 5, 330)  # old: from day 9 on it is stale (react: max_age 3)
     day(100)
-    h = {"X-Canary-Viewer": gc._token(client, "/api/crew/h/session", gc.PINS["h"])}
+    h = {"Authorization": "Bearer " + gc._token(client, "/api/crew/h/session", gc.PINS["h"])}
     day(14)
     assert client.post("/api/checkins", json={"crew_id": "h", "kind": "pvt", "payload": {"ms": 300}}, headers=h).status_code == 200
     assert telemetry.observation("h", "react", 13)["stale"] and telemetry.observation("h", "react", 14)["origin"] == "user"
@@ -280,7 +285,7 @@ def test_a_stale_reading_raises_no_alert_and_the_system_says_no_data(monkeypatch
 @pytest.mark.parametrize("inds", [
     ("sleep", "mood", "react", "stress", "social"),                  # the whole fatigue picture
     ("bone", "grip", "exer", "vo2", "water", "gluc"),               # bones, muscles, kidneys, gut
-    ("hr", "bp", "spo2", "temp", "dsst", "span", "kss", "tlx"),     # the rest
+    ("hr", "sbp", "dbp", "spo2", "temp", "dsst", "span", "kss", "tlx"),     # the rest
 ])
 @pytest.mark.parametrize("d", [0, 152, 222])
 def test_missing_some_indicators_breaks_nothing_and_alerts_nothing_for_them(monkeypatch, inds, d):
@@ -297,7 +302,7 @@ def test_missing_some_indicators_breaks_nothing_and_alerts_nothing_for_them(monk
             x = s["indicators"][i]
             assert x["value"] is None and x["status"] == "no_data" and x["level"] == 0
         assert not [a for a in s["alerts"] if a["id"] in {f"ind_{i}" for i in inds}]
-    assert db.q("SELECT COUNT(*) n FROM notices WHERE alert_id IN ({})".format(",".join("?" * len(inds))), tuple(f"ind_{i}" for i in inds))[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events WHERE key IN ({})".format(",".join("?" * len(inds))), tuple(f"ind_{i}" for i in inds))[0]["n"] == 0
 
 
 def test_the_writing_routes_work_on_an_empty_system_too(monkeypatch):
@@ -317,4 +322,4 @@ def test_the_writing_routes_work_on_an_empty_system_too(monkeypatch):
             assert client.post(f"/api/suggestions/h/{it['id']}/accept", headers=h).status_code == 200
     assert client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 4, "stress": 2}}, headers=h).status_code == 200
     assert client.post("/api/goals/h/mood", json={"done": True}, headers=h).status_code in (200, 204)
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0

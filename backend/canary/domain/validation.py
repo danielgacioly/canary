@@ -138,9 +138,14 @@ def image_data_url(value: Any, label: str = "The photo", field: str = "photo", m
 import re as _re  # noqa: E402
 from datetime import datetime as _dt, timedelta as _td  # noqa: E402
 
-OBS_ORIGINS = ("real", "simulated")
+# Where a reading came from. `device`: a sensor or wearable; `manual`: typed in by a person; `lab`: a laboratory result;
+# `simulated`: made by the simulator; `sample`: an example for a demo, never used for a baseline or an alert and refused in flight.
+OBS_ORIGINS = ("device", "manual", "lab", "simulated", "sample")
+LEGACY_ORIGINS = ("real",) + OBS_ORIGINS  # a mission package written before the origins were split says `real`
+LAB_METHODS = ("blood", "urine", "lab", "test")
+FUTURE_SLACK = _td(minutes=5)
 OBS_METHODS = ("wearable", "manual", "test", "blood", "urine", "environment", "dosimeter", "lab", "sensor")
-OBS_DEFAULTS = {"origin": "real", "method": "sensor", "source": "api", "note": ""}
+OBS_DEFAULTS = {"origin": "", "method": "sensor", "source": "api", "note": ""}
 MAX_ERRORS = 50  # a batch with thousands of bad rows reports the first ones, not all of them
 _ISO = _re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]00:?00)$")
 _TIME = _re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -149,10 +154,15 @@ _TIME = _re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 class ObsContext:
     """What a batch is checked against: the people who exist and the launch date that turns a day into a date."""
 
-    def __init__(self, crew_ids: Iterable[str], launch_date: str):
+    def __init__(self, crew_ids: Iterable[str], launch_date: str, api: bool = False, now: Optional[_dt] = None,
+                 flight: bool = False, bound_crew: Optional[str] = None):
         from . import catalog
         self.crew = set(crew_ids) | {catalog.CABIN_ID}
         self.launch = date.fromisoformat(launch_date)
+        # api: a reading sent to POST /api/observations. `origin` is required, a reading with only a day keeps no time of day,
+        # a time more than five minutes after `now` is refused, `sample` is refused in flight, and a device bound to one person
+        # (`bound_crew`) can send only that person's readings. A package file (api False) may still say `real`.
+        self.api, self.now, self.flight, self.bound_crew = api, now, flight, bound_crew
         self._by_stamp: Dict[str, int] = {}
         self._by_day: Dict[int, str] = {}
 
@@ -225,6 +235,8 @@ def observation_row(i: int, raw: Any, ctx: ObsContext, prefix: str = "rows") -> 
         d = ctx.day_of(stamp)
         if d is None:
             raise FieldError(f"{path}.measured_at", "measured_at must be a real UTC time like 2035-06-01T08:00:00Z")
+        if ctx.api and ctx.now is not None and _stamp_dt(stamp) > ctx.now + FUTURE_SLACK:
+            raise FieldError(f"{path}.measured_at", "measured_at is in the future")
         if day not in (None, ""):
             try:
                 same = int(day) == d
@@ -242,19 +254,66 @@ def observation_row(i: int, raw: Any, ctx: ObsContext, prefix: str = "rows") -> 
             raise FieldError(f"{path}.day", "day must be a whole number of mission days")
         if not -3650 <= day <= 36500:
             raise FieldError(f"{path}.day", "day is outside the mission")
-        stamp = ctx.stamp_of(day)
+        stamp = None if ctx.api else ctx.stamp_of(day)  # a reading sent with only a day has no time of day: none is invented
     else:
         raise FieldError(f"{path}.measured_at", "Send measured_at (UTC time) or day")
     out = []
-    for k, max_len, options in (("origin", 20, OBS_ORIGINS), ("method", 20, OBS_METHODS), ("source", 80, None), ("note", 200, None)):
+    for k, max_len, options in (("origin", 20, OBS_ORIGINS if ctx.api else LEGACY_ORIGINS), ("method", 20, OBS_METHODS), ("source", 80, None), ("note", 200, None)):
         x = raw.get(k)
-        x = OBS_DEFAULTS[k] if x is None or x == "" else x
+        if (x is None or x == "") and k == "origin" and ctx.api:
+            raise FieldError(f"{path}.origin", f"origin is required: one of {', '.join(OBS_ORIGINS)}")
+        x = ("real" if k == "origin" else OBS_DEFAULTS[k]) if x is None or x == "" else x  # (only a package file gets here without one)
         if not isinstance(x, str) or len(x) > max_len:
             raise FieldError(f"{path}.{k}", f"{k} must be text of at most {max_len} characters")
         if options and x not in options:
             raise FieldError(f"{path}.{k}", f"{k} must be one of: {', '.join(options)}")
         out.append(x)
-    return (crew, day, ind, float(v), unit, out[0], out[1], out[2], out[3], stamp)
+    origin = out[0]
+    if ctx.api and origin == "sample" and ctx.flight:
+        raise FieldError(f"{path}.origin", "sample readings are refused in flight mode")
+    if ctx.api and ctx.bound_crew is not None and crew != ctx.bound_crew:
+        raise FieldError(f"{path}.crew_id", "this device is bound to another crew member")
+    if not ctx.api:  # a package written before the origins were split: `real` is a laboratory result or a device reading
+        if origin == "real":
+            origin = "lab" if out[1] in LAB_METHODS else "device"
+    return (crew, day, ind, float(v), unit, origin, out[1], out[2], out[3], stamp)
+
+
+def _stamp_dt(stamp: str) -> _dt:
+    m = _ISO.match(stamp)
+    return _dt(*(int(g) for g in m.groups()))
+
+
+def observation_extras(i: int, raw: Any, prefix: str = "rows") -> tuple:
+    """`supersedes` (the id of the reading this one corrects) and `reason` of a row; a correction needs both."""
+    path = f"{prefix}.{i}"
+    sup, reason = raw.get("supersedes"), raw.get("reason")
+    if sup in (None, ""):
+        return None, None
+    if isinstance(sup, bool) or not isinstance(sup, int) or sup < 1:
+        raise FieldError(f"{path}.supersedes", "supersedes must be the id of the reading it corrects")
+    if not isinstance(reason, str) or not reason.strip():
+        raise FieldError(f"{path}.reason", "reason is required when a reading corrects another")
+    if len(reason) > 200:
+        raise FieldError(f"{path}.reason", "reason must be at most 200 characters")
+    return sup, reason.strip()
+
+
+def api_rows(rows: Any, ctx: ObsContext, prefix: str = "rows") -> List[tuple]:
+    """Like `observation_rows` for POST /api/observations: each item is (the checked row, supersedes, reason)."""
+    if not isinstance(rows, list):
+        raise FieldError(prefix, "rows must be a list of readings")
+    out, errs = [], []
+    for i, raw in enumerate(rows):
+        try:
+            out.append((observation_row(i, raw, ctx, prefix), *observation_extras(i, raw, prefix)))
+        except FieldError as e:
+            errs.append({"field": e.field, "message": e.message})
+            if len(errs) >= MAX_ERRORS:
+                break
+    if errs:
+        raise ValidationFailure(errs)
+    return out
 
 
 def _shorten(x: Any, n: int = 40) -> str:

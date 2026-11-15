@@ -20,12 +20,13 @@ from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, goals, selftests, simdata, telemetry  # noqa: E402
 from canary.main import app  # noqa: E402
 from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, plan_preset, plan_put, plan_setup, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 
 client = TestClient(app)
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MARS = ROOT / "data" / "missions" / "odyssey1-mars"
 KEY = "test-ingest-key-not-a-secret"
-GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band"}
+GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band", "origin": "device", "method": "wearable"}
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +34,7 @@ def fresh(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", KEY)
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     reset_demo(client)
+    client.put("/api/control/clock", json={"date": "2040-01-01"}, headers=ctl())  # readings in the tests are in the past: a time in the future is refused
     yield
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     reset_demo(client)
@@ -43,11 +45,11 @@ def key():
 
 
 def ctl():
-    return {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    return control_headers(client)
 
 
 def me(cid="h", pin="1001"):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 def n_obs():
@@ -62,18 +64,19 @@ def fields(r):
 def test_a_valid_batch_shows_up_in_the_person_page_value_and_series():
     before = n_obs()
     r = client.post("/api/observations", headers=key(), json={"rows": [
-        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "real", "source": "test:band"}]})
-    assert r.status_code == 200 and r.json() == {"accepted": 2, "duplicates": 0}
+        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "device", "source": "test:band", "method": "wearable"}]})
+    assert r.status_code == 200 and r.json() == {"accepted": 2, "duplicates": 0, "corrected": 0, "alerts_opened": 0}
     assert n_obs() == before + 2
-    client.put("/api/mission", json={"day": 10})
+    client.put("/api/mission", json={"day": 10}, headers=control_headers(client))
     assert telemetry.observation("h", "sleep", 10)["value"] == 3.3
     assert telemetry.observation("h", "sleep", 10)["source"] == "test:band"
     page = client.get("/api/crew/h", headers=me()).json()
     assert [v for d, v in page["trends"]["sleep"] if d == 10] == [3.3]
     assert page["indicators"]["sleep"]["value"] < 6  # 60% of today's 3.3 pulled the weighted value down
     k = client.get("/api/crew/k", headers=me("k", "1002")).json()
-    assert [v for d, v in k["trends"]["hr"] if d == 10] == [61]  # `day` is stamped at 08:00 UTC of that mission day
-    assert db.q("SELECT measured_at FROM observations WHERE source='test:band' AND crew_id='k'")[0]["measured_at"] == "2035-06-11T08:00:00Z"
+    assert [v for d, v in k["trends"]["hr"] if d == 10] == [61]  # a reading with only a day counts on that mission day
+    row = db.q("SELECT measured_at, day FROM observations WHERE source='test:band' AND crew_id='k'")[0]
+    assert row["measured_at"] is None and row["day"] == 10  # and no time of day is invented for it
 
 
 @pytest.mark.parametrize("patch,field", [
@@ -106,7 +109,7 @@ def test_the_batch_shape_and_size_are_checked():
     assert fields(client.post("/api/observations", headers=key(), json={"rows": "x"})) == ["rows"]
     r = client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5001})
     assert r.status_code == 422 and fields(r) == ["rows"] and n_obs() == data.count_observations()
-    assert client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5000}).json() == {"accepted": 1, "duplicates": 4999}
+    assert client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5000}).json() == {"accepted": 1, "duplicates": 4999, "corrected": 0, "alerts_opened": 0}
 
 
 def test_without_a_configured_key_ingest_is_off(monkeypatch):
@@ -128,9 +131,9 @@ def test_a_wrong_or_missing_key_is_refused_and_never_echoed():
 
 def test_the_same_batch_twice_stores_nothing_new():
     rows = [GOOD, {**GOOD, "indicator": "hr", "value": 60, "unit": "bpm"}]
-    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 2, "duplicates": 0}
+    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 2, "duplicates": 0, "corrected": 0, "alerts_opened": 0}
     n = n_obs()
-    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 0, "duplicates": 2}
+    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 0, "duplicates": 2, "corrected": 0, "alerts_opened": 0}
     assert n_obs() == n
     # the same reading from another source is a different reading
     assert client.post("/api/observations", headers=key(), json={"rows": [{**GOOD, "source": "test:other"}]}).json()["accepted"] == 1
@@ -138,7 +141,7 @@ def test_the_same_batch_twice_stores_nothing_new():
 
 def test_a_reading_changes_the_health_numbers_it_feeds():
     """The caches that hold computed health are keyed on the data version, so new readings are not hidden by them."""
-    client.put("/api/mission", json={"day": 10})
+    client.put("/api/mission", json={"day": 10}, headers=control_headers(client))
     before = client.get("/api/crew/h", headers=me()).json()["indicators"]["sleep"]["value"]
     assert client.post("/api/observations", headers=key(), json={"rows": [GOOD]}).status_code == 200
     after = client.get("/api/crew/h", headers=me()).json()["indicators"]["sleep"]["value"]
@@ -147,7 +150,7 @@ def test_a_reading_changes_the_health_numbers_it_feeds():
 
 def test_the_dose_rate_is_a_measurement_but_not_an_indicator():
     assert "dose_rate" in catalog.ACCEPT and "dose_rate" not in catalog.INDICATORS
-    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter"}
+    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter", "origin": "device", "method": "dosimeter", "measured_at": "2035-06-06T09:00:00Z"}
     assert client.post("/api/observations", headers=key(), json={"rows": [row]}).json()["accepted"] == 1
     assert telemetry.last_observation("cabin", "dose_rate", 5)["value"] == 0.7
     assert client.post("/api/observations", headers=key(), json={"rows": [{**row, "value": 500}]}).status_code == 422
@@ -187,7 +190,7 @@ def test_importing_a_package_with_one_bad_row_names_the_row_and_writes_nothing(t
     with pytest.raises(data.ValidationFailure) as e:
         data.import_package(pkg)
     assert [x["field"] for x in e.value.errors] == ["observations.1200.value"] and "line 1202" in e.value.errors[0]["message"]
-    r = upload({f.name: f.read_bytes() for f in pkg.glob("*.csv")})
+    r = upload({"observations.csv": (pkg / "observations.csv").read_bytes()})  # a registered mission still takes readings
     assert r.status_code == 422 and r.json()["errors"][0]["field"] == "observations.1200.value" and r.json()["accepted"] == {}
     assert "observations.csv" in r.json()["errors"][0]["message"]
     assert snap == (n_obs(), db.q("SELECT COUNT(*) n FROM goal_log")[0]["n"], db.q("SELECT COUNT(*) n FROM scenes")[0]["n"], data.version())
@@ -224,7 +227,11 @@ def test_a_zip_of_a_package_imports_and_a_second_time_adds_no_readings(monkeypat
     body = r.json()
     assert body["errors"] == [] and body["accepted"]["observations"] == n_obs() > 50000
     assert body["accepted"]["scenes"] == 6 and body["accepted"]["crew"] == 4 and body["accepted"]["space_events"] == 2
-    again = client.post("/api/control/import", headers=ctl(), files=[("file", ("pkg.zip", buf.getvalue(), "application/zip"))]).json()
+    assert body["accepted"]["ground"] == 2
+    # the mission is registered now: the same zip is refused (it holds crew.csv), the readings alone are not
+    locked = client.post("/api/control/import", headers=ctl(), files=[("file", ("pkg.zip", buf.getvalue(), "application/zip"))])
+    assert locked.status_code == 422 and locked.json()["accepted"] == {} and "cannot change a registered mission" in locked.json()["errors"][0]["message"]
+    again = upload({"observations.csv": (MARS / "observations.csv").read_bytes()}).json()
     assert again["accepted"]["observations"] == 0 and again["duplicates"]["observations"] == body["accepted"]["observations"]
     assert len(client.get("/api/scenes").json()) == 6
     assert data.loaded_package()["name"] == "pkg.zip"  # Mission Control reads the file name, not "upload"
@@ -248,7 +255,15 @@ def test_a_bundled_package_loads_by_name_and_paths_are_refused():
         assert r.status_code == 422 and r.json()["errors"][0]["field"] == "package", bad
     before = n_obs()
     r = client.post("/api/control/import", headers=h, json={"package": "odyssey1-mars"})
-    assert r.status_code == 200 and r.json()["accepted"]["observations"] == 0 and n_obs() == before  # already loaded
+    assert r.status_code == 409 and r.json()["detail"] == "The mission is registered and locked." and n_obs() == before  # registered: locked
+    settings_package = settings.mission_package
+    settings.mission_package = ""
+    try:
+        reset_demo(client)  # an empty system takes a bundled package by name
+        r = client.post("/api/control/import", headers=ctl(), json={"package": "odyssey1-mars"})
+        assert r.status_code == 200 and r.json()["accepted"]["observations"] == n_obs() > 50000
+    finally:
+        settings.mission_package = settings_package
     assert client.post("/api/control/import", headers=h, content=b"x").status_code == 415
 
 
@@ -326,7 +341,7 @@ def test_a_goal_row_counts_on_past_days_and_on_today_only_once_its_time_has_come
 
 
 def test_a_goal_ticked_in_the_app_counts_at_once_with_the_mission_time():
-    client.put("/api/mission", json={"step": 2})
+    client.put("/api/mission", json={"step": 2}, headers=control_headers(client))
     day = client.get("/api/mission").json()["day"]
     gid = next(g["id"] for g in client.get("/api/goals/h", headers=me()).json()["personal"] if not g["done"] and g["by"] == "routine")
     assert client.post(f"/api/goals/h/{gid}", headers=me(), json={"done": True}).status_code == 200
@@ -337,34 +352,34 @@ def test_a_goal_ticked_in_the_app_counts_at_once_with_the_mission_time():
 
 # ---------------------------------------------------------------- changing the plan
 def test_changing_to_a_preset_reloads_its_package_and_keeps_what_the_crew_did():
-    client.put("/api/mission", json={"step": 2})
+    client.put("/api/mission", json={"step": 2}, headers=control_headers(client))
     day = client.get("/api/mission").json()["day"]
     gid = next(g["id"] for g in client.get("/api/goals/h", headers=me()).json()["personal"] if not g["done"] and g["by"] == "routine")
     client.post(f"/api/goals/h/{gid}", headers=me(), json={"done": True})
     client.post("/api/checkins", headers=me(), json={"crew_id": "h", "kind": "mood", "payload": {"mood": 4, "stress": 2}})
     mars_n = n_obs()
-    assert client.post("/api/plan/preset", json={"preset": "moon"}).status_code == 200
+    assert plan_preset("moon").status_code == 200
     moon_rows = list(csv.DictReader(open(ROOT / "data" / "missions" / "odyssey1-moon" / "observations.csv", encoding="utf-8")))
     assert n_obs() == len(moon_rows) != mars_n and data.loaded_package()["preset"] == "moon"
     assert db.q("SELECT COUNT(*) n FROM goal_log WHERE updated_at=0")[0]["n"] > 1000
     assert db.q("SELECT COUNT(*) n FROM goal_log WHERE crew_id='h' AND day=? AND goal_id=? AND updated_at>0", (day, gid))[0]["n"] == 1
     assert db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id='h'")[0]["n"] == 1
     assert [e["id"] for e in data.events()] == ["replay-2024-05-10-sep", "replay-2024-05-20-rad"]
-    assert client.post("/api/plan/preset", json={"preset": "mars"}).status_code == 200 and n_obs() == mars_n
+    assert plan_preset("mars").status_code == 200 and n_obs() == mars_n
 
 
 def test_a_custom_plan_does_not_change_the_data():
     before = (n_obs(), data.version())
     custom = {"name": "Short hop", "legs": [{"location": "earth", "start": -30, "end": -1}, {"location": "rocket", "start": 0, "end": 2},
                                             {"location": "moon", "start": 3, "end": 40}]}
-    assert client.put("/api/plan", json=custom).status_code == 200
+    assert plan_put(custom).status_code == 200
     assert (n_obs(), data.version()) == before
 
 
 # ---------------------------------------------------------------- space events and the control session
 def test_the_control_endpoints_need_the_control_session():
     ev = {"kind": "sep", "start_day": 10, "end_day": 11, "locations": ["transit"], "extra_dose_msv": 5}
-    for h in ({}, {"X-Canary-Control": "control.1.abc"}, me()):
+    for h in ({}, {"Authorization": "Bearer " + "control.1.abc"}, me()):
         assert client.get("/api/control/space-events", headers=h).status_code == 401
         assert client.post("/api/control/space-events", headers=h, json=ev).status_code == 401
         assert client.post("/api/control/import", headers=h, json={"package": "odyssey1-mars"}).status_code == 401
@@ -446,15 +461,23 @@ def test_the_loaded_package_is_named_by_what_was_uploaded(monkeypatch):
 
 def _register_two():
     form = data.demo_form()
-    return client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"][:2], "mission": form["mission"]})
+    return client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"][:2], "mission": form["mission"], "ground": form["ground"]})
 
 
-def test_registering_a_crew_drops_the_scenes_of_a_loaded_package_and_loading_it_again_brings_them_back():
+def _scenes_and_events():
+    """An empty system that holds the story of a package (its scenes and storm replays) but no crew yet."""
     reset_demo(client)
+    r = upload({"scenes.csv": (MARS / "scenes.csv").read_bytes(), "space_events.csv": (MARS / "space_events.csv").read_bytes()})
+    assert r.status_code == 200, r.text
+
+
+def test_registering_a_crew_drops_the_scenes_of_a_loaded_package(monkeypatch):
+    monkeypatch.setattr(settings, "mission_package", "")
+    _scenes_and_events()
     mine = client.post("/api/control/space-events", headers=ctl(), json={"kind": "sep", "start_day": 50, "end_day": 51, "locations": ["mars"],
                                                                          "extra_dose_msv": 3, "origin": "simulated"})
     assert mine.status_code == 200, mine.text
-    assert len(client.get("/api/scenes").json()) == 6 and data.loaded_package()["name"] == "odyssey1-mars"
+    assert len(client.get("/api/scenes").json()) == 6
     from_package = [e["id"] for e in data.events() if not e["id"].startswith("ev_")]
     assert from_package
     assert _register_two().status_code == 200
@@ -462,21 +485,15 @@ def test_registering_a_crew_drops_the_scenes_of_a_loaded_package_and_loading_it_
     left = [e["id"] for e in data.events()]
     assert not set(from_package) & set(left) and any(i.startswith("ev_") for i in left)  # the API-made event stays
     assert client.get("/api/control/data-status", headers=ctl()).json()["package"] is None
-    r = client.post("/api/control/import", headers=ctl(), json={"package": "odyssey1-mars"})
-    assert r.status_code == 200 and len(client.get("/api/scenes").json()) == 6 and data.loaded_package()["name"] == "odyssey1-mars"
+    # registered: the story cannot be brought back, and nothing can start over except the demo reset
+    assert client.post("/api/control/import", headers=ctl(), json={"package": "odyssey1-mars"}).status_code == 409
+    assert client.post("/api/control/clear", headers=ctl()).status_code in (404, 405)
 
 
-def test_clearing_everything_also_drops_the_package_story():
-    reset_demo(client)
-    assert len(client.get("/api/scenes").json()) == 6
-    assert client.post("/api/control/clear", headers=ctl()).status_code == 200
-    assert client.get("/api/scenes").json() == [] and data.loaded_package() is None
-    assert not [e for e in data.events() if not e["id"].startswith("ev_")]
-
-
-def test_registering_restarts_the_clock_where_the_story_began():
-    reset_demo(client)
-    client.put("/api/mission", json={"day": 152})
+def test_registering_restarts_the_clock_where_the_story_began(monkeypatch):
+    monkeypatch.setattr(settings, "mission_package", "")
+    _scenes_and_events()
+    client.put("/api/mission", json={"day": 152}, headers=control_headers(client))
     assert _register_two().status_code == 200
     m = client.get("/api/mission").json()
     assert m["day"] == -30 and client.get("/api/scenes").json() == []

@@ -40,6 +40,13 @@ export interface Catalog {
   crew: CrewInfo[]; story: StoryStep[]; sources: Source[]; standards?: StandardsSummary
   /** "How to measure and why" per indicator id (and radiation), English, each text with its source or none */
   guide?: Record<string, GuideEntry>
+  /** "demo" shows PIN hints and the demo tools; "flight" shows neither. */
+  mode?: 'demo' | 'flight'
+}
+/** GET /api/accounts/public: who can sign in. Names and roles, never a PIN. */
+export interface PublicAccounts {
+  crew: { id: string; name: string; role: string; initials: string; cmo: boolean }[]
+  ground: { id: string; name: string; role: 'flight_surgeon' | 'mcc' }[]
 }
 export interface GuideEntry {
   how: string; effect: string; actions: { green: string; amber: string; red: string }; frequency: string
@@ -160,7 +167,6 @@ export interface Ops {
   /** inside the care window of a closed emergency: why, and the last restricted day */
   reason?: string; until_day?: number; care?: { protocol: string; name: string; ops: 'full' | 'limited' | 'rest'; day: number; until_day: number }
 }
-export interface Notice { crew_id: string; name: string; alert_id: string; title: string; since_day: number; day: number; level: Level; to: string; to_name: string }
 export interface Person {
   id: string; name: string; role: string; initials: string; home: string
   today: { done: number; total: number; streak: number }
@@ -209,7 +215,8 @@ export interface ProtocolMatch {
   fallback: { id: string; name: string; sign: string } | null
 }
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
-export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
+export interface OpenEmergency { id: number; patient: string | null; patient_id: string | null; protocol: string | null; started_at: number }
+export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number; in_transit: boolean }
 export interface Claim { text: string; source_ids: string[] }
 export interface AssistantAnswer {
   id: number; mode: 'ai' | 'grounded' | 'refused' | 'emergency' | 'unknown'; provider: string; provider_error?: string | null
@@ -226,7 +233,7 @@ export interface SpaceWeather {
 export interface Rad { quietMean: number; quiet: [number, number][]; storm: [number, number][]; unit: string; det: string; peak: number; ratio: number }
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
-  notices: Notice[]; care_sensitivity: { factor: number; source: string; verified: boolean }
+  care_sensitivity: { factor: number; source: string; verified: boolean }
   crew: {
     id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[]
     /** the short form of each risk; evidence and hazard links are in the person view */
@@ -234,6 +241,17 @@ export interface MedicalOverview {
     dose: Dose; standard_profile?: CrewDetail['standard_profile']
   }[]
 }
+/** A stored alert event (GET /api/alerts/events). Canary Control gets only the fields before `title`: who, which alert, level, times, acknowledgement. */
+export interface AlertEvent {
+  id: number; crew_id: string; name: string; key: string; level: 1 | 2; opened_at: string; opened_day: number
+  closed_at: string | null; closed_day: number | null; escalation_stage: number; acknowledged: boolean; acknowledged_by: string[]
+  title?: string; env?: boolean; rule?: string; rules_version?: string
+  inputs?: Record<string, unknown>; thresholds?: Record<string, unknown>
+  recipients?: { id: string; role: string; reason: string; stage: number; at: string; deliver_at: string }[]
+  acks?: { by: string; role: string; at: string }[]; acknowledged_by_names?: string[]
+}
+export interface AlertEvents { events: AlertEvent[]; rules_version: string; escalate_after_s: number }
+
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
 export interface TestResult { id: number; kind: string; day: number; at: number; summary: string; payload: Record<string, unknown>
   /** vitals only: a photo of the display is kept with it (the person and the medical team can open it) */
@@ -263,22 +281,31 @@ export interface ControlPerson { id: string; name: string; role: string; initial
 export interface ControlOverview {
   registered: boolean; mission: Mission; overview: MissionOverview; people: ControlPerson[]; ridge: Ridge[]
   warnings: { title: string; todo: string[] }[]; dose: Dose; emergencies: Emergency[]
+  waiver: { accepted: boolean; by: string; at: string } | null
+  career: { mission_msv: number; projected_max_msv: number; limit_msv: number }
+  ground: { id: string; name: string; role: string }[]
 }
 export interface SeatForm {
-  /** the person's id; left out, the server gives s1 to s6 in order */
-  seat?: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
+  /** the person's id; left out, the server generates one */
+  seat?: string; /** the crew medical officer (one per crew) */ cmo?: boolean; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
   /** EVA role (surface, microgravity, none) and the dose from earlier flights in mSv; empty means "estimated from days in space". */
   eva?: string; prior_dose_msv?: number | null
 }
-export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string; rover?: boolean }
-export interface ControlDemo {
-  crew: SeatForm[]; mission: MissionForm; presets: Record<string, string>
+export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string; rover?: boolean; dose_waiver?: boolean }
+/** A ground account: a flight surgeon (medical console) or an MCC account (Canary Control). */
+export interface GroundForm { id?: string; name: string; role: 'flight_surgeon' | 'mcc'; pin: string }
+/** GET /api/control/register-options: what the registration form needs, in demo and in flight. */
+export interface RegisterOptions {
+  presets: Record<string, string>
   /** Profiles that can carry a rover leg, the station's daily dose (the prior-dose estimate) and each profile's legs. */
   rover_presets: string[]; iss_dose_msv_per_day: number
   itineraries: Record<string, { rover: Leg[]; plain: Leg[] }>
+  /** Mission dose of each itinerary (mSv) and the career limit, for the projected career dose and the waiver. */
+  mission_dose_msv: Record<string, { rover: number; plain: number }>; career_limit_msv: number
 }
+export interface ControlDemo extends RegisterOptions { crew: SeatForm[]; ground: GroundForm[]; mission: MissionForm; counts: { readings: number; goal_entries: number; events: number } }
 
 /** GET /api/control/data-status: counts and dates only, never a value. */
 export interface DataStatus {

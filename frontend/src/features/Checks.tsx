@@ -24,8 +24,12 @@ const rndN = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - l
 const pickOne = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]
 
 /** A quiet button that only fills the fields; the person still checks them and submits. */
+// Values filled by the button are sent with origin 'sample': the server keeps them but never lets them raise an alert.
+let sampled = false
 function SampleButton({ onFill }: { onFill: () => void }) {
-  return <button type="button" className="link-btn sample-btn" onClick={onFill}>Fill with sample values</button>
+  const { catalog } = useSession()
+  if (catalog?.mode !== 'demo') return null
+  return <button type="button" className="link-btn sample-btn" onClick={() => { sampled = true; onFill() }}>Fill with sample values</button>
 }
 
 const ResultCtx = createContext<(r: Saved) => void>(() => {})
@@ -80,9 +84,11 @@ function Result({ saved: { r, note }, onDone }: { saved: Saved; onDone: () => vo
 function useSubmit() {
   const { me, bump } = useSession()
   const show = useContext(ResultCtx)
+  useEffect(() => { sampled = false }, [])
   return async (kind: CheckKind, payload: Record<string, unknown>, note?: string, photo?: string) => {
     if (!me) throw new Error('Enter your PIN in My space first.')
-    const r = await api.checkin(me, kind, payload, photo)
+    const r = await api.checkin(me, kind, payload, photo, sampled ? 'sample' : undefined)
+    sampled = false
     bump(); show({ r, note })
   }
 }
@@ -170,7 +176,7 @@ function Amsler() {
 
 const VITALS = [
   { k: 'hr', label: 'Pulse', unit: 'bpm', min: 25, max: 250 },
-  { k: 'bp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
+  { k: 'sbp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
   { k: 'temp', label: 'Temperature', unit: '°C', min: 30, max: 45, decimals: 1 },
   { k: 'spo2', label: 'Oxygen', unit: '%', min: 50, max: 100, integer: true },
 ] as const
@@ -183,7 +189,7 @@ function Vitals() {
   const [photoErr, setPhotoErr] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
   const form = useForm({
-    initial: { hr: '', bp: '', temp: '', spo2: '', photo: '' },
+    initial: { hr: '', sbp: '', temp: '', spo2: '', photo: '' },
     validate: f => {
       const e: Record<string, string | null> = {}
       for (const { k, label, unit, min, max, ...o } of VITALS) e[k] = v.number(label, { min, max, unit, optional: true, ...o })(f[k])
@@ -210,7 +216,7 @@ function Vitals() {
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
-      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), bp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
+      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), sbp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
       <div className="grid g2">
         {VITALS.map(({ k, label, unit, min, max, ...o }) => (
           <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />

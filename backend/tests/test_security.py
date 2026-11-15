@@ -10,7 +10,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from canary.main import app, spa_file  # noqa: E402
-from tests.golden_capture import MEDICAL_PIN, PINS, _token, control_headers, reset_demo  # noqa: E402
+from tests.golden_capture import PINS, _token, control_headers, medical_headers, reset_demo  # noqa: E402
 
 client = TestClient(app)
 
@@ -23,11 +23,11 @@ def fresh():
 
 
 def crew(cid):
-    return {"X-Canary-Viewer": _token(client, f"/api/crew/{cid}/session", PINS[cid])}
+    return {"Authorization": "Bearer " + _token(client, f"/api/crew/{cid}/session", PINS[cid])}
 
 
 def medical():
-    return {"Authorization": "Bearer " + _token(client, "/api/medical/session", MEDICAL_PIN)}
+    return medical_headers(client)
 
 
 # ---------------------------------------------------------------- the built app
@@ -77,10 +77,13 @@ def test_approving_twice_sends_one_briefing():
 
 def test_a_briefing_message_is_private():
     b = _briefing("h")
+    # approval is medical-only (crew approving their own briefing is refused), so the medical team approves here
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=crew("h")).status_code == 401
     client.post(f"/api/briefings/{b['id']}/approve", headers=medical())
     kinds = lambda headers=None: [m["kind"] for m in client.get("/api/messages", headers=headers or {}).json()]  # noqa: E731
-    assert "briefing" not in kinds()
+    assert client.get("/api/messages").status_code == 401  # no token, no messages
     assert "briefing" not in kinds(crew("k"))
+    assert "briefing" not in kinds(control_headers(client))
     assert "briefing" in kinds(crew("h"))
     assert "briefing" in kinds(medical())
 
@@ -89,7 +92,7 @@ def test_a_briefing_message_is_private():
 def test_reset_needs_the_control_sign_in():
     assert client.post("/api/demo/reset").status_code == 401
     assert client.post("/api/demo/reset", headers=crew("h")).status_code == 401
-    assert client.post("/api/demo/reset", headers={"X-Canary-Control": medical()["Authorization"][7:]}).status_code == 401
+    assert client.post("/api/demo/reset", headers={"Authorization": "Bearer " + medical()["Authorization"][7:]}).status_code == 401
     assert client.post("/api/demo/reset", headers=control_headers(client)).status_code == 200
 
 

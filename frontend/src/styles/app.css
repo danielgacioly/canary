@@ -294,7 +294,7 @@ table.t tr.click { cursor: pointer; } table.t tr.click:hover td { background: va
   .lens button { padding: 8px 10px; }
   .lens .v b { font-size: 20px; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } .pulse { animation: none; } }
 
 /* ---------- dashboard ---------- */
 .hero { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: stretch; }
@@ -520,6 +520,7 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
   --muted: #a0a7b4;
   --dim: #6f7787;
   --accent: #6e94f2;
+  --canary: #f2c230;
   --ok: #59b88d;
   --watch: #d8a24c;
   --act: #dc6a5f;
@@ -757,6 +758,7 @@ ul.plain li:last-child { border-bottom: 0; }
   --muted: #555d6b;
   --dim: #7a8291;
   --accent: #fc3d21;         /* NASA red: indicators, focus ring, bars, the logo's eye */
+  --canary: #f2c230;
   --accent-strong: #bf2217;  /* text-safe red: links, primary buttons with white labels (5.7:1 on the page, 4.8:1 on the darkest surface) */
   --ok: #23845a;
   --watch: #a8680e;
@@ -853,6 +855,7 @@ ul.plain li:last-child { border-bottom: 0; }
 /* ---------- accessibility preferences ---------- */
 :root[data-text="large"] .shell, :root[data-text="large"] .scrim, :root[data-text="large"] .drawer, :root[data-text="large"] .er { zoom: 1.12; }
 :root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+:root[data-motion="reduce"] .pulse { animation: none; }
 :root[data-contrast="high"] { --muted: #c4cad4; --dim: #a3abb8; --line: #3a414e; --line-2: #4c5463; }
 :root[data-theme="light"][data-contrast="high"] { --muted: #333a46; --dim: #4a5260; --line: #b9bfca; --line-2: #9aa2b0; }
 .switch::after { background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
@@ -1182,8 +1185,6 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .ind-table td.r { min-width: 96px; }
 .ind-table td:last-child { min-width: 130px; max-width: 190px; }
 .cell-note { font-family: var(--f-body); margin-top: 2px; }
-.notices { padding: 0; }
-.notices ul { margin-top: 8px; }
 .med-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); column-gap: 44px; row-gap: 28px; align-items: start; }
 .brief-text { white-space: pre-wrap; font: 500 13px/1.7 var(--f-mono); margin: 0; color: var(--ink); }
 .link-log li { display: flex; align-items: flex-start; gap: 10px; }
@@ -1336,3 +1337,29 @@ button.prow { width: 100%; text-align: left; }
 
 /* Trends: the measures with no reading yet, named once */
 .unread { margin-top: 8px; max-width: 70ch; }
+
+/* ---------- canary pulse: a soft ring for live markers (off under reduced motion) ---------- */
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--canary) 55%, transparent); } 70% { box-shadow: 0 0 0 10px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.pulse { animation: pulse-ring 1.8s var(--ease-out, ease-out) infinite; }
+
+/* ---- cabin-wide emergency alarm, the fixed SOS button on small screens */
+.alarm { position: fixed; top: 0; left: 0; right: 0; z-index: 70; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 16px; background: var(--nasa-red); color: #fff; font-size: 14px; }
+.alarm .dot { background: #fff; flex: none; }
+.alarm a { color: #fff; text-decoration: underline; white-space: nowrap; }
+body.has-alarm { padding-top: 40px; }
+body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
+@media (max-width: 860px) {
+  .topbar { padding-right: 168px; }
+  .topbar .sos { position: fixed; top: 13px; right: 10px; z-index: 65; background: var(--bg); }
+  body.has-alarm .topbar .sos { top: 53px; }
+}
+
+/* ---- registration: paired devices under a person */
+.seat-devices { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 12px 56px; }
+@media (max-width: 760px) { .seat-devices { padding-left: 14px; } }
+
+/* ---- guided tour */
+.tour { position: fixed; z-index: 90; padding: 12px 14px; background: var(--surface); border: 1px solid var(--canary); border-radius: var(--r-sm); font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
+.tour p { margin: 0; }
+.tour-on { outline: 2px solid var(--canary); outline-offset: 3px; }
+.alarm .grow { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -15,7 +15,7 @@ export const protocolPath = (id: string) => `/protocols/${id}`
 export default function Protocols() {
   const { id } = useParams()
   const { data, error } = useApi<ProtocolLibrary>(() => api.protocolLibrary(), [])
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API.</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!data) return <Loading what="protocols" />
   const page = id ? [...data.emergency, ...data.operational].find(p => p.id === id) : null
   if (id && !page) return <div className="page"><Link className="back" to="/protocols"><Icon name="back" />Protocols</Link><p className="muted">There is no protocol called “{id}”.</p></div>

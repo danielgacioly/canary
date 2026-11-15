@@ -16,7 +16,7 @@ const GROUP_NOTE: Record<string, string> = {
 
 /** Tests whose measurement is an indicator in the team's guide. The others (PVT, DSST, KSS, TLX, PHQ-2/GAD-2, Amsler, journal, reading, symptoms)
  *  have no guide entry: they show their own one-line measure and source, nothing more. */
-const GUIDE_OF: Record<string, string[]> = { vitals: ['bp', 'hr', 'temp', 'spo2'], sleep: ['sleep'], mood: ['mood'] }
+const GUIDE_OF: Record<string, string[]> = { vitals: ['sbp', 'dbp', 'hr', 'temp', 'spo2'], sleep: ['sleep'], mood: ['mood'] }
 
 export default function Tests() {
   const { me } = useSession()
