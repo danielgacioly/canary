@@ -120,7 +120,7 @@ export function Avatar({ initials, size = '' }: { initials: string; size?: '' | 
 /** A person with no current measurement at all: one plain line, no empty grids. */
 export function WaitingForData({ self, name }: { self: boolean; name?: string }) {
   return self
-    ? <p className="waiting rise">Canary is waiting for your first measurements. Check-ins count from today. <Link className="item" to="/tests">Go to Tests</Link></p>
+    ? <div className="waiting-box rise"><p className="waiting">Canary is waiting for your first measurements. Check-ins count from today.</p><Link className="link" to="/tests">Go to Tests</Link></div>
     : <p className="waiting rise">Canary has no measurements for {name ?? 'this person'} yet.</p>
 }
 

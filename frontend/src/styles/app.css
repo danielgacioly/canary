@@ -1290,7 +1290,11 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 
 /* Missing data: quiet, never a status colour. */
 .waiting { font-size: 16px; color: var(--muted); max-width: 560px; margin-top: 8px; }
-.waiting .item { margin-left: 0; }
+.waiting-box { margin-top: 8px; }
+.waiting-box .waiting { margin-top: 0; }
+.waiting-box .link { display: inline-block; margin-top: 10px; }
+.tnum { font-variant-numeric: tabular-nums; }
+table.t th.r, table.t td.r { text-align: right; }
 
 /* Canary Control, Data: flat rows with their controls beside the words. */
 .ctl-data-row { flex-wrap: wrap; align-items: flex-end; }

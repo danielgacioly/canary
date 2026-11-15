@@ -14,9 +14,11 @@ import { useApi, useSession } from '../state/session'
 const BUNDLED: [string, string][] = [['odyssey1-mars', 'Odyssey 1, Mars'], ['odyssey1-moon', 'Odyssey 1, Moon'], ['odyssey1-iss', 'Odyssey 1, ISS']]
 const MAX_UPLOAD_MB = 120
 const SHOWN_ERRORS = 20
+/** Counts with thousands separators (53,408). */
+const n = (x: number) => x.toLocaleString('en-US')
 
 /** The sentence under the load control: what was stored. */
-const loaded = (r: ImportResult) => `Loaded ${r.accepted.observations} observations, ${r.accepted.goal_log} goal entries, ${r.accepted.space_events} events`
+const loaded = (r: ImportResult) => `Loaded ${n(r.accepted.observations)} observations, ${n(r.accepted.goal_log)} goal entries, ${n(r.accepted.space_events)} events`
 
 export default function ControlData() {
   const { data: status, setData } = useApi<DataStatus>(() => api.controlDataStatus(), [])
@@ -67,7 +69,7 @@ function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => voi
 
   return (
     <section className="set-group rise">
-      <div className="section-head"><h2>Mission package</h2><span className="sub">{status.package ? `Loaded: ${status.package}` : 'No package loaded'} · {status.counts.observations} readings, {status.counts.goal_entries} goal entries, {status.counts.events} events, {status.counts.scenes} scenes</span></div>
+      <div className="section-head"><h2>Mission package</h2><span className="sub">{status.package ? `Loaded: ${status.package}` : 'No package loaded'} · {n(status.counts.observations)} readings, {n(status.counts.goal_entries)} goal entries, {n(status.counts.events)} events, {n(status.counts.scenes)} scenes</span></div>
       <form className="set-row ctl-data-row" noValidate onSubmit={pkg.submit}>
         <div className="grow"><b>Load a bundled package</b><p className="small muted">Adds the people, plan, readings, goal history, events and scenes of a bundled mission. Readings already stored are not stored twice.</p></div>
         <Field form={pkg} name="package" label="Package" as="select">{BUNDLED.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Field>
@@ -87,7 +89,7 @@ function Package({ status, onLoaded }: { status: DataStatus; onLoaded: () => voi
       {rowErrors.length > 0 && (
         <div className="form-summary" role="alert">
           <b>Nothing was loaded: {rowErrors.length === 1 ? '1 problem' : `${rowErrors.length} problems`}</b>
-          <ul>{rowErrors.slice(0, SHOWN_ERRORS).map((e, i) => <li key={i}>{e.field !== 'form' && <span className="num">{e.field}: </span>}{e.message}</li>)}</ul>
+          <ul>{rowErrors.slice(0, SHOWN_ERRORS).map((e, i) => <li key={i}>{e.field !== 'form' && <span className="tnum">{e.field}: </span>}{e.message}</li>)}</ul>
           {rowErrors.length > SHOWN_ERRORS && <p className="small dim">and {rowErrors.length - SHOWN_ERRORS} more</p>}
         </div>
       )}
@@ -160,15 +162,15 @@ function Readings({ status }: { status: DataStatus }) {
       {people.length === 0 && <p className="muted">No readings received yet.</p>}
       {people.map(id => (
         <details key={id} className="how">
-          <summary>{id === 'cabin' ? 'Cabin sensors' : catalog?.crew.find(c => c.id === id)?.name ?? id} · {status.readings.filter(r => r.crew_id === id).reduce((s, r) => s + r.count, 0)} readings</summary>
+          <summary>{id === 'cabin' ? 'Cabin sensors' : catalog?.crew.find(c => c.id === id)?.name ?? id} · {n(status.readings.filter(r => r.crew_id === id).reduce((s, r) => s + r.count, 0))} readings</summary>
           <div className="scroll"><table className="t">
-            <thead><tr><th>Indicator</th><th>Last received</th><th>Mission day</th><th className="num">Count</th></tr></thead>
+            <thead><tr><th>Indicator</th><th>Last received</th><th>Mission day</th><th className="r">Count</th></tr></thead>
             <tbody>{status.readings.filter(r => r.crew_id === id).map(r => (
               <tr key={r.indicator}>
                 <td>{catalog?.indicators[r.indicator]?.name ?? r.indicator}</td>
-                <td className="num">{r.last_received_at.slice(0, 10)}</td>
-                <td className="num">day {r.last_day}</td>
-                <td className="num">{r.count}</td>
+                <td className="tnum">{r.last_received_at.slice(0, 10)}</td>
+                <td className="tnum">day {r.last_day}</td>
+                <td className="tnum r">{n(r.count)}</td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -216,13 +218,13 @@ function SpaceEvents() {
       <div className="section-head"><h2>Space weather events</h2><span className="sub">Storms and surface radiation events that add dose. They also come from the mission package.</span></div>
       {!data ? <Loading what="events" /> : data.events.length === 0 ? <p className="muted">No events.</p> : (
         <div className="scroll"><table className="t">
-          <thead><tr><th>Kind</th><th>Days</th><th>Places</th><th className="num">Extra dose</th><th>Origin</th></tr></thead>
+          <thead><tr><th>Kind</th><th>Days</th><th>Places</th><th className="r">Extra dose</th><th>Origin</th></tr></thead>
           <tbody>{data.events.map(e => (
             <tr key={e.id}>
               <td>{kindName(e.kind)}</td>
-              <td className="num">{e.start_day === e.end_day ? `day ${e.start_day}` : `day ${e.start_day} to ${e.end_day}`}</td>
+              <td className="tnum">{e.start_day === e.end_day ? `day ${e.start_day}` : `day ${e.start_day} to ${e.end_day}`}</td>
               <td>{e.locations.map(l => places[l]?.name ?? l).join(', ')}</td>
-              <td className="num">{e.extra_dose_msv} mSv</td>
+              <td className="tnum r">{e.extra_dose_msv} mSv</td>
               <td>{e.origin}</td>
             </tr>
           ))}</tbody>
