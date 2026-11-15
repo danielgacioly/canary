@@ -3,13 +3,16 @@
 The ranking counts effort (goals done, check-ins sent), never health numbers:
 nobody climbs by looking healthy, and reporting a bad day counts the same as a good one.
 
-Past days use a simulated completion history so the demo has a lived-in crew;
-anything the crew ticks in the app is stored and wins over the simulation.
+The history comes from the goal log only (the `goal_log` table): rows loaded from a mission package and goals the
+crew ticks in the app. A goal with no row was not done. A row counts on a past day; on the current mission day it
+counts only when it was done at or before the current mission time (data.mission_time()), so a package can say "Helena
+did her exercise at 09:40" and the goal turns done when the mission clock passes that time. A goal ticked in the app
+is stored with the current mission time, so it counts at once.
 """
 from typing import Dict, List, Optional
 
 from .. import db
-from . import advice, health, plan, risk, telemetry
+from . import advice, data, health, plan, risk
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
                       WINDOW_BY_PLACE)
 
@@ -32,29 +35,32 @@ def daily_goal_ids(location: str) -> List[str]:
     return [g["id"] for g in PERSONAL_GOALS if not (g.get("space_only") and location == "earth")]
 
 
-def _log(crew_id: str) -> Dict[tuple, int]:
-    return {(r["day"], r["goal_id"]): r["done"] for r in db.q("SELECT day,goal_id,done FROM goal_log WHERE crew_id=?", (crew_id,))}
+_log_cache: Dict[str, tuple] = {}
 
 
-def _sim_done(crew_id: str, goal_id: str, day: int, today: int) -> bool:
-    p = {"h": 0.86, "k": 0.84, "a": 0.9, "t": 0.74}[crew_id]
-    g = PERSONAL_BY_ID.get(goal_id)
-    if crew_id == "h" and 132 <= day <= 153 and g and g["area"] == "mental":
-        p = 0.35  # the slide the alert catches
-    if crew_id == "t" and 1 <= day <= 4:
-        p = 0.3
-    if day == today:
-        p *= 0.45  # the day is not over
-    return telemetry.h01(f"goal:{crew_id}:{goal_id}:{day}") < p
+def _log(crew_id: str) -> Dict[tuple, tuple]:
+    """The person's goal log: (day, goal id) -> (done, done_at_time or None). A package brings thousands of rows, so it is
+    read once per change of the database (callers only read it)."""
+    stamp = (db.epoch, db.writes)
+    hit = _log_cache.get(crew_id)
+    if hit is None or hit[0] != stamp:
+        with db._lock:
+            rows = db.connect().execute("SELECT day,goal_id,done,done_at_time FROM goal_log WHERE crew_id=?", (crew_id,)).fetchall()
+        hit = _log_cache[crew_id] = (stamp, {(r[0], r[1]): (r[2], r[3]) for r in rows})
+    return hit[1]
 
 
-def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict[tuple, int]] = None) -> bool:
+def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict[tuple, tuple]] = None,
+            now: Optional[str] = None) -> bool:
+    """Was the goal done on `day`, looking from mission day `today`? On `today` itself only a row done by the current
+    mission time counts (a row without a time counts)."""
     log = _log(crew_id) if log is None else log
-    if (day, goal_id) in log:
-        return bool(log[(day, goal_id)])
-    if goal_id.startswith(("al_", "med_", "sg_")):
+    row = log.get((day, goal_id))
+    if row is None or not row[0]:
         return False
-    return _sim_done(crew_id, goal_id, day, today)
+    if day == today and row[1] is not None and row[1] > (now or data.mission_time()):
+        return False
+    return True
 
 
 def medical_goals(crew_id: str, day: int) -> List[dict]:
@@ -123,9 +129,10 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
 
 def set_done(crew_id: str, goal_id: str, day: int, done: bool) -> None:
     import time
-    db.x("INSERT INTO goal_log(crew_id,day,goal_id,done,updated_at) VALUES(?,?,?,?,?) "
-         "ON CONFLICT(crew_id,day,goal_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at",
-         (crew_id, day, goal_id, int(done), time.time()))
+    db.x("INSERT INTO goal_log(crew_id,day,goal_id,done,updated_at,done_at_time) VALUES(?,?,?,?,?,?) "
+         "ON CONFLICT(crew_id,day,goal_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at, "
+         "done_at_time=excluded.done_at_time",
+         (crew_id, day, goal_id, int(done), time.time(), data.mission_time()))
 
 
 # ---------------------------------------------------------------- history-based numbers
@@ -137,11 +144,16 @@ def _start(today: int) -> int:
 def _history(crew_id: str, today: int) -> dict:
     """Per-day completions from the first history day to today, routine goals only. `today` is always a key."""
     log = _log(crew_id)
+    now = data.mission_time()
+    extra_by_day: Dict[int, int] = {}  # goals added by an alert, the medical team or a suggestion, done
+    for (ld, gid), v in log.items():
+        if v[0] and gid.startswith(("al_", "med_", "sg_")):
+            extra_by_day[ld] = extra_by_day.get(ld, 0) + 1
     days = {}
     for d in range(_start(today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
-        done = [gid for gid in ids if is_done(crew_id, gid, d, today, log)]
-        extra = sum(1 for (ld, gid), v in log.items() if ld == d and v and gid.startswith(("al_", "med_", "sg_")))
+        done = [gid for gid in ids if is_done(crew_id, gid, d, today, log, now)]
+        extra = extra_by_day.get(d, 0)
         days[d] = {"done": done, "total": len(ids), "count": len(done) + extra}
     return days
 

@@ -107,22 +107,37 @@ def minutes(t):
     return int(h) * 60 + int(m)
 
 
-def test_goal_log_reproduces_sim_done():
+def reference_sim_done(crew_id, goal_id, day, today):
+    """The rule the engine used before the goal history moved into the goal log (goals._sim_done, now removed). Kept here
+    as the reference the package must reproduce."""
+    p = {"h": 0.86, "k": 0.84, "a": 0.9, "t": 0.74}[crew_id]
+    g = catalog.PERSONAL_BY_ID.get(goal_id)
+    if crew_id == "h" and 132 <= day <= 153 and g and g["area"] == "mental":
+        p = 0.35
+    if crew_id == "t" and 1 <= day <= 4:
+        p = 0.3
+    if day == today:
+        p *= 0.45
+    return telemetry.h01(f"goal:{crew_id}:{goal_id}:{day}") < p
+
+
+def test_goal_log_reproduces_the_old_simulated_history():
+    """goals.is_done on the package's goal log gives exactly what the removed simulation gave, for any 'today'."""
     plan.reset_cache()
     rows = read("odyssey1-mars", "goal_log.csv")
     done = {(r["crew_id"], int(r["day"]), r["goal_id"]): minutes(r["done_at_time"]) for r in rows}
     assert all(r["done"] == "1" for r in rows) and len(done) == len(rows)
     for r in rows:
         assert 8 * 60 <= minutes(r["done_at_time"]) < 12 * 60 or 18 * 60 <= minutes(r["done_at_time"]) < 22 * 60
+    log = {c["id"]: {} for c in registry.DEMO_CREW}
+    for r in rows:
+        log[r["crew_id"]][(int(r["day"]), r["goal_id"])] = (1, r["done_at_time"])
     last = max(l["end"] for l in plan.get()["legs"])
-    noon = minutes("12:00")
     for today in (-30, -5, 2, 147, 152, 153, 222, 400):
         for c in registry.DEMO_CREW:
             for day in range(goals.HISTORY_START, last + 1):
                 for gid in goals.daily_goal_ids(plan.location_at(day)):
-                    t = done.get((c["id"], day, gid))
-                    packaged = t is not None and (day != today or t <= noon)
-                    assert packaged == goals._sim_done(c["id"], gid, day, today), (c["id"], gid, day, today)
+                    assert goals.is_done(c["id"], gid, day, today, log[c["id"]], "12:00") == reference_sim_done(c["id"], gid, day, today), (c["id"], gid, day, today)
 
 
 def test_scenes():
