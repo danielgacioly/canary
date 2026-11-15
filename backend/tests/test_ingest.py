@@ -25,7 +25,7 @@ client = TestClient(app)
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MARS = ROOT / "data" / "missions" / "odyssey1-mars"
 KEY = "test-ingest-key-not-a-secret"
-GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band"}
+GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band", "method": "wearable"}
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def fields(r):
 def test_a_valid_batch_shows_up_in_the_person_page_value_and_series():
     before = n_obs()
     r = client.post("/api/observations", headers=key(), json={"rows": [
-        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "real", "source": "test:band"}]})
+        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "real", "source": "test:band", "method": "wearable"}]})
     assert r.status_code == 200 and r.json() == {"accepted": 2, "duplicates": 0}
     assert n_obs() == before + 2
     client.put("/api/mission", json={"day": 10})
@@ -147,7 +147,7 @@ def test_a_reading_changes_the_health_numbers_it_feeds():
 
 def test_the_dose_rate_is_a_measurement_but_not_an_indicator():
     assert "dose_rate" in catalog.ACCEPT and "dose_rate" not in catalog.INDICATORS
-    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter"}
+    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter", "method": "dosimeter", "measured_at": "2035-06-06T09:00:00Z"}
     assert client.post("/api/observations", headers=key(), json={"rows": [row]}).json()["accepted"] == 1
     assert telemetry.last_observation("cabin", "dose_rate", 5)["value"] == 0.7
     assert client.post("/api/observations", headers=key(), json={"rows": [{**row, "value": 500}]}).status_code == 422
