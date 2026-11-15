@@ -1365,3 +1365,8 @@ body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
 /* ---- registration: paired devices under a person */
 .seat-devices { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 12px 56px; }
 @media (max-width: 760px) { .seat-devices { padding-left: 14px; } }
+
+/* ---- guided tour */
+.tour { position: fixed; z-index: 90; padding: 12px 14px; background: var(--surface); border: 1px solid var(--canary); border-radius: var(--r-sm); font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
+.tour p { margin: 0; }
+.tour-on { outline: 2px solid var(--canary); outline-offset: 3px; }

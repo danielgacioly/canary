@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Shell from './components/Shell'
+import Tour from './components/Tour'
 import About from './pages/About'
 import Astronaut from './pages/Astronaut'
 import Crew from './pages/Crew'
@@ -20,6 +21,8 @@ function seenIntro(): boolean {
 
 export default function App() {
   return (
+    <>
+    <Tour />
     <Routes>
       <Route path="/welcome" element={<Intro />} />
       <Route path="/control" element={<Control />} />
@@ -44,5 +47,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to={seenIntro() ? '/crew' : '/welcome'} replace />} />
     </Routes>
+    </>
   )
 }

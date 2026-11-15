@@ -35,7 +35,7 @@ export default function Crew() {
         </div>
       </div>
 
-      <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
+      <section data-tour="crew-home" className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
         <div className="orbit">
           {data.people.map((p, i) => (
             <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} aria-label={`Open ${p.name}'s space`}
@@ -52,7 +52,7 @@ export default function Crew() {
         </div>
       </section>
 
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+      <section data-tour="hazards" className="rise" style={{ ['--d' as string]: 2 }}>
         <div className="section-head">
           <h2>Hazards here today</h2>
           <span className="sub">NASA's five hazards of spaceflight, at {ms.place.name}. Tap one to see what it acts on.</span>

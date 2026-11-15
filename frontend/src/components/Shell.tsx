@@ -34,7 +34,7 @@ export default function Shell() {
           <div key={g.group}>
             <div className="group">{g.group}</div>
             {g.items.map(([to, icon, label]) => (
-              <NavLink key={to} to={to} aria-label={label} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
+              <NavLink key={to} to={to} aria-label={label} data-tour={to === '/me' ? 'my-space' : undefined} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
                 <Icon name={icon} /><span>{label}</span>
                 {to === '/me' && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
               </NavLink>
@@ -63,7 +63,7 @@ export default function Shell() {
               {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
             </>
           )}
-          <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
+          <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <span data-tour="crew-dots"><CrewDots people={crew.people} /></span>}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
         {mission && !mission.registered ? <WaitingForControl /> : <Outlet />}
       </div>
@@ -84,7 +84,7 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
   const start = () => { setHold(true); t.current = window.setTimeout(() => { setHold(false); onFire() }, 1000) }
   const stop = () => { setHold(false); clearTimeout(t.current) }
   return (
-    <button className={`sos ${hold ? 'hold' : ''}`} onPointerDown={start} onPointerUp={stop} onPointerLeave={stop}
+    <button data-tour="sos" className={`sos ${hold ? 'hold' : ''}`} onPointerDown={start} onPointerUp={stop} onPointerLeave={stop}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFire() } }} aria-label="Emergency: hold for one second">
       <i className="ring" /><span>{hold ? 'Keep holding…' : 'Hold for emergency'}</span>
     </button>
@@ -99,7 +99,7 @@ function StoryBar() {
   if (!mission || !catalog || scenes.length === 0 || !mission.story) return null
   const go = (i: number) => { move.run(() => setStep(i)) }
   return (
-    <div className="story">
+    <div className="story" data-tour="story">
       <span className="small story-step">Demo {mission.step + 1}/{mission.steps}</span>
       <div className="dots">{scenes.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b className="ink">Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b className="ink">{mission.story.when}.</b> {mission.story.text}</>}</p>

@@ -18,7 +18,7 @@ import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { clockLine } from '../lib/clock'
-import { tourStage, setTourStage } from '../lib/tour'
+import { tourStage, setTourStage, useTourStage } from '../lib/tour'
 import { useApi, useSession } from '../state/session'
 import ControlData from './ControlData'
 
@@ -41,7 +41,7 @@ const MAX_GROUND = 12
 
 export default function Control() {
   const [signed, setSigned] = useState(api.isControl())
-  if (!signed) return <ControlGate onOk={() => setSigned(true)} />
+  if (!signed) return <ControlGate onOk={() => { setSigned(true); if (tourStage() === 'control') setTourStage('connect') }} />
   return <ControlApp onSignOut={() => { api.controlSignOut(); setSigned(false) }} />
 }
 
@@ -58,7 +58,7 @@ function ControlGate({ onOk }: { onOk: () => void }) {
       <Stars />
       <div className="row control-top"><span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
-      <div className="control-gate-body">
+      <div className="control-gate-body" data-tour="gate">
         <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
         {error && <p className="err">{error}</p>}
         {accounts && !mcc.length && (
@@ -85,7 +85,8 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   const { bump, rev, toast, catalog } = useSession()
   const [ov, setOv] = useState<ControlOverview | null>(null)
   const [tab, setTab] = useState<Tab | null>(null)
-  useEffect(() => { api.controlOverview().then(o => { setOv(o); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
+  const stage = useTourStage()
+  useEffect(() => { api.controlOverview().then(o => { setOv(o); if (tourStage() === 'control' || tourStage() === 'connect') setTourStage(o.registered ? 'dashboard' : 'connect'); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
   if (!ov || !tab) return <div className="control"><Loading what="Canary Control" /></div>
   // The first-access sign-in closes the moment an MCC account exists. The registration form knows the MCC PIN it just sent, so sign
   // in again with it; if that does not work, ask for the PIN.
@@ -108,7 +109,7 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
         <span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${clockLine(ov.mission.clock)} · ${ov.mission.place.name}` : 'No mission registered'}</span>
         <div className="right row" style={{ gap: 8 }}>
-          <button className="btn sm" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button>
+          <button className={`btn sm ${stage === 'dashboard' ? 'pri pulse' : ''}`} data-tour="enter" onClick={() => { if (stage === 'dashboard') setTourStage('board'); nav('/crew') }}>Enter Canary mode<Icon name="chev" /></button>
           <button className="btn sm ghost" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
@@ -137,7 +138,7 @@ function OpenAlerts() {
   if (!events?.length) return null
   const what = (k: string) => k.replace(/^ind_/, '').replace(/_/g, ' ')
   return (
-    <section className="rise" style={{ ['--d' as string]: 1 }}>
+    <section className="rise" data-tour="ctl-alerts" style={{ ['--d' as string]: 1 }}>
       <div className="section-head"><h2>Open alerts</h2><span className="sub">Who, which alert and whether the ship acknowledged it. The readings stay on board.</span></div>
       <ul className="plain">
         {events.map(e => (
@@ -175,7 +176,7 @@ function Dashboard({ ov, onRegister }: { ov: ControlOverview; onRegister: () => 
         <div className="stat"><div className="k">Mission dose</div><b>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
       </div>
 
-      <section className="rise" style={{ ['--d' as string]: 1 }}>
+      <section className="rise" data-tour="ctl-crew" style={{ ['--d' as string]: 1 }}>
         <div className="section-head"><h2>Crew</h2><span className="sub">Operational status as the ship's medical team reports it. Health details stay on board.</span></div>
         <div className="ctl-crew">
           {ov.people.map(p => (
@@ -192,7 +193,7 @@ function Dashboard({ ov, onRegister }: { ov: ControlOverview; onRegister: () => 
 
       <OpenAlerts />
 
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+      <section className="rise" data-tour="ctl-hazards" style={{ ['--d' as string]: 2 }}>
         <div className="section-head"><h2>Hazards at {ms.place.name}</h2></div>
         {ov.warnings.map(w => <div key={w.title} className="warning s2"><span className="dot" /><div className="grow"><b>{w.title}</b><p className="small muted">{w.todo.join(' · ')}</p></div></div>)}
         <Hazards items={ov.ridge} />
