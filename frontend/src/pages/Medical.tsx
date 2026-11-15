@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
-import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
+import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
 import { allMissing, doseOrigin, DASH, nasaLine, num } from '../lib/health'
@@ -12,7 +12,7 @@ import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
-const TABS = ['Triage', 'Briefings', 'Prescribe', 'Alert rules', 'Messages', 'Emergencies'] as const
+const TABS = ['Triage', 'Briefings', 'Prescribe', 'Messages', 'Emergencies'] as const
 
 export default function Medical() {
   const [signed, setSigned] = useState(api.isMedical())
@@ -38,7 +38,6 @@ export default function Medical() {
           {tab === 'Triage' && <Triage ov={ov} />}
           {tab === 'Briefings' && <Briefings ov={ov} />}
           {tab === 'Prescribe' && <Prescribe ov={ov} />}
-          {tab === 'Alert rules' && <Rules ov={ov} />}
           {tab === 'Messages' && <Messages />}
           {tab === 'Emergencies' && <Emergencies ov={ov} />}
         </>
@@ -229,38 +228,6 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
           {!goals?.length && <p className="muted">None. Guided Response adds follow-up care here automatically.</p>}</div>
       </section>
     </div>
-  )
-}
-
-function Rules({ ov }: { ov: MedicalOverview }) {
-  const { bump, toast } = useSession()
-  const form = useForm({
-    initial: { watch: ov.thresholds.watch, act: ov.thresholds.act },
-    validate: f => ({ act: f.act > f.watch ? null : `Act (${f.act.toFixed(1)} σ) must be above watch (${f.watch.toFixed(1)} σ). Raise act or lower watch.` }),
-    submit: async f => { await api.setThresholds(f.watch, f.act); bump(); toast('Alert rules updated') },
-  })
-  const sliders = [['watch', 'Watch from', 0.5, 4, 's1'], ['act', 'Act from', 1, 5, 's2']] as const
-  return (
-    <form className="col narrow" noValidate onSubmit={form.submit}>
-      <div className="section-head"><h2>When Canary speaks up</h2></div>
-      <p className="muted">Each indicator is compared with that person's own pre-flight normal. The distance is measured in their personal spread (σ). Lower thresholds mean earlier, more frequent alerts.</p>
-      {sliders.map(([k, l, min, max, c]) => (
-        <FieldGroup key={k} form={form} name={k} label={<span className="row"><span>{l}</span><b className={`num right c ${c}`}>{form.values[k].toFixed(1)} σ</b></span>} hint={`${min}–${max} σ`}>
-          <input type="range" min={min} max={max} step={0.1} value={form.values[k]} aria-label={l} onChange={e => { form.set(k, +e.target.value); form.touch('act') }} />
-        </FieldGroup>
-      ))}
-      <FormError form={form} />
-      <SubmitButton form={form} className="btn pri start">Apply to crew</SubmitButton>
-      <div className="hr" />
-      <span className="lbl">Cross-signal rules (always on)</span>
-      <ul className="steps">
-        <li>Sleep + mood + reaction time together → behavioural alert, reaction test, 3-night plan</li>
-        <li>High pulse + low water in the first 72 h → space sickness, hydration goals</li>
-        <li>Low pressure + high pulse in partial gravity → re-adaptation, slow standing</li>
-        <li>Wavy Amsler grid → eye alert (SANS screen)</li>
-        <li>Solar particle event → everyone to shelter, radiation protocol</li>
-      </ul>
-    </form>
   )
 }
 
