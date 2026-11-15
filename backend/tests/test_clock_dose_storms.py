@@ -13,6 +13,7 @@ from canary import db  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import advice, data, dose, goals, health, live, mission, notify, plan, registry, risk  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
 
 client = TestClient(app)
 LAUNCH = dt.date(2035, 6, 1)
@@ -22,9 +23,9 @@ LAUNCH = dt.date(2035, 6, 1)
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     monkeypatch.setattr(settings, "live_space_weather", False)
-    client.post("/api/demo/reset")
+    reset_demo(client)
     yield
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def ctl():
@@ -46,7 +47,7 @@ def day(d):
 def empty_database(monkeypatch):
     """No package at all: the app starts empty (no measurements, no scenes), then Mission Control registers the demo crew."""
     monkeypatch.setattr(settings, "mission_package", "")
-    assert client.post("/api/demo/reset").status_code == 200
+    assert reset_demo(client).status_code == 200
     form = data.demo_form()
     assert client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"], "mission": form["mission"]}).status_code == 200
 

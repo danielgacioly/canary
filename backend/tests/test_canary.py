@@ -13,15 +13,16 @@ from canary import auth, db  # noqa: E402
 from canary.assistant import guard  # noqa: E402
 from canary.domain import catalog, goals, health, mission, plan as plan_mod  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def fresh():
-    client.post("/api/demo/reset")
+    reset_demo(client)
     yield
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
@@ -160,7 +161,7 @@ def test_briefing_is_approved_then_queued():
     at(2)
     b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
     assert b["status"] == "draft" and "WHAT WORRIES" in b["text"]
-    assert client.post(f"/api/briefings/{b['id']}/approve").json()["status"] == "queued"
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h")).json()["status"] == "queued"
 
 
 def test_medical_endpoints_need_the_pin():
@@ -302,7 +303,7 @@ def test_changing_the_pin_replaces_the_old_one():
     assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
     stored = json.dumps(db.get_setting("pins"))
     assert "2468" not in stored  # stored salted and hashed
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert client.post("/api/crew/h/session", json={"pin": "1001"}).status_code == 200  # reset restores defaults
 
 
@@ -322,7 +323,7 @@ def test_setup_saves_the_plan_and_marks_it_done():
     ms = client.post("/api/setup", json={"name": "Artemis", "legs": legs}).json()
     assert ms["setup_done"] and ms["plan_name"] == "Artemis" and ms["step"] == 0
     assert client.put("/api/mission", json={"day": 10}).json()["location"] == "moon"
-    client.post("/api/demo/reset")
+    reset_demo(client)
     ms = client.get("/api/mission").json()
     assert ms["setup_done"] is True and ms["plan_name"] == "Mars reference mission"  # reset restores the demo mission
 
@@ -402,7 +403,7 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.post("/api/crew/h/session", json={"pin": "2468"}).status_code == 200
     assert client.get("/api/plan").json()["preset"] == "iss"
 
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
 
 
@@ -1902,5 +1903,5 @@ def test_the_photo_never_reaches_crew_mission_or_control_overviews_and_a_reset_c
     for name, body in _crew_facing().items():
         assert "has_photo" not in set(_keys(body)) and "base64" not in json.dumps(body), name
     assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 1
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert db.q("SELECT COUNT(*) n FROM checkin_photos")[0]["n"] == 0

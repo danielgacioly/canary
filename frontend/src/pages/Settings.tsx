@@ -1,9 +1,11 @@
 // Settings for this terminal: appearance, accessibility, Guided Response, demo controls.
 // Personal settings (photo, PIN) live in My space.
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Prefs } from '../state/prefs'
 import { ActionError } from '../components/Field'
+import PinPad, { PinModal } from '../components/PinPad'
 import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 
@@ -24,6 +26,14 @@ export default function Settings() {
   const { prefs, setPref, setStep, toast } = useSession()
   const nav = useNavigate()
   const reset = useAction()
+  const [askPin, setAskPin] = useState(false)
+  // The reset wipes the database, so the API asks for the Canary Control sign-in. A session opened here only for the
+  // reset is closed right after it; one that was already open (Canary Control on this terminal) stays.
+  const doReset = (signOutAfter: boolean) => reset.run(async () => {
+    try { await api.reset() } finally { if (signOutAfter) api.controlSignOut() }
+    await setStep(0)
+    toast('Demo reset.')
+  })
   const toggle = (k: keyof Prefs, title: string, desc: string) => (
     <Row title={title} desc={desc}><Switch on={prefs[k] as boolean} onChange={v => setPref(k, v as never)} label={title} /></Row>
   )
@@ -62,10 +72,16 @@ export default function Settings() {
         <Row title="Replay the intro" desc="The canary story and the mission, from the start.">
           <button className="btn" onClick={() => nav('/welcome')}>Replay</button>
         </Row>
-        <Row title="Reset the demo" desc="Clears check-ins, goals ticked, messages, emergencies, photos and changed PINs.">
-          <button className="btn" disabled={reset.busy} onClick={() => reset.run(async () => { await api.reset(); await setStep(0); toast('Demo reset.') })}>{reset.busy ? 'Resetting…' : 'Reset'}</button>
+        <Row title="Reset the demo" desc="Clears check-ins, goals ticked, messages, emergencies, photos and changed PINs. Asks for the Canary Control PIN.">
+          <button className="btn" disabled={reset.busy} onClick={() => api.isControl() ? doReset(false) : setAskPin(true)}>{reset.busy ? 'Resetting…' : 'Reset'}</button>
         </Row>
         <ActionError error={reset.error} />
+        {askPin && (
+          <PinModal onCancel={() => setAskPin(false)}>
+            <PinPad title="Canary Control PIN" subtitle="Resetting clears the whole demo" hint="Demo PIN: 4242" onCancel={() => setAskPin(false)}
+              onSubmit={async pin => { await api.controlSignIn(pin); setAskPin(false); doReset(true) }} />
+          </PinModal>
+        )}
       </section>
     </div>
   )

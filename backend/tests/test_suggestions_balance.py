@@ -13,6 +13,7 @@ from canary.assistant import suggestions  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import protocols  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
 
 client = TestClient(app)
 
@@ -21,7 +22,7 @@ client = TestClient(app)
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     monkeypatch.setattr(settings, "live_space_weather", False)
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def tok(cid, pin):

@@ -69,7 +69,10 @@ def build(crew_id: str) -> dict:
 
 
 def approve(bid: int) -> dict:
+    """Queue a draft for Earth. Approving again sends nothing more: the briefing left once."""
     b = get(bid)
+    if b["status"] != "draft":
+        return b
     delay = LOCATIONS[mission.state()["location"]]["delay_s"] / settings.delay_speedup
     now = time.time()
     db.x("UPDATE briefings SET status='queued', sent_at=?, deliver_at=? WHERE id=?", (now, now + delay, bid))
@@ -79,7 +82,11 @@ def approve(bid: int) -> dict:
 
 
 def get(bid: int) -> dict:
-    r = db.q("SELECT * FROM briefings WHERE id=?", (bid,))[0]
+    """One briefing. LookupError when there is no briefing with that id."""
+    rows = db.q("SELECT * FROM briefings WHERE id=?", (bid,))
+    if not rows:
+        raise LookupError(f"no briefing {bid}")
+    r = rows[0]
     return {**r, "facts": json.loads(r["facts"]), "bytes": len(r["text"].encode())}
 
 

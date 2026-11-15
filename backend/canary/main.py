@@ -75,7 +75,7 @@ async def lifespan(_app):
 
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
               description="Crew health monitoring for space missions. NASA Space Apps Challenge 2026.")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
 # ---------------------------------------------------------------- one error shape for every bad input
@@ -154,6 +154,20 @@ def require_medical(authorization: Optional[str] = Header(None)) -> None:
             raise ValueError
     except ValueError:
         raise HTTPException(401, "medical team sign-in required")
+
+
+def _control_sig(exp: int) -> str:
+    return hmac.new(settings.token_secret.encode(), f"control:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def require_control(x_canary_control: Optional[str] = Header(None)) -> None:
+    """Canary Control (Mission Control) sign-in: a `control.{exp}.{sig}` token from its own PIN."""
+    try:
+        tag, exp, sig = (x_canary_control or "").split(".")
+        if tag != "control" or int(exp) < time.time() or not hmac.compare_digest(sig, _control_sig(int(exp))):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(401, "Mission Control sign-in required")
 
 
 def _is_medical(authorization: Optional[str]) -> bool:
@@ -263,10 +277,10 @@ def put_mission(body: MissionIn):
     return mission.state()
 
 
-@app.post("/api/demo/reset", tags=["mission"])
+@app.post("/api/demo/reset", tags=["mission"], dependencies=[Depends(require_control)])
 def demo_reset():
     """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
-    An empty setting starts with no data at all."""
+    An empty setting starts with no data at all. Wipes the database, so it needs the Canary Control sign-in."""
     _start_over(settings.mission_package)
     return mission.state()
 
@@ -741,8 +755,10 @@ def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
 def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
-    private = ("advice", "alert", "alert_earth")  # private to the medical officer and the medical team
-    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]))]
+    # Private to the people in the message and the medical team: advice and alerts go to the medical officer, a briefing
+    # carries the sender's own health facts to Earth.
+    private = ("advice", "alert", "alert_earth", "briefing")
+    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or (v["id"] and v["id"] in (r["sender"], r["recipient"]))))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
     for r in rows:
@@ -839,7 +855,14 @@ def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
 
 
 @app.post("/api/briefings/{bid}/approve", tags=["assistant"])
-def briefing_approve(bid: int):
+def briefing_approve(bid: int, v: dict = Depends(viewer)):
+    """The astronaut approves their own briefing before it is queued for Earth. Nobody else can."""
+    try:
+        b = briefing.get(bid)
+    except LookupError:
+        raise HTTPException(404, "no such briefing")
+    if v["id"] != b["crew_id"]:
+        raise HTTPException(403, "only the astronaut approves their briefing")
     return briefing.approve(bid)
 
 
@@ -959,19 +982,6 @@ def mission_overview():
             "launch_date": launch.isoformat(), "today_date": (launch + timedelta(days=ms["day"])).isoformat(),
             "destination": LOCATIONS[dest["location"]]["name"], "flight_days": p["legs"][-1]["end"] + 1,
             "legs": p["legs"], "mission": ms, "crew": crew}
-
-
-def _control_sig(exp: int) -> str:
-    return hmac.new(settings.token_secret.encode(), f"control:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
-
-
-def require_control(x_canary_control: Optional[str] = Header(None)) -> None:
-    try:
-        tag, exp, sig = (x_canary_control or "").split(".")
-        if tag != "control" or int(exp) < time.time() or not hmac.compare_digest(sig, _control_sig(int(exp))):
-            raise ValueError
-    except ValueError:
-        raise HTTPException(401, "Mission Control sign-in required")
 
 
 @app.post("/api/control/session", tags=["control"])
@@ -1287,5 +1297,12 @@ if _dist.is_dir():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
-        f = _dist / path
-        return FileResponse(f if path and f.is_file() else _dist / "index.html")
+        """A file of the built app, else index.html. A path that leaves dist (`..%2f`) is never served."""
+        return FileResponse(spa_file(_dist, path))
+
+
+def spa_file(dist: pathlib.Path, path: str) -> pathlib.Path:
+    """The file under `dist` that `path` names, or dist/index.html when there is none or it would leave `dist`."""
+    root = dist.resolve()
+    f = (root / path).resolve()
+    return f if path and f.is_file() and f.is_relative_to(root) else root / "index.html"

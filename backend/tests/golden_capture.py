@@ -43,7 +43,7 @@ def load_demo(client) -> None:
     scripts/load_mission.py use. Then check the package really is what the engine runs on."""
     from canary import db
     from canary.config import settings
-    r = client.post("/api/demo/reset")
+    r = reset_demo(client)
     assert r.status_code == 200, r.text
     assert settings.mission_package == "odyssey1-mars" and db.get_setting("package")["name"] == "odyssey1-mars"
 
@@ -64,6 +64,16 @@ def _token(client, path: str, pin: str) -> str:
     r = client.post(path, json={"pin": pin})
     assert r.status_code == 200, (path, r.text)
     return r.json()["token"]
+
+
+def control_headers(client) -> dict:
+    """The Canary Control sign-in header. It stays valid across a reset: the Control PIN comes from the settings, not the database."""
+    return {"X-Canary-Control": _token(client, "/api/control/session", CONTROL_PIN)}
+
+
+def reset_demo(client):
+    """POST /api/demo/reset, which wipes the database and so needs the Canary Control sign-in."""
+    return client.post("/api/demo/reset", headers=control_headers(client))
 
 
 def _get(client, path: str, headers: Optional[dict] = None) -> Any:

@@ -3,7 +3,7 @@ import os
 import pathlib
 import re
 import secrets
-from typing import Dict
+from typing import Dict, List
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -52,6 +52,10 @@ class Settings:
     # AI assistant provider: "none" (default), "anthropic" or "local". See canary/assistant/providers.py
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
     frontend_dist: str = os.environ.get("CANARY_FRONTEND_DIST", str(ROOT / "frontend" / "dist"))
+    # Web origins that may call the API from another origin (comma-separated). The dev server proxies /api and
+    # `make serve` is one origin, so neither needs this; it keeps a page from some other origin off the API.
+    cors_origins: List[str] = [o.strip() for o in os.environ.get(
+        "CANARY_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o.strip()]
     # Compute the six demo-story days in the background at start-up, so the first click on a scene is quick.
     # Key a sensor, wearable or lab must send (header X-Canary-Key) to POST /api/observations. Empty: ingest is off.
     ingest_key: str = os.environ.get("CANARY_INGEST_KEY", "")

@@ -19,6 +19,7 @@ from canary import db  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, goals, selftests, simdata, telemetry  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
 
 client = TestClient(app)
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -31,10 +32,10 @@ GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measur
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", KEY)
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     yield
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def key():
@@ -180,7 +181,7 @@ def upload(files, headers=None):
 
 
 def test_importing_a_package_with_one_bad_row_names_the_row_and_writes_nothing(tmp_path):
-    client.post("/api/demo/reset")
+    reset_demo(client)
     snap = (n_obs(), db.q("SELECT COUNT(*) n FROM goal_log")[0]["n"], db.q("SELECT COUNT(*) n FROM scenes")[0]["n"], data.version())
     pkg = package_files(tmp_path, bad_line=1201)  # line 1202 of the file
     with pytest.raises(data.ValidationFailure) as e:
@@ -196,7 +197,7 @@ def test_a_bad_row_in_a_later_file_writes_nothing_from_the_earlier_ones(tmp_path
     monkey = settings.mission_package
     settings.mission_package = ""
     try:
-        client.post("/api/demo/reset")
+        reset_demo(client)
         assert n_obs() == 0
         pkg = package_files(tmp_path)
         (pkg / "scenes.csv").write_text("index,day,location,person,storm,when,text\n0,1,mars_base,h,,x,y\n", encoding="utf-8")
@@ -209,7 +210,7 @@ def test_a_bad_row_in_a_later_file_writes_nothing_from_the_earlier_ones(tmp_path
 
 def test_a_zip_of_a_package_imports_and_a_second_time_adds_no_readings(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "mission_package", "")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         for f in MARS.glob("*.csv"):
@@ -231,7 +232,7 @@ def test_a_zip_of_a_package_imports_and_a_second_time_adds_no_readings(monkeypat
 
 def test_loose_csv_files_import_and_unknown_files_are_refused(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     r = upload({"notes.csv": b"a,b\n1,2\n"})
     assert r.status_code == 422 and "Unknown file" in r.json()["errors"][0]["message"]
     r = upload({"observations.csv": b"crew_id,day,indicator,value,unit\nh,1,sleep,7,h\n"})
@@ -253,7 +254,7 @@ def test_a_bundled_package_loads_by_name_and_paths_are_refused():
 
 def test_the_import_of_a_whole_package_is_fast(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     data._prepared_cache.clear()
     t = time.time()
     r = data.import_named("odyssey1-mars")
@@ -263,19 +264,19 @@ def test_the_import_of_a_whole_package_is_fast(monkeypatch):
 # ---------------------------------------------------------------- reset, scenes, start-up
 def test_reset_with_no_package_starts_empty(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "")
-    assert client.post("/api/demo/reset").status_code == 200
+    assert reset_demo(client).status_code == 200
     for t in ("observations", "space_events", "scenes", "goal_log"):
         assert db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] == 0, t
     assert client.get("/api/scenes").json() == [] and data.table().obs == {}
     # a package named in the settings loads again on the next reset
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert n_obs() > 50000
 
 
 def test_start_up_loads_the_package_once_and_only_when_empty(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert data.bootstrap() is None  # nothing configured: stays empty
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     assert data.bootstrap()["accepted"]["observations"] > 50000
@@ -435,7 +436,7 @@ def test_data_status_never_shows_the_key_when_ingest_is_off(monkeypatch):
 
 def test_the_loaded_package_is_named_by_what_was_uploaded(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "")
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert data.upload_label([("my-mission.zip", b"")]) == "my-mission.zip" and data.upload_label([("a.csv", b"")]) == "a.csv"
     two = {"mission.csv": (MARS / "mission.csv").read_bytes(), "crew.csv": (MARS / "crew.csv").read_bytes()}
     r = upload(two)
@@ -449,7 +450,7 @@ def _register_two():
 
 
 def test_registering_a_crew_drops_the_scenes_of_a_loaded_package_and_loading_it_again_brings_them_back():
-    client.post("/api/demo/reset")
+    reset_demo(client)
     mine = client.post("/api/control/space-events", headers=ctl(), json={"kind": "sep", "start_day": 50, "end_day": 51, "locations": ["mars"],
                                                                          "extra_dose_msv": 3, "origin": "simulated"})
     assert mine.status_code == 200, mine.text
@@ -466,7 +467,7 @@ def test_registering_a_crew_drops_the_scenes_of_a_loaded_package_and_loading_it_
 
 
 def test_clearing_everything_also_drops_the_package_story():
-    client.post("/api/demo/reset")
+    reset_demo(client)
     assert len(client.get("/api/scenes").json()) == 6
     assert client.post("/api/control/clear", headers=ctl()).status_code == 200
     assert client.get("/api/scenes").json() == [] and data.loaded_package() is None
@@ -474,7 +475,7 @@ def test_clearing_everything_also_drops_the_package_story():
 
 
 def test_registering_restarts_the_clock_where_the_story_began():
-    client.post("/api/demo/reset")
+    reset_demo(client)
     client.put("/api/mission", json={"day": 152})
     assert _register_two().status_code == 200
     m = client.get("/api/mission").json()

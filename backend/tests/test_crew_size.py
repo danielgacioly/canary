@@ -19,6 +19,7 @@ from canary import db  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import catalog, data, goals, health, privacy, registry  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
 from tests import golden_capture as gc  # noqa: E402
 
 client = TestClient(app)
@@ -33,10 +34,10 @@ def fresh(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", KEY)
     monkeypatch.setattr(settings, "mission_package", "")
     monkeypatch.setattr(settings, "live_space_weather", False)
-    assert client.post("/api/demo/reset").status_code == 200
+    assert reset_demo(client).status_code == 200
     yield
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def ctl():
