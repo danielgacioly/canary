@@ -3,7 +3,7 @@
 Everything numeric that comes from literature is marked `source` so it can be
 checked before the pitch. Crew members and their baselines are fictional.
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------- places
 LOCATIONS: Dict[str, dict] = {
@@ -131,6 +131,39 @@ INDICATORS: Dict[str, dict] = {
     "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
     "vo2": {"name": "Aerobic capacity (VO2max)", "unit": "mL/kg/min", "area": "physical", "dir": "low", "sd": 3.0, "dp": 1},
 }
+
+# How long a reading stays current, in days (`max_age`). Derived from how often the indicator is measured (the
+# `frequency.every` of its recipe in data/recipes.json): measured every day -> 3 days; every 2 to 7 days -> 10 days; a
+# monthly blood panel -> 45 days; any other interval -> 1.5 times the interval, rounded up. Exception to the 10 days: a
+# weekly measurement gets 21 (three intervals), because the mock data skips weekly tests for up to 20 days on purpose
+# (h's VO2max, days -28 to -7) and a carried-forward test inside that window is still current.
+# A reading older than that is stale: it is shown as the last measurement, but never counted as today's value.
+MEASURED_EVERY = {"sleep": 1, "react": 1, "mood": 1, "stress": 1, "social": 1, "hr": 1, "bp": 1, "spo2": 1, "temp": 1, "gluc": 3,
+                  "water": 1, "exer": 1, "grip": 1, "vo2": 7, "bone": 1, "dsst": 3, "span": 3, "kss": 1, "tlx": 7}
+
+
+def max_age_for(every: int) -> int:
+    """Days a reading of an indicator measured every `every` days stays current (rule above)."""
+    if every <= 1:
+        return 3
+    if every <= 7:
+        return max(10, 3 * every)  # 10 days; a weekly test 21: three intervals
+    if every == 30:
+        return 45
+    return -(-3 * every // 2)  # ceil(1.5 * every)
+
+
+for _ind, _every in MEASURED_EVERY.items():
+    INDICATORS[_ind]["max_age"] = max_age_for(_every)
+OTHER_MEASURED_EVERY = {"weight": 3, "hrv": 1}  # measured and stored, but not in INDICATORS
+
+
+def max_age(ind: str) -> Optional[int]:
+    """Days a reading of `ind` stays current, or None for what has no rule here (lab panels have their own, in risk.PANELS)."""
+    if ind in INDICATORS:
+        return INDICATORS[ind]["max_age"]
+    return max_age_for(OTHER_MEASURED_EVERY[ind]) if ind in OTHER_MEASURED_EVERY else None
+
 
 # Where each cognitive or self-report indicator comes from. None of the numbers is a published value.
 INDICATOR_NOTES: Dict[str, dict] = {

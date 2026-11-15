@@ -40,12 +40,13 @@ ALTERNATIVES: Dict[str, List[dict]] = {
 }
 
 
-def _bad(crew_id: str, ind: str, day: int) -> float:
+def _bad(crew_id: str, ind: str, day: int) -> Optional[float]:
     """How far the indicator is from the person's normal around `day`, in personal spreads (higher is worse):
-    the mean of the last three days' values, so one noisy day cannot decide an outcome."""
+    the mean of the last three days' values, so one noisy day cannot decide an outcome. Days with no current reading, or
+    with no normal of their own to compare with yet, do not count; None when no day counts."""
     from . import health
-    vals = [health.indicator(crew_id, ind, risk._day_ms(d))["bad"] for d in (day, day - 1, day - 2)]
-    return sum(vals) / len(vals)
+    vals = [b for b in (health.indicator(crew_id, ind, risk._day_ms(d))["bad"] for d in (day, day - 1, day - 2)) if b is not None]
+    return sum(vals) / len(vals) if vals else None
 
 
 def risk_of(indicator: str) -> Optional[str]:
@@ -60,15 +61,22 @@ def start(crew_id: str, goal_id: str, origin: str, verify: Optional[dict], day: 
     if db.q("SELECT id FROM advice WHERE crew_id=? AND goal_id=? AND start_day<=? AND check_day>?", (crew_id, goal_id, day, day)):
         return None
     ind = verify["indicator"]
+    start_bad = _bad(crew_id, ind, day)
+    if start_bad is None:  # nothing to compare with later: no experiment without a starting number
+        return None
     return db.x("INSERT INTO advice(crew_id,goal_id,origin,indicator,risk,start_day,check_day,start_bad,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (crew_id, goal_id, origin, ind, risk_of(ind), day, day + int(verify["after_days"]), _bad(crew_id, ind, day), time.time()))
+                (crew_id, goal_id, origin, ind, risk_of(ind), day, day + int(verify["after_days"]), start_bad, time.time()))
 
 
 def outcome(row: dict, day: int) -> str:
-    """pending until check_day; then improved / same / worse from how far the indicator moved by check_day."""
+    """pending until check_day; then improved / same / worse from how far the indicator moved by check_day, or no_data
+    when nothing was measured around check_day."""
     if day < row["check_day"]:
         return "pending"
-    delta = _bad(row["crew_id"], row["indicator"], row["check_day"]) - row["start_bad"]
+    end = _bad(row["crew_id"], row["indicator"], row["check_day"])
+    if end is None:
+        return "no_data"
+    delta = end - row["start_bad"]
     return "improved" if delta <= -MARGIN else "worse" if delta >= MARGIN else "same"
 
 
@@ -77,7 +85,8 @@ def _item(row: dict, day: int) -> dict:
     out = {"goal_id": row["goal_id"], "origin": row["origin"], "indicator": row["indicator"], "risk": row["risk"],
            "start_day": row["start_day"], "check_day": row["check_day"], "start_bad": round(row["start_bad"], 2), "status": st}
     if st != "pending":
-        out["bad_at_check"] = round(_bad(row["crew_id"], row["indicator"], row["check_day"]), 2)
+        end = _bad(row["crew_id"], row["indicator"], row["check_day"])
+        out["bad_at_check"] = None if end is None else round(end, 2)
     return out
 
 
@@ -108,6 +117,8 @@ def _rounds(crew_id: str, rid: str, day: int) -> List[dict]:
     out = []
     for start_day, rs in groups.items():
         sts = [outcome(r, day) for r in rs]
+        if all(x == "no_data" for x in sts):  # a round nobody could measure says nothing: it is neither progress nor failure
+            continue
         out.append({"start_day": start_day, "check_day": max(r["check_day"] for r in rs),
                     "improved": "improved" in sts, "indicators": sorted({r["indicator"] for r in rs}),
                     "results": dict(zip([r["indicator"] for r in rs], sts))})

@@ -23,7 +23,8 @@ VOLATILE_KEYS = {"created_at", "sent_at", "deliver_at", "fetched_at", "at", "upd
 
 # Fields that later phases may ADD to a dict without failing the comparison. Changed values of keys that already
 # exist in the golden file always fail.
-NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", "estimated_days"}
+NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", "estimated_days",
+              "no_data", "learning", "max_age"}  # phase 4: a system or a person with no data yet; an indicator still learning its normal
 
 
 def new_client(db_path: Optional[str] = None):
@@ -69,6 +70,19 @@ def _get(client, path: str, headers: Optional[dict] = None) -> Any:
     return r.json()
 
 
+# The GETs the frontend makes, by who asks. test_empty_and_stale.py reads these lists too, so a new endpoint added here is
+# also checked on an empty system.
+PUBLIC_PATHS = ("/api/catalog", "/api/mission", "/api/mission/overview", "/api/crew/overview", "/api/leaderboard",
+                "/api/space-weather", "/api/nasa/rad", "/api/nasa/sources", "/api/plan", "/api/plan/conditions",
+                "/api/protocols", "/api/emergencies")
+CREW_PATHS = ("/api/crew/{c}", "/api/crew/{c}/record", "/api/goals/{c}", "/api/advice/{c}", "/api/checkins/{c}",
+              "/api/suggestions/{c}", "/api/messages?crew_id={c}")  # each with the person's own token
+MEDICAL_PATHS = ("/api/crew", "/api/medical/overview", "/api/medical/goals", "/api/medical/care-sensitivity",
+                 "/api/medical/exercise-adjust", "/api/messages")
+MEDICAL_CREW_PATHS = ("/api/crew/{c}", "/api/crew/{c}/record", "/api/goals/{c}")  # the medical officer reads every private page too
+CONTROL_PATHS = ("/api/control/overview", "/api/control/demo")
+
+
 def capture_scene(client) -> Dict[str, Any]:
     """Every GET the frontend makes for the crew (My space, Crew, Mission plan, Ranking), the medical console and
     Canary Control, for the scene the app is in now. Assistant/LLM endpoints and photos are skipped."""
@@ -77,31 +91,20 @@ def capture_scene(client) -> Dict[str, Any]:
     med = {"Authorization": "Bearer " + _token(client, "/api/medical/session", MEDICAL_PIN)}
     ctl = {"X-Canary-Control": _token(client, "/api/control/session", CONTROL_PIN)}
 
-    # public
-    for p in ("/api/catalog", "/api/mission", "/api/mission/overview", "/api/crew/overview", "/api/leaderboard",
-              "/api/space-weather", "/api/nasa/rad", "/api/nasa/sources", "/api/plan", "/api/plan/conditions",
-              "/api/protocols", "/api/emergencies"):
+    for p in PUBLIC_PATHS:
         out[p] = _get(client, p)
-
-    # each crew member with their own token
     for c in CREW_IDS:
-        h = crew_h[c]
-        for p in (f"/api/crew/{c}", f"/api/crew/{c}/record", f"/api/goals/{c}", f"/api/advice/{c}",
-                  f"/api/checkins/{c}", f"/api/suggestions/{c}"):
-            out[f"{p} [as {c}]"] = _get(client, p, h)
-        out[f"/api/messages?crew_id={c} [as {c}]"] = _get(client, f"/api/messages?crew_id={c}", h)
-
-    # medical console
-    for p in ("/api/crew", "/api/medical/overview", "/api/medical/goals", "/api/medical/care-sensitivity",
-              "/api/medical/exercise-adjust", "/api/messages"):
+        for t in CREW_PATHS:
+            p = t.format(c=c)
+            out[f"{p} [as {c}]"] = _get(client, p, crew_h[c])
+    for p in MEDICAL_PATHS:
         out[f"{p} [as medical]"] = _get(client, p, med)
-    for c in CREW_IDS:  # the medical officer reads every private page too
-        for p in (f"/api/crew/{c}", f"/api/crew/{c}/record", f"/api/goals/{c}"):
+    for c in CREW_IDS:
+        for t in MEDICAL_CREW_PATHS:
+            p = t.format(c=c)
             out[f"{p} [as medical]"] = _get(client, p, med)
-
-    # Canary Control
-    out["/api/control/overview [as control]"] = _get(client, "/api/control/overview", ctl)
-    out["/api/control/demo [as control]"] = _get(client, "/api/control/demo", ctl)
+    for p in CONTROL_PATHS:
+        out[f"{p} [as control]"] = _get(client, p, ctl)
     return out
 
 

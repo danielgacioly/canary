@@ -7,7 +7,7 @@ each suggestion; guard.unknown_numbers rejects any rewrite that brings a number 
 contain. With no model, the rule text is shown as it is.
 """
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 from .. import db
@@ -34,8 +34,9 @@ VERIFY = {sid: {"indicator": ind, "after_days": n} for sid, (ind, n) in {
     "hobby": ("mood", 7), "home": ("mood", 7)}.items()}
 
 
-def _r(x: float, dp: int):
-    return int(round(x)) if dp == 0 else round(x, dp)
+def _r(x: Optional[float], dp: int):
+    """A reading as the app shows it; None stays None (no reading, or no normal of their own yet)."""
+    return None if x is None else int(round(x)) if dp == 0 else round(x, dp)
 
 
 def _week_counts(crew_id: str, today: int) -> Dict[str, int]:
@@ -132,7 +133,9 @@ def candidates(f: dict) -> List[dict]:
     st, md = i["stress"], i["mood"]
     if st["level"] or md["level"]:
         add("breathe", "mental", 70, "Ten minutes of slow breathing after shift",
-            f"Stress is {st['value']} of 5 against your normal {st['normal']}, mood {md['value']} against {md['normal']}.",
+            (f"Stress is {st['value']} of 5 against your normal {st['normal']}, mood {md['value']} against {md['normal']}."
+             if None not in (st["value"], st["normal"], md["value"], md["normal"]) else
+             "Stress or mood is outside the range that is safe, or away from your normal."),
             ["Breathe in for 4, out for 6, for 10 minutes", "Same time and place each day", "Log your mood afterwards"],
             "10 minutes of slow breathing after shift", src("stress", "mood"))
 

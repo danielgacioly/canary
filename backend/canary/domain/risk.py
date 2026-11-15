@@ -17,7 +17,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 from .. import db
-from . import care, data, dose, plan
+from . import care, catalog, data, dose, plan
 
 # ---------------------------------------------------------------- tables (prototype assumption)
 # Every weight and cut below is a prototype assumption: no published model sums these signals. They were chosen
@@ -96,7 +96,9 @@ def drift(crew_id: str, ind: str, day: int, base: float, sd: float, limit: float
     sign = {"low": -1.0, "high": 1.0}.get(INDICATORS[ind]["dir"])
     if sign is None:
         return None
-    ys = [sign * (v - base) / sd for _d, v in telemetry.series(crew_id, ind, day, DRIFT["window"])]
+    if base is None or sd is None:  # no normal of their own yet: nothing to drift from
+        return None
+    ys = [sign * (v - base) / sd for _d, v in telemetry.series(crew_id, ind, day, DRIFT["window"]) if v is not None]  # a gap is no point
     return drift_of(ys, limit)
 
 
@@ -118,11 +120,16 @@ def _fatigue(crew_id: str, day: int) -> dict:
     ev, signals, drift_pts = [], 0, 0.0
     for ind, w in FATIGUE["weights"].items():
         d = health.indicator(crew_id, ind, ms, th, last, uv, by_ind)
+        if d["value"] is None:  # no current reading: an absent signal adds nothing
+            continue
         base = {"indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"]}
         if d["level"]:
-            word = "above" if d["delta"] > 0 else "below"
-            ev.append({**base, "points": round(w * d["level"], 2),
-                       "text": f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal"})
+            if d["delta"] is None:  # no normal of their own yet: only a safety limit speaks
+                text = f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, outside the safe range"
+            else:
+                text = (f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} "
+                        f"{'above' if d['delta'] > 0 else 'below'} your normal")
+            ev.append({**base, "points": round(w * d["level"], 2), "text": text})
             signals += 1
         elif drift_pts < FATIGUE["drift"]["cap"]:
             lim = {**th, **by_ind.get(ind, {})}["watch"]
@@ -264,13 +271,17 @@ def _inds(crew_id: str, day: int, tok: tuple) -> dict:
 def _ind_ev(inds: dict, ind: str, weight: float = 1.0) -> Optional[dict]:
     """Evidence from one catalog indicator against the person's own normal; None when it is on track."""
     d = inds[ind]
-    if not d["level"]:
+    if not d["level"] or d["value"] is None:  # on track, or no current reading: an absent signal adds nothing
         return None
-    word = "above" if d["delta"] > 0 else "below"
+    if d["delta"] is None:  # no normal of their own yet: only a safety limit speaks
+        text = (f"{d['name']} {_fmt(100 + d['value'], 1)} % of pre-flight, outside the safe range" if ind == "bone"
+                else f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, outside the safe range")
+    else:
+        word = "above" if d["delta"] > 0 else "below"
+        text = (f"{d['name']} {_fmt(100 + d['value'], 1)} % of pre-flight, {_fmt(abs(d['delta']), 1)} % {word} your normal" if ind == "bone"
+                else f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal")
     ev = {"key": ind, "indicator": ind, "value": d["value"], "baseline": d["baseline"], "z": d["z"], "origin": d["origin"], "source": d["source"],
-          "points": round(weight * d["level"], 2),
-          "text": (f"{d['name']} {_fmt(100 + d['value'], 1)} % of pre-flight, {_fmt(abs(d['delta']), 1)} % {word} your normal" if ind == "bone"
-                   else f"{d['name']} {_fmt(d['value'], d['dp'])} {d['unit']}, {_fmt(abs(d['delta']), d['dp'])} {d['unit']} {word} your normal")}
+          "points": round(weight * d["level"], 2), "text": text}
     std = d.get("standard") or {}
     if std.get("level"):  # past (2) or close to (1) a NASA-STD-3001 limit: the risk is at least that level
         ev.update(floor=std["level"], standard=std, text=f"{std['text']} (NASA-STD-3001 {std['item']})")
@@ -378,7 +389,7 @@ def _g_nutrition(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     ev = [e for e in [_ind_ev(inds, "gluc")] if e]
     pre = list(telemetry.preflight_values(crew_id, "weight").values())
     o = telemetry.last_observation(crew_id, "weight", day)
-    if pre and o:
+    if pre and o and o["age"] <= (catalog.max_age("weight") or 10**6):  # an old weight is not today's weight
         base = statistics.mean(pre)
         loss = 100 * (base - o["value"]) / base
         pts = 2.0 if loss >= R["loss_pct"][2] else 1.0 if loss >= R["loss_pct"][1] else 0.0
@@ -394,7 +405,8 @@ def _bone_rate(crew_id: str, day: int) -> Optional[float]:
     from . import telemetry
     if day < 30:
         return None
-    return telemetry.current(crew_id, "bone", day - 30) - telemetry.current(crew_id, "bone", day)
+    then, now = telemetry.current(crew_id, "bone", day - 30), telemetry.current(crew_id, "bone", day)
+    return None if then is None or now is None else then - now
 
 
 def _g_renal(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
@@ -547,7 +559,10 @@ def _origins(ev: List[dict]) -> set:
 
 
 def data_origin(origins: set) -> str:
-    """real (all measured: NASA data or typed in the app), simulated (none) or partial (a mix)."""
+    """real (all measured: NASA data or typed in the app), simulated (none) or partial (a mix); "none" when there is no data."""
+    if origins and origins <= {"none"}:
+        return "none"
+    origins = origins - {"none"}
     measured = {o for o in origins if o in ("real", "user")}
     if not origins or not measured:
         return "simulated"
@@ -627,7 +642,9 @@ def _generic_risk(rid: str):
 
 def _fatigue_wrapped(crew_id: str, ms: dict, tok: tuple) -> dict:
     r = _fatigue_risk(crew_id, ms["day"], tok)
-    return _finish(r, ms, _origins(r["evidence"]) or {"simulated"})
+    inds = _inds(crew_id, ms["day"], tok)
+    nothing = all(inds[i].get("status") == "no_data" for i in FATIGUE["weights"])
+    return _finish(r, ms, _origins(r["evidence"]) or ({"none"} if nothing else {"simulated"}))
 
 
 RISKS = {"fatigue": _fatigue_wrapped, **{rid: _generic_risk(rid) for rid in SPECS}}

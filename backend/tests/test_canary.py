@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from canary import auth, db  # noqa: E402
 from canary.assistant import guard  # noqa: E402
-from canary.domain import catalog, goals, health, mission  # noqa: E402
+from canary.domain import catalog, goals, health, mission, plan as plan_mod  # noqa: E402
 from canary.main import app  # noqa: E402
 
 client = TestClient(app)
@@ -201,7 +201,8 @@ def test_bone_loss_depends_on_gravity_in_the_plan():
     at(2)
     mars = health.indicator("t", "bone", mission.state())["value"]
     client.post("/api/plan/preset", json={"preset": "moon"})
-    moon = health.indicator("t", "bone", mission.state())["value"]  # day 147 is back on Earth after a short trip
+    # the moon package ends on day 120 (back on Earth after a short trip): the last day with a current reading
+    moon = health.indicator("t", "bone", {**mission.state(), "day": 120, "location": plan_mod.location_at(120), "learning": False})["value"]
     assert mars < moon
 
 
@@ -603,7 +604,8 @@ def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
     assert client.put("/api/plan", json=good).status_code == 200
     assert telemetry.last_observation("h", "co2", 10) is None  # co2 belongs to "cabin"
     assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
-    for d in (-500, 0, 20, 40, 41, 3000):
+    assert telemetry.SOURCE.value("t", "hr", -500) is None  # before the first measurement: no value, and never an exception
+    for d in (0, 20, 40, 41, 3000):
         assert isinstance(telemetry.SOURCE.value("t", "hr", d), float)
 
 
@@ -762,11 +764,14 @@ def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the
     assert d["baseline_from"] == "preflight" and d["baseline"] == health.baselines("h")["sleep"]["mean"] and d["spread"] >= 0.5
 
 
-def test_a_plan_without_preflight_falls_back_to_the_catalog_seed():
+def test_a_plan_without_preflight_learns_from_the_first_flight_days_never_from_the_catalog_seed():
     plan_no_pre = {"name": "No pre-flight", "legs": [{"location": "rocket", "start": 0, "end": 3}, {"location": "transit", "start": 4, "end": 100}]}
     assert client.put("/api/plan", json=plan_no_pre).status_code == 200
     b = health.baselines("h")
-    assert all(x["from"] == "catalog" and x["mean"] == catalog.CREW_BY_ID["h"]["base"][i] for i, x in b.items())
+    assert not any(x["from"] == "catalog" for x in b.values())
+    assert b["sleep"]["from"] == "early_flight" and b["sleep"]["n"] >= health.MIN_PREFLIGHT  # daily readings: five in the first days
+    for x in b.values():  # a baseline either has a number from the person's own data or is still learning
+        assert (x["mean"] is None) == (x["from"] == "learning")
 
 
 def test_a_preflight_checkin_moves_the_baseline():

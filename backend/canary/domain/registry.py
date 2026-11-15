@@ -16,6 +16,7 @@ from .. import db
 from . import catalog
 
 SEATS = ["h", "k", "a", "t"]
+SEED_KEYS = ("cbc_subject", "age", "base")  # what a seat carries for data/generate_dataset.py only
 DEMO_CREW = copy.deepcopy(catalog.CREW)
 DEMO_RECORDS = copy.deepcopy(catalog.RECORDS)
 DEMO_MISSION = {"callsign": "Odyssey 1", "name": "Mars reference mission", "launch_date": "2035-06-01", "preset": "mars"}
@@ -68,8 +69,8 @@ def load() -> None:
             seat = demo_by_id[p["seat"]]
             reg = str(p.get("sex") or "")[:1].upper()  # the registered sex picks the reference range; else the seat's
             crew.append({"id": p["seat"], "name": p["name"], "role": p["role"], "initials": _initials(p["name"]),
-                         "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"],
-                         "sex": reg if reg in ("F", "M") else seat["sex"], "base": seat["base"]})
+                         "home": p["home"], "sex": reg if reg in ("F", "M") else seat["sex"],
+                         **{k: seat[k] for k in SEED_KEYS}})  # the seat's seed for the sheet generator; the engine never reads it
             records[p["seat"]] = {k: p.get(k) for k in RECORD_FIELDS if k in p or k != "prior_dose_msv"}
     catalog.CREW[:] = crew
     catalog.CREW_BY_ID.clear()

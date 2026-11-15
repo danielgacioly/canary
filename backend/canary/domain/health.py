@@ -29,18 +29,24 @@ def thresholds() -> dict:
     return db.get_setting("thresholds", DEFAULT_THRESHOLDS)
 
 
-MIN_PREFLIGHT = 5  # measurements needed before the pre-flight mean is trusted over the catalog seed
+MIN_PREFLIGHT = 5  # measurements needed before a person's own normal is trusted
+EARLY_FLIGHT_DAYS = 14  # a person who starts in flight learns their normal from their first 14 days of measurements
 _baselines: Dict[tuple, Dict[str, dict]] = {}
 
 
 def baselines(crew_id: str) -> Dict[str, dict]:
-    """Personal baseline per indicator, computed from the plan's pre-flight days.
+    """Personal baseline per indicator, from the person's own measurements, never from a seed.
 
-    mean and spread of every measurement on those days (file rows plus the person's own check-ins). The spread never
-    goes below the catalog's `sd`, so a quiet pre-flight cannot turn ordinary noise into alerts. The mean is shown with
-    the precision the app displays (`dp`), so the "normal 55" on screen is the number the alert used. With too few
-    pre-flight measurements (or no pre-flight leg in the plan) it falls back to the catalog seed. Cached per
-    crew member, plan version and number of pre-flight check-ins.
+    - `from: "preflight"`: mean and spread of every measurement on the plan's pre-flight days (file rows plus the person's
+      own check-ins). The spread never goes below the catalog's `sd`, so a quiet pre-flight cannot turn ordinary noise
+      into alerts. The mean is shown with the precision the app displays (`dp`), so the "normal 55" on screen is the
+      number the alert used.
+    - `from: "early_flight"`: fewer than MIN_PREFLIGHT pre-flight values, but at least that many in the person's first 14
+      days of flight data. Less reliable, and labelled so.
+    - `from: "learning"`: neither. `mean` and `sd` are None: the indicator is only read against the population range and
+      the NASA standard until there is a normal to compare with. `n` measurements so far, `need` wanted.
+
+    Cached per crew member, plan version, stored data and number of check-ins.
     """
     key = (crew_id, plan.version(), data.token(), telemetry.preflight_checkins(crew_id))
     hit = _baselines.get(key)
@@ -50,10 +56,15 @@ def baselines(crew_id: str) -> Dict[str, dict]:
         hit = {}
         for ind, I in INDICATORS.items():
             vals = list(telemetry.preflight_values(crew_id, ind).values())
+            early = list(telemetry.early_flight_values(crew_id, ind, EARLY_FLIGHT_DAYS).values())
             if len(vals) >= MIN_PREFLIGHT:
-                hit[ind] = {"mean": round(statistics.mean(vals), I["dp"]), "sd": max(statistics.pstdev(vals), I["sd"]), "n": len(vals), "from": "preflight"}
+                src, use = "preflight", vals
+            elif len(early) >= MIN_PREFLIGHT:
+                src, use = "early_flight", early
             else:
-                hit[ind] = {"mean": CREW_BY_ID[crew_id]["base"][ind], "sd": I["sd"], "n": len(vals), "from": "catalog"}
+                hit[ind] = {"mean": None, "sd": None, "from": "learning", "n": max(len(vals), len(early)), "need": MIN_PREFLIGHT}
+                continue
+            hit[ind] = {"mean": round(statistics.mean(use), I["dp"]), "sd": max(statistics.pstdev(use), I["sd"]), "n": len(use), "from": src}
         _baselines[key] = hit
     return hit
 
@@ -76,16 +87,31 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
     I = INDICATORS[ind]
     B = baselines(crew_id)[ind]
     base, sd = B["mean"], B["sd"]
-    if ind == "exer":  # the exercise plan changes with the place: compare with today's plan, not with pre-flight
+    learning = base is None  # no normal of their own yet: only the population range and the NASA standard speak
+    spread = I["sd"] if learning else sd
+    if ind == "exer" and base is not None:  # the exercise plan changes with the place: compare with today's plan, not with pre-flight
         base = min(base, EXERCISE_BY_PLACE[ms["location"]][1])
     v = telemetry.current(crew_id, ind, day)
-    z = (v - base) / sd
-    bad = -z if I["dir"] == "low" else z if I["dir"] == "high" else abs(z)
-    level = 0 if ms["learning"] else 2 if bad >= th["act"] else 1 if bad >= th["watch"] else 0
+    out = {"id": ind, "name": I["name"], "unit": I["unit"], "area": I["area"], "facet": I.get("facet"), "dp": I["dp"]}
+    seen_day = last.get(ind)
+    if v is None:  # no row at all, or only stale ones: it is not a health finding, and the last reading is still shown
+        if obs["day"] is not None and (seen_day is None or obs["day"] > seen_day):
+            seen_day = obs["day"]
+        return {**out, "value": None, "baseline": None if base is None else round(base, 3), "delta": None, "z": None, "bad": None,
+                "level": 0, "status": "no_data", "source": f"telemetry:{crew_id}:{ind}:day{day}", "origin": obs["origin"],
+                "last_measured_day": seen_day, "age_days": day - seen_day if seen_day is not None else None, "stale": obs["stale"],
+                "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "learning": learning,
+                "population": {"low": None, "high": None, "status": "no_data", "source": None, "verified": False}, "standard": None,
+                **({"sensitive_until": window["sensitive_until"]} if window else {})}
+    z = bad = None if learning else 0.0
+    if not learning:
+        z = (v - base) / sd
+        bad = -z if I["dir"] == "low" else z if I["dir"] == "high" else abs(z)
+    level = 0 if ms["learning"] or learning else 2 if bad >= th["act"] else 1 if bad >= th["watch"] else 0
     # population range: the safety limit. A critical single reading today is level 2 even in learning;
     # a recent value outside the normal range is at least level 1 (after launch).
     pop = reference.check(ind, CREW_BY_ID[crew_id]["sex"], v)
-    if reference.check(ind, CREW_BY_ID[crew_id]["sex"], obs["value"])["status"] == "critical":
+    if telemetry.is_current(obs) and reference.check(ind, CREW_BY_ID[crew_id]["sex"], obs["value"])["status"] == "critical":
         pop["status"] = "critical"
     if pop["status"] == "critical":
         level = 2
@@ -96,13 +122,13 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
     std = None if ms["learning"] else standards.check(ind, crew_id, ms["location"], v, B["mean"])
     if std:
         level = max(level, std["level"])
-    return {"id": ind, "name": I["name"], "unit": I["unit"], "area": I["area"], "facet": I.get("facet"),
-            "dp": I["dp"], "value": round(v, 2), "baseline": round(base, 3), "delta": round(v - base, 2),
-            "z": round(z, 2), "bad": round(bad, 2), "level": level,
+    return {**out, "value": round(v, 2), "baseline": None if base is None else round(base, 3),
+            "delta": None if base is None else round(v - base, 2),
+            "z": None if z is None else round(z, 2), "bad": None if bad is None else round(bad, 2), "level": level,
             "source": f"telemetry:{crew_id}:{ind}:day{day}",
             "origin": obs["origin"], "last_measured_day": last.get(ind),
-            "age_days": day - last[ind] if ind in last else None,
-            "spread": round(sd, 3), "baseline_from": B["from"], "baseline_n": B["n"], "population": pop,
+            "age_days": day - last[ind] if ind in last else None, "stale": False,
+            "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "learning": learning, "population": pop,
             "standard": std,
             **({"sensitive_until": window["sensitive_until"]} if window else {})}
 
@@ -168,17 +194,22 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
             lv, note = max(lv, 1), "Blood count due after the radiation storm."
         if ms["learning"]:  # nothing to watch yet, except a safety limit
             lv = 2 if any(inds[i]["population"]["status"] == "critical" for i in S["indicators"]) else 0
-        out[sid] = {"id": sid, "name": S["name"], "area": S["area"], "level": lv, "status": STATUS[lv],
+        no_data = bool(S["indicators"]) and all(inds[i].get("status") == "no_data" for i in S["indicators"])
+        if no_data and lv == 0 and not note:  # nothing measured (or only stale readings): say so, it is not a finding
+            note = "No data yet"
+        out[sid] = {"id": sid, "name": S["name"], "area": S["area"], "level": lv, "status": STATUS[lv], "no_data": no_data,
                     "indicators": S["indicators"], "note": note,
                     "risks": [r["id"] for r in risks if sid in r["systems"] and r["level"]]}
     return out
 
 
-def score(inds: Dict[str, dict], area: str, syss: Dict[str, dict]) -> int:
+def score(inds: Dict[str, dict], area: str, syss: Dict[str, dict]) -> Optional[int]:
     """Readiness 0 to 100. Prototype assumption: each indicator loses 18 points for every spread beyond 0.6 of its
     own normal, the area is their mean, and physical loses 6 points per level of eyes, skin and immune (no
     indicators of their own). The formula is a design choice, not a published score."""
-    vals = [max(0.0, min(100.0, 100 - 18 * max(0.0, i["bad"] - 0.6))) for i in inds.values() if i["area"] == area]
+    vals = [max(0.0, min(100.0, 100 - 18 * max(0.0, i["bad"] - 0.6))) for i in inds.values() if i["area"] == area and i["bad"] is not None]
+    if not vals:  # nothing measured in this area: no score (never a made-up one)
+        return None
     s = sum(vals) / len(vals)
     if area == "physical":
         s -= 6 * sum(x["level"] for k, x in syss.items() if k in ("eyes", "skin", "immune"))
@@ -194,7 +225,8 @@ def _indicator_alert(i: str, d: dict) -> dict:
     if i == "bone":  # the bone row is the % change since launch; say it the way the tile and NASA's limit do
         why = f"Today {100 + d['value']:.1f} % of your pre-flight density. Your normal is 100 %."
     else:
-        why = f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}."
+        why = (f"Today {d['value']:.{d['dp']}f} {d['unit']}. Your normal is {d['baseline']:.{d['dp']}f} {d['unit']}." if d["baseline"] is not None
+               else f"Today {d['value']:.{d['dp']}f} {d['unit']}. Canary is still learning your normal.")
     if p["status"] != "in" and (p["low"] is not None or p["high"] is not None):
         lo = "no lower limit" if p["low"] is None else f"from {p['low']:g}"
         hi = "no upper limit" if p["high"] is None else f"up to {p['high']:g}"
@@ -205,7 +237,7 @@ def _indicator_alert(i: str, d: dict) -> dict:
         sources.append(f"nasa:std3001v1:{std['item'].replace(' ', '')}")
     title = (f"{d['name']} is past the safety limit." if critical else
              f"{d['name']} is past NASA's limit." if std.get("level") == 2 else
-             f"{d['name']} is close to NASA's limit." if std.get("level") == 1 and d["bad"] < DEFAULT_THRESHOLDS["watch"] else
+             f"{d['name']} is close to NASA's limit." if std.get("level") == 1 and (d["bad"] is None or d["bad"] < DEFAULT_THRESHOLDS["watch"]) else
              f"{d['name']} is outside your normal.")
     todo = TODO_BY_INDICATOR.get(i, ["Measure again in 1 hour", "If it stays, tell the medical officer"])
     if i == "vo2" and std.get("level"):
@@ -301,7 +333,8 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
     if fat and fat["level"] == 2:  # the fatigue risk decides; this alert is its voice
         used.update(["sleep", "mood", "react", "stress", "social", "dsst", "span", "kss", "tlx"])
         ev = fat["evidence"]
-        classic = all(inds[i]["level"] for i in ("sleep", "mood", "react"))  # the familiar text, when its three signals are all up
+        classic = all(inds[i]["level"] and inds[i]["value"] is not None and inds[i]["baseline"] is not None
+                      for i in ("sleep", "mood", "react"))  # the familiar text, when its three signals are all up
         why = (f"For two weeks you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
                f"you react {inds['react']['value'] - inds['react']['baseline']:.0f} ms slower and spend less time with the crew."
                if classic else
@@ -389,8 +422,9 @@ def snapshot(crew_id: str, ms: dict) -> dict:
     al = alerts(crew_id, ms, inds, risks)
     areas = {}
     for area in ("physical", "mental"):
-        lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area])
+        lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area] + [0])
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
     top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
-    return {"crew_id": crew_id, "day": ms["day"], "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
+    no_data = all(i.get("status") == "no_data" for i in inds.values())  # not one current value
+    return {"crew_id": crew_id, "day": ms["day"], "no_data": no_data, "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
             "level": top, "status": STATUS[top], "dose": dose(ms, crew_id)}
