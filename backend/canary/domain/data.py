@@ -823,6 +823,18 @@ def demo_form() -> dict:
             "ground": [{**g, **({} if flight else {"pin": gpins[g["id"]]})} for g in ground],
             "mission": {**{k: m[k] for k in ("callsign", "name", "launch_date", "preset")}, "dose_waiver": m["dose_waiver"]}}
 
+_counts_cache: dict = {}
+
+
+def package_counts() -> dict:
+    """How many readings, goal entries and space events the bundled demo package holds (data rows of its three open files)."""
+    d = package_dir(settings.mission_package or DEFAULT_PACKAGE)
+    if d not in _counts_cache:
+        n = lambda f: max(0, sum(1 for _ in (d / f).open("rb")) - 1) if (d / f).is_file() else 0  # noqa: E731
+        _counts_cache[d] = {"readings": n("observations.csv"), "goal_entries": n("goal_log.csv"), "events": n("space_events.csv")}
+    return _counts_cache[d]
+
+
 def package_dir(name: str) -> pathlib.Path:
     """Folder of a bundled package (under data/missions). Only plain names that exist are accepted: no paths, no `..`."""
     if not isinstance(name, str) or not PACKAGE_NAME.match(name):

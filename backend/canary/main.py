@@ -435,6 +435,25 @@ def demo_reset(_demo: None = Depends(demo_only), actor: dict = Depends(require_c
 DEMO_PACKAGE = "odyssey1-mars"
 
 
+@app.post("/api/demo/start-empty", tags=["mission"])
+def demo_start_empty(_demo: None = Depends(demo_only)):
+    """Demo only (404 in flight mode): wipe everything and load nothing, so the intro's guided tour can register the crew and the
+    mission from the start. No sign-in: there is nothing to protect in a demo, and nobody could sign in to an empty one anyway."""
+    _start_over(None)
+    audit.record(audit.SYSTEM, "demo.start_empty", "database")
+    return {"registered": registry.registered()}
+
+
+@app.post("/api/demo/quickstart", tags=["mission"])
+def demo_quickstart(_demo: None = Depends(demo_only)):
+    """Demo only (404 in flight mode): load the demo mission package for someone who skips the intro. No sign-in, and only while
+    nothing is registered (409 after), so it can never replace a mission."""
+    _locked()
+    _start_over(settings.mission_package or DEMO_PACKAGE)
+    audit.record(audit.SYSTEM, "demo.quickstart", "database", after={"package": settings.mission_package or DEMO_PACKAGE})
+    return {"registered": registry.registered()}
+
+
 def _start_over(package: Optional[str]) -> None:
     """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named."""
     db.reset()
@@ -1362,7 +1381,7 @@ def control_register_options():
 def control_demo():
     """Demo only: what the 'fill with the demo crew' button puts in the form."""
     form = data.demo_form()
-    return {"crew": form["crew"], "ground": form["ground"], "mission": form["mission"], **_register_options()}
+    return {"crew": form["crew"], "ground": form["ground"], "mission": form["mission"], "counts": data.package_counts(), **_register_options()}
 
 
 BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]
