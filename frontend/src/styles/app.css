@@ -385,7 +385,8 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
 .crewdots button { border-radius: 50%; transition: transform .15s; }
 .crewdots button:hover { transform: translateY(-2px); }
 .constellation { padding: 34px 24px 20px; }
-.orbit { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 200px)); justify-content: center; gap: 16px; }
+.orbit { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 16px; }
+.orbit .member { flex: 0 0 min(190px, calc(50% - 8px)); min-width: 0; }
 .member { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 10px; border-radius: var(--r); text-align: center; transition: background .15s; }
 .member:hover { background: var(--surface-2); }
 .member .pdot { margin-bottom: 10px; transition: transform .25s; }
@@ -1302,3 +1303,4 @@ table.t th.r, table.t td.r { text-align: right; }
 
 .er-voice { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .sample-btn { align-self: flex-start; font-size: 13px; color: var(--dim); }
+.team-mine li span { white-space: nowrap; }
