@@ -278,7 +278,7 @@
         "\\b(stop|quit) taking\\b",
         "\\bpain ?killers?\\b",
         "\\bsleeping (pills?|tablets?)\\b",
-        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
+        "\\b(take|taking|took|give|giving|offer|offering|prescribe|use|have)\\s+(?:(?:him|her|them|me|us|you|someone|the crew|a|an|some|more|another|extra|\\d+)\\s+)*(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
         "\\b(pop|take|swallow) (a |an |some |a couple of |a few |two |three |\\d+ )*(pain ?relievers?|painkillers?|sleeping pills?|sleep meds?|sleeping meds?|tylenol|advil|aleve|motrin)\\b",
         "\\bhow (many|much) (tylenol|advil|aleve|motrin|excedrin|nyquil|benadryl|ambien)\\b",
         "\\b(double|triple) (up )?(on )?(my |the |his |her |their )?(sleep |sleeping |pain )?(meds?|medications?|medicines?|pills?|tablets?)\\b"
@@ -318,7 +318,9 @@
       "patterns": [
         "\\bquantos comprimidos\\b|\\bcuantos comprimidos\\b|\\bcuantas pastillas\\b|\\bquantas pilulas\\b",
         "\\bdose de (remedio|medicamento|comprimido)\\b",
-        "\\bremedio para dormir\\b|\\bpastillas? para dormir\\b|\\bpastilla para dormir\\b"
+        "\\bremedio para dormir\\b|\\bpastillas? para dormir\\b|\\bpastilla para dormir\\b",
+        "\\b(dar|dale|dales|darle|darles|ofrece|ofrezca|ofrecele|tome|tomar|tomen|tomem)\\s+(?:(?:ele|ela|eles|elas|lhe|lhes|le|les|me|nos|um|uma|un|una|algum|alguma|algun|alguna|mais|mas|outro|outra|otro|otra|\\d+)\\s+)*(melatonina|ibuprofeno|paracetamol|acetaminofeno|aspirina|modafinilo|zolpidem|antihistaminicos?|antibioticos?|morfina|codeina|analgesicos?|sedantes?|opioides?|benzodiazepinas?|pastillas? para dormir|remedio para dormir)\\b",
+        "\\bde\\s+(?:(?:ele|ela|eles|elas|lhe|lhes|le|les|me|nos|um|uma|un|una|algum|alguma|algun|alguna|mais|mas|outro|outra|otro|otra|\\d+)\\s+)*(melatonina|ibuprofeno|paracetamol|acetaminofeno|aspirina|modafinilo|zolpidem|antihistaminicos?|antibioticos?|morfina|codeina|analgesicos?|sedantes?|opioides?|benzodiazepinas?)\\b.{0,30}?\\b(para|a) (ele|ela|eles|elas|el|ella|ellos|ellas)\\b"
       ],
       "gated": [
         {
@@ -417,8 +419,10 @@
         "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|drops?|puffs?)\\b",
         "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (medication|medicine|meds)\\b",
         "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b",
-        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(him|her|them|me|us|someone|the crew|a |an |some |more |another |extra |\\d+ )*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b",
-        "\\btry (some |a |an |more |another |extra )?(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill|sleep meds?)\\b"
+        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(?:(?:him|her|them|me|us|you|someone|the crew|a|an|some|more|another|extra|\\d+)\\s+)*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b",
+        "\\btry (some |a |an |more |another |extra )?(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill|sleep meds?)\\b",
+        "\\b(dar|dale|dales|darle|darles|ofrece|ofrezca|ofrecele|tome|tomar|tomen|tomem)\\s+(?:(?:ele|ela|eles|elas|lhe|lhes|le|les|me|nos|um|uma|un|una|algum|alguma|algun|alguna|mais|mas|outro|outra|otro|otra|\\d+)\\s+)*(melatonina|ibuprofeno|paracetamol|acetaminofeno|aspirina|modafinilo|zolpidem|antihistaminicos?|antibioticos?|morfina|codeina|analgesicos?|sedantes?|opioides?|benzodiazepinas?|pastillas? para dormir|remedio para dormir)\\b",
+        "\\bde\\s+(?:(?:ele|ela|eles|elas|lhe|lhes|le|les|me|nos|um|uma|un|una|algum|alguma|algun|alguna|mais|mas|outro|outra|otro|otra|\\d+)\\s+)*(melatonina|ibuprofeno|paracetamol|acetaminofeno|aspirina|modafinilo|zolpidem|antihistaminicos?|antibioticos?|morfina|codeina|analgesicos?|sedantes?|opioides?|benzodiazepinas?)\\b.{0,30}?\\b(para|a) (ele|ela|eles|elas|el|ella|ellos|ellas)\\b"
       ],
       "gated": [
         {

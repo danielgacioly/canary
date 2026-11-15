@@ -697,6 +697,16 @@ def test_briefing_draft_with_diagnosis_dosing_privacy_or_safe_wording_keeps_the_
     assert b["mode"] == "template" and "This is perfectly safe" not in b["text"] and "melatonin" not in b["text"]
 
 
+def test_briefing_draft_whose_only_problem_is_give_her_melatonin_keeps_the_template(monkeypatch):
+    f = briefing.facts("h")
+    allowed = briefing.allowed_sources("h", f)
+    d = _draft(f, allowed, text="Give her melatonin.")
+    assert briefing.check_draft(d, f, allowed, "h")[0] is None
+    use(monkeypatch, ScriptedProvider(messages=[final(d)]), briefing)
+    b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
+    assert b["mode"] == "template" and "Give her melatonin" not in b["text"]
+
+
 def test_suggestion_rewrite_with_diagnosis_and_dosing_is_rejected_for_that_item_only(monkeypatch):
     items = suggestions.candidates(suggestions.facts("h"))
     bad, good = items[0]["id"], items[1]["id"]
@@ -708,6 +718,18 @@ def test_suggestion_rewrite_with_diagnosis_and_dosing_is_rejected_for_that_item_
     assert by[bad]["source"] == "rules" and "sleeping pill" not in by[bad]["why"]
     assert by[good]["source"] == "ai" and by[good]["why"] == "A gentler way to say it."
     assert s["rejected_rules"] and "G-WELL-01" in s["rejected_rules"]
+
+
+def test_suggestion_rewrite_that_gives_a_pronoun_dose_stays_on_the_rule_text(monkeypatch):
+    items = suggestions.candidates(suggestions.facts("h"))
+    bad = items[0]["id"]
+    rewrites = {"items": [{"id": s["id"], "why": "A gentler way to say it."} for s in items]}
+    rewrites["items"][0]["why"] = "Give her melatonin before bed."
+    use(monkeypatch, ScriptedProvider(messages=[final(rewrites)]), suggestions)
+    s = client.get("/api/suggestions/h", headers=as_("h")).json()
+    by = {x["id"]: x for x in s["items"]}
+    assert by[bad]["source"] == "rules" and by[bad]["why"] != "Give her melatonin before bed."
+    assert "G-DOSE-02" in s["rejected_rules"]
 
 
 # ---------------------------------------------------------------- item 5: any provider failure falls back, never a 500
