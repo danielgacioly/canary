@@ -55,7 +55,7 @@ def import_donki(fetch: Optional[Fetch] = None) -> int:
                 loc = plan.location_at(day)
                 if loc == "earth":  # on the ground the particles do not reach the crew
                     continue
-                data.add_space_event({"id": eid, "kind": "storm", "start_day": day, "end_day": day, "locations": [loc],
+                data.add_space_event({"id": eid, "kind": "sep", "start_day": day, "end_day": day, "locations": [loc],
                                       "extra_dose_msv": 0, "origin": "donki", "source": "nasa:donki",
                                       "note": f"NASA DONKI solar particle event of {when}"})
                 stored.add(eid)

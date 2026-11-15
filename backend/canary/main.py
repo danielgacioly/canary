@@ -383,7 +383,7 @@ def crew_list():
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
-            "space_weather": {k: v for k, v in nasa.space_weather(data.event(ms["storm"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+            "space_weather": {k: v for k, v in nasa.space_weather(data.storm_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
 @app.get("/api/crew/photos", tags=["crew"])
@@ -402,7 +402,7 @@ def crew_overview():
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "today": board["people"][c["id"]]})
-    sw = nasa.space_weather(data.event(ms["storm"]))
+    sw = nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
@@ -720,7 +720,8 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
 # ---------------------------------------------------------------- NASA data
 @app.get("/api/space-weather", tags=["nasa"])
 def space_weather():
-    return nasa.space_weather(data.event(mission.state()["storm"]))
+    ms = mission.state()
+    return nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
 
 
 @app.get("/api/nasa/rad", tags=["nasa"])

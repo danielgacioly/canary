@@ -228,7 +228,7 @@ RULES = {  # thresholds of the evidence functions (all prototype assumptions)
     "radiation": {"watch_pct_of_limit": 50, "lym_points": 1.0},
     "nutrition": {"loss_pct": {1: 5.0, 2: 10.0}},         # weight below the person's pre-flight mean
     "renal": {"bone_loss_pct_30d": 1.0, "points": 1.0},   # the catalog says bone loses about 1% a month without countermeasures
-    "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_follow_days": 13, "storm_points": 1.0,
+    "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_follow_days": 13, "follow_kinds": ["sep"], "storm_points": 1.0,
                "crp_rise_pct": 50.0, "crp_points": 0.5},  # CRP has no range in its panel: read against the person's own pre-flight
     "cardio": {"regravity_points": 0.5},
     "sans": {"amsler_points": 2.0, "vision_symptom_points": 1.0, "window_days": 7,
@@ -325,7 +325,7 @@ def _g_radiation(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     R = RULES["radiation"]
     ev: List[dict] = []
     if ms.get("storm"):
-        se = data.event(ms["storm"]) or {}
+        se = data.storm_event(ms["day"], ms["location"]) or {}
         ev.append({"key": "dose", "origin": "real", "points": 2.0, "floor": 2, "source": se.get("source") or "nasa:donki",
                    "text": f"A radiation storm is in progress ({STORM_BASIS.get(se.get('origin'), 'reported')}). NASA protects crews to keep a "
                            f"solar particle event below {SPE_LIMIT_MSV} mSv (NASA-STD-3001 V1 4031): stay in the shelter"})
@@ -431,7 +431,7 @@ def _g_immune(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     crp = _crp_ev(crew_id, day)
     if crp:
         ev.append(crp)
-    if data.storms_following(day, R["storm_follow_days"]):
+    if data.storms_following(day, R["storm_follow_days"], R["follow_kinds"]):
         ev.append({"key": "dose", "origin": "real", "value": None, "baseline": None, "z": None, "points": R["storm_points"],
                    "source": "nasa:donki", "text": "Blood count due after the radiation storm"})
     return ev

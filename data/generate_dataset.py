@@ -32,8 +32,8 @@ LIST_SEP = ";"
 
 # The storms of the demo, as data. The engine reads them from space_events.csv (storm flags, dose, the immune follow-up).
 SPACE_EVENTS = [
-    ["sep", "storm", 152, 152, "transit;moon", 22, "real", "nasa:donki", "replay of 10 May 2024"],
-    ["mars", "storm", 222, 222, "mars", 0, "real", "nasa:rad", "replay of 20 May 2024 at Gale crater"],
+    ["replay-2024-05-10-sep", "sep", 152, 152, "transit;moon", 22, "real", "nasa:donki", "replay of 10 May 2024"],
+    ["replay-2024-05-20-rad", "mars", 222, 222, "mars", 0, "real", "nasa:rad", "replay of 20 May 2024 at Gale crater"],
 ]
 SPACE_EVENT_COLUMNS = ["id", "kind", "start_day", "end_day", "locations", "extra_dose_msv", "origin", "source", "note"]
 OBS_PACKAGE_COLUMNS = simdata.COLUMNS + ["measured_at"]

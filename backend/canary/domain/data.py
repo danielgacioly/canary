@@ -37,7 +37,9 @@ from .validation import FieldError, ValidationFailure
 
 PACKAGE_FILES = ("mission.csv", "legs.csv", "crew.csv", "observations.csv", "space_events.csv", "goal_log.csv", "scenes.csv")
 DEFAULT_MISSION_TIME = "12:00"
-EVENT_KINDS = ("storm", "flare", "cme", "other")
+# What a space event is. "sep": a solar particle event in space (it reaches a crew away from Earth). "mars": a radiation
+# storm at the Mars surface (the crew waits it out indoors). The kind carries the meaning; the id is only a name.
+EVENT_KINDS = ("sep", "mars")
 EVENT_ORIGINS = ("real", "simulated", "donki")  # donki: imported from NASA DONKI while the clock runs on the real date
 EVENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
 PACKAGE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -148,23 +150,29 @@ def _hits(e: dict, location: str) -> bool:
     return location in e["locations"]
 
 
-def storm_at(day: int, location: str) -> Optional[str]:
-    """Id of the radiation storm (an event of kind `storm`) active on `day` at `location`, or None. The first one when
-    several overlap. This is what `mission.state()["storm"]` carries."""
+def storm_event(day: int, location: str) -> Optional[dict]:
+    """The radiation storm (a space event) active on `day` at `location`, or None. The first one when several overlap."""
     _load()
     for e in _cache["events"]:
-        if e["kind"] == "storm" and e["start_day"] <= day <= e["end_day"] and _hits(e, location):
-            return e["id"]
+        if e["start_day"] <= day <= e["end_day"] and _hits(e, location):
+            return dict(e)
     return None
 
 
-def storms_following(day: int, follow_days: int) -> List[dict]:
-    """Storms that gave the crew a dose (`extra_dose_msv` above 0), hit the place of the plan on their start day and started
-    at most `follow_days` before `day` (the day they start counts). Used for the blood-count follow-up after a storm: a
-    storm that adds no dose (the surface storm the crew waits out indoors) does not call for one."""
+def storm_at(day: int, location: str) -> Optional[str]:
+    """The kind ("sep" or "mars") of the storm active on `day` at `location`, or None. This is what `mission.state()["storm"]`
+    carries: what kind of storm it is, never an event id."""
+    e = storm_event(day, location)
+    return e["kind"] if e else None
+
+
+def storms_following(day: int, follow_days: int, kinds: Sequence[str] = ("sep",)) -> List[dict]:
+    """Storms of one of `kinds` that hit the place of the plan on their start day and started at most `follow_days` before
+    `day` (the day they start counts). Used for the blood-count follow-up: a particle storm in space calls for one, a
+    surface storm the crew waits out indoors does not (the kind says which, not the dose)."""
     _load()
     return [dict(e) for e in _cache["events"]
-            if e["kind"] == "storm" and e["extra_dose_msv"] > 0 and e["start_day"] <= day <= e["start_day"] + follow_days
+            if e["kind"] in kinds and e["start_day"] <= day <= e["start_day"] + follow_days
             and _hits(e, plan.location_at(e["start_day"]))]
 
 

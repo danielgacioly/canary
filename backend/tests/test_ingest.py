@@ -285,7 +285,7 @@ def test_reset_loads_the_mars_package_and_the_scenes_are_the_demo_bookmarks():
     assert len(s) == 6 and [x["index"] for x in s] == list(range(6))
     assert [(x["day"], x["location"], x["person"]) for x in s] == [(st["day"], st["loc"], st["me"]) for st in catalog.STORY]
     assert set(s[0]) == {"index", "day", "location", "person", "storm", "when", "text"} and s[0]["storm"] is None
-    assert [e["id"] for e in data.events()] == ["sep", "mars"] and data.events()[0]["locations"] == ["transit", "moon"]
+    assert [e["id"] for e in data.events()] == ["replay-2024-05-10-sep", "replay-2024-05-20-rad"] and data.events()[0]["locations"] == ["transit", "moon"]
     assert data.mission_time() == "12:00" and data.loaded_package() == {"name": "odyssey1-mars", "preset": "mars", "bundled": True}
 
 
@@ -345,7 +345,7 @@ def test_changing_to_a_preset_reloads_its_package_and_keeps_what_the_crew_did():
     assert db.q("SELECT COUNT(*) n FROM goal_log WHERE updated_at=0")[0]["n"] > 1000
     assert db.q("SELECT COUNT(*) n FROM goal_log WHERE crew_id='h' AND day=? AND goal_id=? AND updated_at>0", (day, gid))[0]["n"] == 1
     assert db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id='h'")[0]["n"] == 1
-    assert [e["id"] for e in data.events()] == ["sep", "mars"]
+    assert [e["id"] for e in data.events()] == ["replay-2024-05-10-sep", "replay-2024-05-20-rad"]
     assert client.post("/api/plan/preset", json={"preset": "mars"}).status_code == 200 and n_obs() == mars_n
 
 
@@ -359,18 +359,18 @@ def test_a_custom_plan_does_not_change_the_data():
 
 # ---------------------------------------------------------------- space events and the control session
 def test_the_control_endpoints_need_the_control_session():
-    ev = {"kind": "storm", "start_day": 10, "end_day": 11, "locations": ["transit"], "extra_dose_msv": 5}
+    ev = {"kind": "sep", "start_day": 10, "end_day": 11, "locations": ["transit"], "extra_dose_msv": 5}
     for h in ({}, {"X-Canary-Control": "control.1.abc"}, me()):
         assert client.get("/api/control/space-events", headers=h).status_code == 401
         assert client.post("/api/control/space-events", headers=h, json=ev).status_code == 401
         assert client.post("/api/control/import", headers=h, json={"package": "odyssey1-mars"}).status_code == 401
     assert client.get("/api/control/space-events", headers=key()).status_code == 401  # the ingest key is not a control session
-    assert [e["id"] for e in client.get("/api/control/space-events", headers=ctl()).json()["events"]] == ["sep", "mars"]
+    assert [e["id"] for e in client.get("/api/control/space-events", headers=ctl()).json()["events"]] == ["replay-2024-05-10-sep", "replay-2024-05-20-rad"]
 
 
 def test_a_space_event_is_validated_stored_and_listed():
     h = ctl()
-    ok = {"kind": "storm", "start_day": 10, "end_day": 12, "locations": ["transit", "moon"], "extra_dose_msv": 5, "note": "test"}
+    ok = {"kind": "sep", "start_day": 10, "end_day": 12, "locations": ["transit", "moon"], "extra_dose_msv": 5, "note": "test"}
     r = client.post("/api/control/space-events", headers=h, json=ok)
     assert r.status_code == 200
     e = r.json()
@@ -381,7 +381,7 @@ def test_a_space_event_is_validated_stored_and_listed():
     n = len(data.events())
     for patch, field in (({"end_day": 9}, "event.end_day"), ({"locations": ["mars_base"]}, "event.locations"), ({"locations": []}, "event.locations"),
                          ({"extra_dose_msv": 2001}, "event.extra_dose_msv"), ({"extra_dose_msv": -1}, "event.extra_dose_msv"),
-                         ({"kind": "party"}, "event.kind"), ({"start_day": None}, "event.start_day"), ({"id": "a b"}, "event.id"),
+                         ({"kind": "party"}, "event.kind"), ({"kind": "storm"}, "event.kind"), ({"start_day": None}, "event.start_day"), ({"id": "a b"}, "event.id"),
                          ({"origin": "dream"}, "event.origin")):
         r = client.post("/api/control/space-events", headers=h, json={**ok, **patch})
         assert r.status_code == 422 and fields(r) == [field], (patch, r.text)

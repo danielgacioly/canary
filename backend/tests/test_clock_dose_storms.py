@@ -151,7 +151,7 @@ def test_a_storm_event_turns_on_the_storm_the_radiation_evidence_and_the_immune_
     X = 60
     assert day(X)["storm"] is None
     r = client.post("/api/control/space-events", headers=ctl(), json={
-        "kind": "storm", "start_day": X, "locations": ["transit"], "extra_dose_msv": 12, "origin": "simulated", "source": "test"})
+        "kind": "sep", "start_day": X, "locations": ["transit"], "extra_dose_msv": 12, "origin": "simulated", "source": "test"})
     assert r.status_code == 200
     eid = r.json()["id"]
 
@@ -166,7 +166,7 @@ def test_a_storm_event_turns_on_the_storm_the_radiation_evidence_and_the_immune_
     assert ms["storm"] is None and immune != "Blood count due after the radiation storm."
     assert not any("storm is in progress" in e["text"] for e in rad["evidence"])
     ms, rad, immune = look(X)
-    assert ms["storm"] == eid
+    assert ms["storm"] == "sep"
     assert rad["level"] == 2 and any("A radiation storm is in progress (simulated)" in e["text"] for e in rad["evidence"])
     assert any(a["id"] == "storm" for a in health.snapshot("h", ms)["alerts"])
     assert immune == "Blood count due after the radiation storm."
@@ -181,13 +181,13 @@ def test_a_storm_event_turns_on_the_storm_the_radiation_evidence_and_the_immune_
 
 
 def test_a_storm_at_another_place_does_not_hit_the_crew():
-    client.post("/api/control/space-events", headers=ctl(), json={"kind": "storm", "start_day": 60, "locations": ["moon"], "extra_dose_msv": 12})
+    client.post("/api/control/space-events", headers=ctl(), json={"kind": "sep", "start_day": 60, "locations": ["moon"], "extra_dose_msv": 12})
     assert day(60)["storm"] is None
     assert not health.snapshot("h", day(61))["systems"]["immune"]["note"]
 
 
 def test_the_demo_storms_still_come_from_the_events_table():
-    assert {e["id"]: (e["start_day"], e["locations"]) for e in data.events()} == {"sep": (152, ["transit", "moon"]), "mars": (222, ["mars"])}
+    assert {e["id"]: (e["kind"], e["start_day"], e["locations"]) for e in data.events()} == {"replay-2024-05-10-sep": ("sep", 152, ["transit", "moon"]), "replay-2024-05-20-rad": ("mars", 222, ["mars"])}
     assert client.put("/api/mission", json={"step": 5}).json()["storm"] == "mars"
     # the Mars surface storm adds no dose, so it calls for no blood count
     assert health.snapshot("h", mission.state())["systems"]["immune"]["note"] != "Blood count due after the radiation storm."
@@ -198,7 +198,7 @@ def test_space_weather_carries_the_active_event():
     client.put("/api/mission", json={"step": 3})
     sw = client.get("/api/space-weather").json()
     assert sw["active"] and sw["headline"] == "Solar particle storm in progress"
-    assert sw["event"] == {"id": "sep", "kind": "storm", "origin": "real", "source": "nasa:donki", "live": False}
+    assert sw["event"] == {"id": "replay-2024-05-10-sep", "kind": "sep", "origin": "real", "source": "nasa:donki", "live": False}
     client.put("/api/mission", json={"step": 0})
     sw = client.get("/api/space-weather").json()
     assert not sw["active"] and sw["headline"] == "Calm" and "event" not in sw
@@ -228,8 +228,8 @@ def test_donki_events_become_space_events_on_their_mission_day(monkeypatch):
     assert live.import_donki(fetch) == 1
     assert ask == [(now.date() - dt.timedelta(days=30), now.date())]
     e = data.event("donki:2040-03-01T10:00:00-SEP-001")
-    assert (e["kind"], e["origin"], e["source"], e["start_day"], e["locations"]) == ("storm", "donki", "nasa:donki", 16, ["transit"])
-    assert data.storm_at(16, "transit") == e["id"]
+    assert (e["kind"], e["origin"], e["source"], e["start_day"], e["locations"]) == ("sep", "donki", "nasa:donki", 16, ["transit"])
+    assert data.storm_at(16, "transit") == "sep" and data.storm_event(16, "transit")["id"] == e["id"]
     assert live.import_donki(fetch) == 0 and len([x for x in data.events() if x["origin"] == "donki"]) == 1  # deduplicated by id
 
 
@@ -279,7 +279,7 @@ def test_the_dose_is_partial_when_only_some_days_have_a_dosimeter(monkeypatch):
 
 def test_a_measured_day_is_not_counted_twice_with_its_storm_and_an_estimated_day_adds_it(monkeypatch):
     empty_database(monkeypatch)
-    client.post("/api/control/space-events", headers=ctl(), json={"kind": "storm", "start_day": 10, "locations": ["transit"], "extra_dose_msv": 20})
+    client.post("/api/control/space-events", headers=ctl(), json={"kind": "sep", "start_day": 10, "locations": ["transit"], "extra_dose_msv": 20})
     assert dose.mission(None, 11)["msv"] == round(0.5 * 4 + 1.8 * 8 + 20, 1)  # days 0..3 rocket, 4..11 transit, the storm once
     data.add_observations(rows("cabin", {10: 21.8}))  # the dosimeter saw the storm: the reading holds it
     assert dose.mission(None, 11)["msv"] == round(0.5 * 4 + 1.8 * 6 + 21.8 + 1.8, 1)
@@ -364,3 +364,18 @@ def test_a_goal_ticked_in_the_app_is_stored_with_the_mission_time(monkeypatch):
     client.put("/api/control/clock", json={"real": True}, headers=ctl())
     goals.set_done("h", "sleep_log", 3, True)
     assert db.q("SELECT done_at_time t FROM goal_log WHERE crew_id='h' AND day=3 AND goal_id='sleep_log'")[0]["t"] == "09:41"
+
+
+def test_the_kind_of_event_says_what_it_is_and_only_known_kinds_are_accepted():
+    r = client.post("/api/control/space-events", headers=ctl(), json={"kind": "storm", "start_day": 60, "locations": ["transit"]})
+    assert r.status_code == 422 and r.json()["detail"] == [{"field": "event.kind", "message": "kind must be one of: sep, mars"}]
+    client.post("/api/control/space-events", headers=ctl(), json={"id": "any-name", "kind": "mars", "start_day": 60, "locations": ["transit"]})
+    assert data.storm_at(60, "transit") == "mars" and data.storm_event(60, "transit")["id"] == "any-name"
+
+
+def test_the_immune_follow_up_follows_the_kind_of_storm_not_its_dose():
+    def note(kind, d):
+        client.post("/api/control/space-events", headers=ctl(), json={"id": "t-" + kind, "kind": kind, "start_day": 60, "locations": ["transit"], "extra_dose_msv": 0})
+        return health.snapshot("h", day(d))["systems"]["immune"]["note"]
+    assert note("mars", 62) != "Blood count due after the radiation storm."
+    assert note("sep", 62) == "Blood count due after the radiation storm."

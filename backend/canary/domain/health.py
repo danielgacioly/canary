@@ -289,7 +289,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
     place = LOCATIONS[ms["location"]]
 
     if ms["storm"]:
-        mars = (data.event(ms["storm"]) or {}).get("source") == "nasa:rad"  # the surface record, not the particle storm
+        mars = ms.get("storm") == "mars"  # the surface storm, not the particle storm
         A.append({"id": "storm", "level": 2, "env": True, "sys": "skin", "protocol": "rad",
                   "title": "Radiation is 51 times above normal." if mars else "A solar particle storm is hitting.",
                   "why": ("Curiosity's RAD detector recorded the peak at 06:15 on 20 May 2024. Nobody leaves the habitat today."

@@ -98,8 +98,8 @@ def test_the_storm_is_in_the_cabin_dosimeter_of_its_start_day():
 
 def test_space_events():
     ev = {r["id"]: r for r in read("odyssey1-mars", "space_events.csv")}
-    assert (ev["sep"]["start_day"], ev["sep"]["locations"], ev["sep"]["extra_dose_msv"], ev["sep"]["source"]) == ("152", "transit;moon", "22", "nasa:donki")
-    assert (ev["mars"]["start_day"], ev["mars"]["locations"], ev["mars"]["extra_dose_msv"], ev["mars"]["source"]) == ("222", "mars", "0", "nasa:rad")
+    assert (ev["replay-2024-05-10-sep"]["start_day"], ev["replay-2024-05-10-sep"]["locations"], ev["replay-2024-05-10-sep"]["extra_dose_msv"], ev["replay-2024-05-10-sep"]["source"]) == ("152", "transit;moon", "22", "nasa:donki")
+    assert (ev["replay-2024-05-20-rad"]["start_day"], ev["replay-2024-05-20-rad"]["locations"], ev["replay-2024-05-20-rad"]["extra_dose_msv"], ev["replay-2024-05-20-rad"]["source"]) == ("222", "mars", "0", "nasa:rad")
 
 
 def minutes(t):

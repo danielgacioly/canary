@@ -46,7 +46,7 @@ def snapshot() -> dict:
 
 def space_weather(event: Optional[dict] = None) -> dict:
     """The space-weather snapshot. `event` is the space event active on the mission day at the crew's place (a row of
-    data.events(), found with data.event(ms["storm"])), or None."""
+    data.events(), found with data.storm_event(day, location)), or None."""
     d = _SNAPSHOT["donki"]
     kp_max = max(k[1] for k in d["kp"]) if d["kp"] else None
     out = {
