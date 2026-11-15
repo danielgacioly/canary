@@ -56,6 +56,9 @@ class Settings:
     mission_package: str = os.environ.get("CANARY_MISSION_PACKAGE", "odyssey1-mars")
     missions_dir: str = os.environ.get("CANARY_MISSIONS_DIR", str(ROOT / "data" / "missions"))
     warm_cache: bool = os.environ.get("CANARY_WARM", "1") == "1"
+    # Background thread that notices a new mission day (every `day_sync_seconds`) and runs what a new day triggers.
+    day_sync: bool = os.environ.get("CANARY_DAY_SYNC", "1") == "1"
+    day_sync_seconds: int = int(os.environ.get("CANARY_DAY_SYNC_SECONDS", "600"))
 
 
 settings = Settings()

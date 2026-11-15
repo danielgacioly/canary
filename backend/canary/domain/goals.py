@@ -5,18 +5,20 @@ nobody climbs by looking healthy, and reporting a bad day counts the same as a g
 
 The history comes from the goal log only (the `goal_log` table): rows loaded from a mission package and goals the
 crew ticks in the app. A goal with no row was not done. A row counts on a past day; on the current mission day it
-counts only when it was done at or before the current mission time (data.mission_time()), so a package can say "Helena
-did her exercise at 09:40" and the goal turns done when the mission clock passes that time. A goal ticked in the app
-is stored with the current mission time, so it counts at once.
+counts only when it was done at or before the current mission time (mission.mission_time(): the simulated time, or the
+current UTC time on the real date), so a package can say "Helena did her exercise at 09:40" and the goal turns done when
+the mission clock passes that time. A goal ticked in the app is stored with the current mission time, so it counts at once.
+
+A person's history starts on their first day with any row in the goal log (their first logged goal); with no row at all it
+starts on the first day of the plan. Completion and streak count only from there.
 """
 from typing import Dict, List, Optional
 
 from .. import db
-from . import advice, data, health, plan, risk
+from . import advice, health, mission, plan, risk
 from .catalog import (BADGES, CREW, EXERCISE_BY_PLACE, LOCATIONS, PERSONAL_BY_ID, PERSONAL_GOALS, TEAM_GOALS,
                       WINDOW_BY_PLACE)
 
-HISTORY_START = -30  # first day with goals (pre-flight training)
 STREAK_RATE = 0.7    # a day counts for the streak when 70% of goals are done
 
 
@@ -58,7 +60,7 @@ def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict
     row = log.get((day, goal_id))
     if row is None or not row[0]:
         return False
-    if day == today and row[1] is not None and row[1] > (now or data.mission_time()):
+    if day == today and row[1] is not None and row[1] > (now or mission.mission_time()):
         return False
     return True
 
@@ -132,25 +134,27 @@ def set_done(crew_id: str, goal_id: str, day: int, done: bool) -> None:
     db.x("INSERT INTO goal_log(crew_id,day,goal_id,done,updated_at,done_at_time) VALUES(?,?,?,?,?,?) "
          "ON CONFLICT(crew_id,day,goal_id) DO UPDATE SET done=excluded.done, updated_at=excluded.updated_at, "
          "done_at_time=excluded.done_at_time",
-         (crew_id, day, goal_id, int(done), time.time(), data.mission_time()))
+         (crew_id, day, goal_id, int(done), time.time(), mission.mission_time()))
 
 
 # ---------------------------------------------------------------- history-based numbers
-def _start(today: int) -> int:
-    """First day with history: HISTORY_START, or earlier when the clock is set before it."""
-    return min(HISTORY_START, today)
+def _start(crew_id: str, today: int) -> int:
+    """First day of the person's history: their first day with a row in the goal log, else the first day of the plan; never
+    after `today` (a clock set before the history starts shows `today` alone)."""
+    first = min((d for d, _ in _log(crew_id)), default=plan.get()["legs"][0]["start"])
+    return min(first, today)
 
 
 def _history(crew_id: str, today: int) -> dict:
     """Per-day completions from the first history day to today, routine goals only. `today` is always a key."""
     log = _log(crew_id)
-    now = data.mission_time()
+    now = mission.mission_time()
     extra_by_day: Dict[int, int] = {}  # goals added by an alert, the medical team or a suggestion, done
     for (ld, gid), v in log.items():
         if v[0] and gid.startswith(("al_", "med_", "sg_")):
             extra_by_day[ld] = extra_by_day.get(ld, 0) + 1
     days = {}
-    for d in range(_start(today), today + 1):
+    for d in range(_start(crew_id, today), today + 1):
         ids = daily_goal_ids(plan.location_at(d))
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log, now)]
         extra = extra_by_day.get(d, 0)
@@ -171,20 +175,21 @@ def _streak(days: dict, today: int) -> int:
 def team_progress(today: int, histories: Optional[Dict[str, dict]] = None, window_end: Optional[int] = None) -> List[dict]:
     histories = histories or {c["id"]: _history(c["id"], today) for c in CREW}
     end = today if window_end is None else window_end
-    days = [d for d in range(end - 6, end + 1) if d >= _start(today)]
+    days = list(range(end - 6, end + 1))  # a day before someone's history counts as nothing done
+    done_on = lambda cid, d: histories[cid][d]["done"] if d in histories[cid] else []  # noqa: E731
     out = []
     for t in TEAM_GOALS:
         kind, _, gid = t["metric"].partition(":")
         if kind == "all_done":  # a crew day: at least 3 of the 4 did it
-            val = sum(1 for d in days if sum(gid in histories[c["id"]][d]["done"] for c in CREW) >= 3)
+            val = sum(1 for d in days if sum(gid in done_on(c["id"], d) for c in CREW) >= 3)
         elif kind == "count":
-            val = sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
+            val = sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         else:  # count20
-            val = 20 * sum(1 for c in CREW for d in days if gid in histories[c["id"]][d]["done"])
+            val = 20 * sum(1 for c in CREW for d in days if gid in done_on(c["id"], d))
         val = round(val)
         # Each person's part: how many times they ticked the routine goal. Routine goals only, so a goal added by an
         # alert or the medical team never shows here.
-        contrib = {c["id"]: sum(1 for d in days if gid in histories[c["id"]][d]["done"]) for c in CREW}
+        contrib = {c["id"]: sum(1 for d in days if gid in done_on(c["id"], d)) for c in CREW}
         out.append({**t, "value": val, "pct": min(100, round(100 * val / t["target"])), "done": val >= t["target"],
                     "contrib": contrib})
     return out
@@ -220,17 +225,17 @@ def profile(crew_id: str, today: int, histories: Optional[Dict[str, dict]] = Non
                for a in ("physical", "mental")}
     return {"crew_id": crew_id, "goals_week": week, "goals_week_by_area": by_area, "streak": streak, "completion_7d": rate,
             "badges": b, "badges_earned": sum(1 for x in b if x["earned"]),
-            "daily_done": [[d, days[d]["count"], days[d]["total"]] for d in range(max(_start(today), today - 13), today + 1)]}
+            "daily_done": [[d, days[d]["count"], days[d]["total"]] for d in range(max(min(days), today - 13), today + 1)]}
 
 
 def crew_streak(today: int, histories: Dict[str, dict]) -> int:
     """Shared streak: consecutive days on which at least 3 of the 4 kept their routine."""
     def ok(d: int) -> bool:
-        return sum(1 for c in CREW if histories[c["id"]][d]["total"]
+        return sum(1 for c in CREW if d in histories[c["id"]] and histories[c["id"]][d]["total"]
                    and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= 3
     n = 1 if ok(today) else 0
     d = today - 1
-    while d >= _start(today) and ok(d):
+    while ok(d):
         n += 1
         d -= 1
     return n

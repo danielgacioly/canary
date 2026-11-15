@@ -23,7 +23,7 @@ VOLATILE_KEYS = {"created_at", "sent_at", "deliver_at", "fetched_at", "at", "upd
 
 # Fields that later phases may ADD to a dict without failing the comparison. Changed values of keys that already
 # exist in the golden file always fail.
-NEW_FIELDS = {"stale", "age_days", "origin"}
+NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", "estimated_days"}
 
 
 def new_client(db_path: Optional[str] = None):

@@ -38,7 +38,7 @@ from .validation import FieldError, ValidationFailure
 PACKAGE_FILES = ("mission.csv", "legs.csv", "crew.csv", "observations.csv", "space_events.csv", "goal_log.csv", "scenes.csv")
 DEFAULT_MISSION_TIME = "12:00"
 EVENT_KINDS = ("storm", "flare", "cme", "other")
-EVENT_ORIGINS = ("real", "simulated")
+EVENT_ORIGINS = ("real", "simulated", "donki")  # donki: imported from NASA DONKI while the clock runs on the real date
 EVENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
 PACKAGE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]
@@ -114,14 +114,70 @@ def rows_between(crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, float]:
     return {d: v for (d, v, *_rest) in table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
 
 
+_cache: Dict[str, Any] = {"key": None, "events": [], "scenes": []}
+
+
+def _load() -> None:
+    """Space events and scenes are small tables read on every request: keep them until the data version changes."""
+    key = token()
+    if _cache["key"] != key:
+        rows = db.q("SELECT * FROM space_events ORDER BY start_day, id")
+        ev = [{**r, "locations": [x for x in r["locations"].split(";") if x]} for r in rows]
+        sc = [{"index": r["idx"], "day": r["day"], "location": r["location"], "person": r["person"], "storm": r["storm"] or None,
+               "when": r["when_label"], "text": r["text"]} for r in db.q("SELECT * FROM scenes ORDER BY idx")]
+        _cache.update(key=key, events=ev, scenes=sc)
+
+
 def events() -> List[dict]:
-    rows = db.q("SELECT * FROM space_events ORDER BY start_day, id")
-    return [{**r, "locations": [x for x in r["locations"].split(";") if x]} for r in rows]
+    _load()
+    return [dict(e) for e in _cache["events"]]
 
 
 def scenes() -> List[dict]:
-    return [{"index": r["idx"], "day": r["day"], "location": r["location"], "person": r["person"], "storm": r["storm"] or None,
-             "when": r["when_label"], "text": r["text"]} for r in db.q("SELECT * FROM scenes ORDER BY idx")]
+    _load()
+    return [dict(s) for s in _cache["scenes"]]
+
+
+def event(event_id: Optional[str]) -> Optional[dict]:
+    """One space event by id (what `storm_at` returns), or None."""
+    _load()
+    return next((dict(e) for e in _cache["events"] if e["id"] == event_id), None) if event_id else None
+
+
+def _hits(e: dict, location: str) -> bool:
+    return location in e["locations"]
+
+
+def storm_at(day: int, location: str) -> Optional[str]:
+    """Id of the radiation storm (an event of kind `storm`) active on `day` at `location`, or None. The first one when
+    several overlap. This is what `mission.state()["storm"]` carries."""
+    _load()
+    for e in _cache["events"]:
+        if e["kind"] == "storm" and e["start_day"] <= day <= e["end_day"] and _hits(e, location):
+            return e["id"]
+    return None
+
+
+def storms_following(day: int, follow_days: int) -> List[dict]:
+    """Storms that gave the crew a dose (`extra_dose_msv` above 0), hit the place of the plan on their start day and started
+    at most `follow_days` before `day` (the day they start counts). Used for the blood-count follow-up after a storm: a
+    storm that adds no dose (the surface storm the crew waits out indoors) does not call for one."""
+    _load()
+    return [dict(e) for e in _cache["events"]
+            if e["kind"] == "storm" and e["extra_dose_msv"] > 0 and e["start_day"] <= day <= e["start_day"] + follow_days
+            and _hits(e, plan.location_at(e["start_day"]))]
+
+
+def extra_dose(day: int) -> float:
+    """The `extra_dose_msv` of the events that start on `day` and hit the place of the plan that day."""
+    _load()
+    loc = plan.location_at(day)
+    return sum(e["extra_dose_msv"] for e in _cache["events"] if e["start_day"] == day and _hits(e, loc))
+
+
+def daily(crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, Tuple[float, str]]:
+    """Stored measurements on days d0..d1, by day, as (value, origin); the last one of a day wins."""
+    return {d: (v, origin) for (d, v, origin, *_rest) in table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
 
 
 def mission_time() -> str:
@@ -246,9 +302,15 @@ def _mission_file(rows: List[dict]) -> dict:
         preset = V.one_of(r, "preset", "preset", list(plan.PRESETS), required=True, field="mission.preset")
         mt = (r.get("simulated_time") or DEFAULT_MISSION_TIME).strip()
         mt = V.clock_time(mt, "mission.simulated_time")
+        sim = (r.get("simulated_today") or "").strip()
+        if sim:  # the mission date the clock starts on; empty: the clock follows the real date
+            sd = V.parse_date(sim, "simulated_today", "mission.simulated_today")
+            if not LAUNCH_YEARS[0] <= sd.year <= LAUNCH_YEARS[1] + 10:
+                raise FieldError("mission.simulated_today", "simulated_today must be a date near the mission")
     except FieldError as e:
         raise ValidationFailure([{"field": e.field, "message": f"{f}: {e.message}"}])
-    return {"callsign": callsign, "name": name, "launch_date": launch, "preset": preset, "simulated_time": mt}
+    return {"callsign": callsign, "name": name, "launch_date": launch, "preset": preset, "simulated_time": mt,
+            "simulated_today": sim or None}
 
 
 def _legs_file(rows: List[dict], name: str) -> dict:
@@ -540,6 +602,8 @@ def _write(c, p: dict) -> int:
         rover = any(plan.is_rover(l["location"]) for l in legs)
         _set(c, "plan", {**(p["plan"] or {"name": m["name"], "legs": legs}), "name": m["name"], "preset": m["preset"]})
         _set(c, "mission_time", m["simulated_time"])
+        _set(c, "sim_date", m["simulated_today"])  # None: the clock follows the real date
+        _set(c, "mission", {"scene": None, "location": None, "custom": False})
         if p["crew"] is None and registry.stored() is not None:
             r = registry.stored()
             _set(c, "registry", {**r, "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover}})

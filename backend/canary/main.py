@@ -6,6 +6,7 @@ Docs: http://localhost:8000/docs
 import hashlib
 import hmac
 import json
+import logging
 import mimetypes
 import pathlib
 import time
@@ -24,35 +25,52 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, data, goals, guide, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
+from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
 from .domain import simdata
-from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
+from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
 def _warm_story() -> None:
-    """Compute every crew member's health on the days of the demo story once, in the background, so the first click
-    on each scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
+    """Compute every crew member's health on the days of the scenes once, in the background, so the first click on each
+    scene does not wait for the risks to walk back through their days. Read-only: it writes nothing."""
     from .domain import risk
     try:
-        for step in STORY:
-            ms = {**risk._day_ms(step["day"]), "storm": step["storm"]}
+        for day in dict.fromkeys(sc["day"] for sc in data.scenes()):
+            ms = {**risk._day_ms(day), "storm": data.storm_at(day, plan.location_at(day))}
             for c in list(CREW):
                 health.snapshot(c["id"], ms)
     except Exception:  # a warm-up must never take the API down; the next request computes it anyway
         pass
 
 
+def _day_sync_loop(stop) -> None:
+    """Every `day_sync_seconds`: bring in live space weather (when on) and, when the mission day changed, run the sync a
+    new day triggers. Whatever happens, the loop goes on and the API stays up."""
+    while True:
+        try:
+            live.import_donki()
+            mission.safe_sync_day()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("canary").exception("day sync loop")
+        if stop.wait(settings.day_sync_seconds):
+            return
+
+
 @asynccontextmanager
 async def lifespan(_app):
+    import threading
     db.connect()
     registry.load()
     try:
         data.bootstrap()  # first start with no data and no crew: load the configured mission package once
     except validation.ValidationFailure as e:  # a broken or missing package must not stop the API from starting
         print("mission package not loaded:", "; ".join(x["message"] for x in e.errors[:3]))
+    stop = threading.Event()
     if settings.warm_cache:
-        import threading
         threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
+    if settings.day_sync:
+        threading.Thread(target=_day_sync_loop, args=(stop,), name="canary-day-sync", daemon=True).start()
     yield
+    stop.set()
 
 
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
@@ -214,7 +232,7 @@ def ping():
 def catalog():
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
             "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": STORY, "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
+            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -241,10 +259,8 @@ def put_mission(body: MissionIn):
             mission.set_location(None if body.clear_location else body.location)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    ms = mission.state()
-    advice.sync_all(ms["day"])  # an advice concluded by the new day may call for a message to the medical officer
-    notify.sync(ms)  # a new critical alert reaches the medical officer, once per episode
-    return ms
+    mission.safe_sync_day(force=True)  # an advice concluded by the new day may call for a message to the medical officer; a new critical alert reaches the medical officer, once per episode
+    return mission.state()
 
 
 @app.post("/api/demo/reset", tags=["mission"])
@@ -282,7 +298,8 @@ def plan_conditions():
     end = p["legs"][-1]["end"]
     step = max(1, (end + 1) // 60)
     days = sorted(set(list(range(0, end + 1, step)) + [end] + [max(0, l["start"]) for l in p["legs"]]))
-    series = [[d, telemetry.cumulative_dose(d, plan.location_at(d), None)] for d in days]
+    curve = dose.curve(None, ms["day"])  # the cabin's (or the plan's) dose: crew-wide, never a person's own dosimeter
+    series = [[d, curve[d]] for d in days]
     return {"name": p["name"], "legs": legs, "today": ms["day"], "leg_index": ms["leg"]["index"],
             "dose": {"series": series, "now_msv": health.dose(ms)["mission_msv"], "end_msv": series[-1][1],
                      "limit_msv": CAREER_LIMIT_MSV, "simulated": True}}
@@ -366,7 +383,7 @@ def crew_list():
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
-            "space_weather": {k: v for k, v in nasa.space_weather(ms["storm"]).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+            "space_weather": {k: v for k, v in nasa.space_weather(data.event(ms["storm"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
 @app.get("/api/crew/photos", tags=["crew"])
@@ -385,7 +402,7 @@ def crew_overview():
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "today": board["people"][c["id"]]})
-    sw = nasa.space_weather(ms["storm"])
+    sw = nasa.space_weather(data.event(ms["storm"]))
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
@@ -703,7 +720,7 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
 # ---------------------------------------------------------------- NASA data
 @app.get("/api/space-weather", tags=["nasa"])
 def space_weather():
-    return nasa.space_weather(mission.state()["storm"])
+    return nasa.space_weather(data.event(mission.state()["storm"]))
 
 
 @app.get("/api/nasa/rad", tags=["nasa"])
@@ -1125,6 +1142,20 @@ def get_scenes():
 def control_add_space_event(body: dict = Body(...)):
     """One space-weather event: kind, start_day, end_day, locations, extra_dose_msv (0 to 2000), origin, source, note."""
     return data.add_space_event(body)
+
+
+@app.put("/api/control/clock", tags=["control"], dependencies=[Depends(require_control)])
+def control_clock(body: dict = Body(...)):
+    """Move the mission clock: {"date": "YYYY-MM-DD", "time": "HH:MM"} for a simulated date (time is optional), or
+    {"real": true} to follow today's date in UTC again. 422 {field, message} on bad input. Runs the day sync at once."""
+    if not isinstance(body, dict):
+        raise validation.FieldError("body", "Send {\"date\": \"2035-10-31\", \"time\": \"12:00\"} or {\"real\": true}")
+    real = body.get("real")
+    if real is not None and not isinstance(real, bool):
+        raise validation.FieldError("real", "real must be true or false")
+    mission.set_clock(body.get("date"), body.get("time"), bool(real))
+    mission.safe_sync_day(force=True)
+    return mission.state()
 
 
 @app.get("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
