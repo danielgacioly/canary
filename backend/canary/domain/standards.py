@@ -55,13 +55,17 @@ def eva_role(crew_id: str) -> str:
     return (RECORDS.get(crew_id) or {}).get("eva") or "surface"
 
 
-def prior_dose(crew_id: str) -> dict:
-    """Career dose before this mission (mSv): the record's own number, or an estimate from the days already in space."""
-    r = RECORDS.get(crew_id) or {}
+def prior_dose_of(r: dict) -> dict:
+    """Career dose before this mission (mSv) of one personal record: its own number, or an estimate from the days in space."""
     if r.get("prior_dose_msv") is not None:
         return {"msv": float(r["prior_dose_msv"]), "estimate": False, "source": "personal record"}
     days = float(r.get("days_in_space") or 0)
     return {"msv": round(days * LOCATIONS["iss"]["dose_rate"], 1), "estimate": True, "source": PRIOR_DOSE_SOURCE}
+
+
+def prior_dose(crew_id: str) -> dict:
+    """Career dose before this mission (mSv): the record's own number, or an estimate from the days already in space."""
+    return prior_dose_of(RECORDS.get(crew_id) or {})
 
 
 def _out(level: int, limit_text: str, item: str, early: bool = False) -> dict:

@@ -132,3 +132,18 @@ def projection(crew_id: Optional[str], day: int, prior_msv: float = 0.0) -> dict
     cross = next((d for d in range(max(day, 0), len(c)) if prior_msv + c[d] > CAREER_LIMIT_MSV), None)
     return {"now_msv": now, "mission_msv": m, "prior_msv": prior_msv, "limit_msv": CAREER_LIMIT_MSV,
             "pct": round(100 * now / CAREER_LIMIT_MSV, 1), "cross_day": cross}
+
+
+def legs_dose(legs: List[dict]) -> float:
+    """The mission dose (mSv) a plan projects before anything is measured: the rate of each leg's place for each of its days
+    from day 0 (the pre-flight days on Earth are not mission days). Used to decide, at registration, whether a plan can
+    take a crew past the career limit."""
+    return sum(LOCATIONS[l["location"]]["dose_rate"] * max(0, l["end"] - max(l["start"], 0) + 1) for l in legs)
+
+
+def career_check(prior_msv: List[float], legs: List[dict]) -> dict:
+    """Each person's projected career dose (what they carry in plus the plan's mission dose) against the NASA limit."""
+    mission_msv = round(legs_dose(legs), 1)
+    careers = [round(p + mission_msv, 1) for p in prior_msv]
+    peak = max(careers, default=0.0)
+    return {"mission_msv": mission_msv, "careers": careers, "max_msv": peak, "limit_msv": CAREER_LIMIT_MSV, "over": peak > CAREER_LIMIT_MSV}

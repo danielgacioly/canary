@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS goal_log (
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL, indicator TEXT NOT NULL,
   value REAL NOT NULL, unit TEXT NOT NULL, origin TEXT NOT NULL, method TEXT NOT NULL, source TEXT NOT NULL,
-  note TEXT NOT NULL, measured_at TEXT NOT NULL, received_at TEXT NOT NULL,
+  note TEXT NOT NULL, measured_at TEXT NOT NULL, received_at TEXT NOT NULL, package TEXT,
   UNIQUE (crew_id, indicator, measured_at, source));
 CREATE TABLE IF NOT EXISTS space_events (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, start_day INTEGER NOT NULL, end_day INTEGER NOT NULL, locations TEXT NOT NULL,
@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS notices (
 CREATE TABLE IF NOT EXISTS suggestion_feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, sid TEXT NOT NULL, action TEXT NOT NULL,
   day INTEGER NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS revoked_tokens (jti TEXT PRIMARY KEY, exp REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS auth_failures (key TEXT PRIMARY KEY, count INTEGER NOT NULL, until REAL NOT NULL, last REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
   response TEXT NOT NULL, created_at REAL NOT NULL);
@@ -100,6 +102,9 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             cols = [r[1] for r in _conn.execute("PRAGMA table_info(goal_log)").fetchall()]
             if "done_at_time" not in cols:  # a database made before the goal log carried the time of day
                 _conn.execute("ALTER TABLE goal_log ADD COLUMN done_at_time TEXT")
+            ocols = [r[1] for r in _conn.execute("PRAGMA table_info(observations)").fetchall()]
+            if "package" not in ocols:  # a database made before readings recorded which package they came from
+                _conn.execute("ALTER TABLE observations ADD COLUMN package TEXT")
             _conn.commit()
             _forget()
             _bump_epoch()

@@ -11,12 +11,16 @@
 from typing import Optional
 
 from .. import db
-from . import care, plan
+from . import care, plan, registry
 from .catalog import CREW, CREW_BY_ID, LOCATIONS, SYSTEMS
 
 
 def medical_officer() -> Optional[str]:
-    """Id of the crew member whose role is medical officer; None when nobody on board has that role."""
+    """Id of the crew medical officer (registered with `cmo`; a registry made before the flag falls back to the role text);
+    None when nobody on board is."""
+    if registry.registered():
+        mo = registry.cmo_id()
+        return mo if mo in CREW_BY_ID else None
     return next((c["id"] for c in CREW if "medical officer" in c["role"].lower()), None)
 
 

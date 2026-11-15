@@ -15,7 +15,7 @@ a preset while a bundled package is loaded). All of them validate everything fir
 row writes nothing.
 
 A mission package is a folder of CSV files (see data/missions/odyssey1-mars/README.md): mission.csv, legs.csv, crew.csv,
-observations.csv, space_events.csv, goal_log.csv and scenes.csv. Any subset can be imported.
+ground.csv (the flight surgeons and MCC accounts), observations.csv, space_events.csv, goal_log.csv and scenes.csv. Any subset can be imported.
 """
 import csv
 import io
@@ -35,7 +35,10 @@ from . import catalog, plan, registry, simdata
 from . import validation as V
 from .validation import FieldError, ValidationFailure
 
-PACKAGE_FILES = ("mission.csv", "legs.csv", "crew.csv", "observations.csv", "space_events.csv", "goal_log.csv", "scenes.csv")
+PACKAGE_FILES = ("mission.csv", "legs.csv", "crew.csv", "ground.csv", "observations.csv", "space_events.csv", "goal_log.csv", "scenes.csv")
+# What a registered mission may still take in: readings, the goal history and space events. Everything that defines the
+# mission (who, where, when, who may sign in) is locked once it is registered.
+OPEN_FILES = ("observations.csv", "goal_log.csv", "space_events.csv")
 DEFAULT_MISSION_TIME = "12:00"
 # What a space event is. "sep": a solar particle event in space (it reaches a crew away from Earth). "mars": a radiation
 # storm at the Mars surface (the crew waits it out indoors). The kind carries the meaning; the id is only a name.
@@ -211,11 +214,11 @@ def add_observations(rows: Any) -> dict:
     return {"accepted": accepted, "duplicates": len(good) - accepted}
 
 
-def _insert_observations(c, good: Sequence[tuple]) -> int:
+def _insert_observations(c, good: Sequence[tuple], package: Optional[str] = None) -> int:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     before = c.total_changes
-    c.executemany("INSERT OR IGNORE INTO observations(crew_id,day,indicator,value,unit,origin,method,source,note,measured_at,received_at) "
-                  "VALUES(?,?,?,?,?,?,?,?,?,?,?)", ((*r, now) for r in good))
+    c.executemany("INSERT OR IGNORE INTO observations(crew_id,day,indicator,value,unit,origin,method,source,note,measured_at,received_at,package) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", ((*r, now, package) for r in good))
     return c.total_changes - before
 
 
@@ -318,7 +321,7 @@ def _mission_file(rows: List[dict]) -> dict:
     except FieldError as e:
         raise ValidationFailure([{"field": e.field, "message": f"{f}: {e.message}"}])
     return {"callsign": callsign, "name": name, "launch_date": launch, "preset": preset, "simulated_time": mt,
-            "simulated_today": sim or None}
+            "simulated_today": sim or None, "dose_waiver": _yes(r.get("dose_waiver"))}
 
 
 def _legs_file(rows: List[dict], name: str) -> dict:
@@ -335,6 +338,10 @@ def _legs_file(rows: List[dict], name: str) -> dict:
         return plan.validate(name, legs)
     except ValueError as ex:
         raise ValidationFailure([{"field": "legs", "message": f"{f}: {ex}"}])
+
+
+def _yes(v: Any) -> bool:
+    return str(v or "").strip().lower() in ("yes", "y", "true", "1")
 
 
 def _list(v: Any) -> List[str]:
@@ -379,6 +386,8 @@ def _crew_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
                 raise FieldError(g("blood_type"), "blood_type must be one of: " + ", ".join(BLOOD_TYPES))
             p["blood_type"] = bt
             p["skin_type"] = V.one_of(r, "skin_type", "skin_type", ("I", "II", "III", "IV", "V", "VI"), required=True, field=g("skin_type"))
+            if "cmo" in r:  # the column is there: yes marks the crew medical officer, empty is not. No column: the role says.
+                p["cmo"] = _yes(r.get("cmo"))
             p["handedness"] = V.one_of(r, "handedness", "handedness", ("Right", "Left"), required=True, field=g("handedness"))
             for k in ("vision",):
                 p[k] = V.text(r, k, k, 0, 80, field=g(k))
@@ -404,7 +413,39 @@ def _crew_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
         raise ValidationFailure(errs)
     if not 1 <= len(people) <= registry.MAX_CREW:
         raise ValidationFailure([{"field": "crew", "message": f"{f}: register between 1 and {registry.MAX_CREW} people, one per row"}])
+    if sum(1 for p in people if p.get("cmo")) > 1:
+        raise ValidationFailure([{"field": "crew", "message": f"{f}: a crew has one crew medical officer (cmo)"}])
     return people, pins
+
+
+def _ground_file(rows: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
+    f = "ground.csv"
+    _need(f, rows, ("id", "name", "role", "pin"))
+    out, pins, errs, seen = [], {}, [], set()
+    for i, r in enumerate(rows):
+        g = lambda k: f"ground.{i}.{k}"  # noqa: E731
+        try:
+            gid = str(r.get("id") or "").strip()
+            if not re.match(r"^g-[A-Za-z0-9_-]{1,17}$", gid):
+                raise FieldError(g("id"), "id must start with g- and use letters, digits, - and _ (at most 20)")
+            if gid in seen:
+                raise FieldError(g("id"), f"id {gid} appears twice")
+            seen.add(gid)
+            role = V.one_of(r, "role", "role", registry.GROUND_ROLES, required=True, field=g("role"))
+            pin = r.get("pin") or ""
+            if not auth.valid_pin(pin):
+                raise FieldError(g("pin"), "pin must be exactly 4 digits")
+            if pin in pins.values():
+                raise FieldError(g("pin"), "each account needs its own pin")
+            pins[gid] = pin
+            out.append({"id": gid, "name": V.text(r, "name", "Name", 2, 60, True, field=g("name")).strip(), "role": role})
+        except FieldError as e:
+            errs.append({"field": e.field, "message": f"{f}: {e.message} ({_lines(rows, i)})"})
+    if errs:
+        raise ValidationFailure(errs)
+    if len(out) > registry.MAX_GROUND:
+        raise ValidationFailure([{"field": "ground", "message": f"{f}: at most {registry.MAX_GROUND} accounts"}])
+    return out, pins
 
 
 def _observations_file(rows: List[dict], ctx: V.ObsContext) -> List[tuple]:
@@ -543,7 +584,8 @@ def prepare(source: Source) -> dict:
             return None
 
     parsed = {n: _csv_rows(t) for n, t in files.items()}
-    out: Dict[str, Any] = {"mission": None, "plan": None, "crew": None, "pins": {}, "observations": [], "space_events": [],
+    out: Dict[str, Any] = {"mission": None, "plan": None, "crew": None, "pins": {}, "ground": None, "ground_pins": {},
+                           "observations": [], "space_events": [],
                            "goal_log": [], "scenes": [], "present": sorted(files)}
     if "mission.csv" in parsed:
         out["mission"] = run(_mission_file, parsed["mission.csv"])
@@ -555,6 +597,10 @@ def prepare(source: Source) -> dict:
         r = run(_crew_file, parsed["crew.csv"])
         if r:
             out["crew"], out["pins"] = r
+    if "ground.csv" in parsed:
+        r = run(_ground_file, parsed["ground.csv"])
+        if r:
+            out["ground"], out["ground_pins"] = r
     crew_ids = {p["seat"] for p in out["crew"]} if out["crew"] else {c["id"] for c in catalog.CREW}
     launch = (out["mission"] or {}).get("launch_date") or cur["launch_date"]
     if "observations.csv" in parsed:
@@ -567,6 +613,8 @@ def prepare(source: Source) -> dict:
         out["scenes"] = run(_scenes_file, parsed["scenes.csv"]) or []
     if out["mission"] and "crew.csv" not in parsed and registry.stored() is None:
         errs.append({"field": "mission", "message": "mission.csv needs crew.csv too while no crew is registered"})
+    if out["ground"] and "crew.csv" not in parsed and not registry.registered():
+        errs.append({"field": "ground", "message": "ground.csv needs crew.csv too while no crew is registered"})
     if errs:
         raise ValidationFailure(errs[:V.MAX_ERRORS])
     if key is not None and "crew.csv" in files and "mission.csv" in files:
@@ -577,7 +625,7 @@ def prepare(source: Source) -> dict:
 
 def _counts(p: dict, accepted_obs: int) -> dict:
     return {"accepted": {"mission": 1 if p["mission"] else 0, "legs": len(p["plan"]["legs"]) if p["plan"] else 0,
-                         "crew": len(p["crew"] or []), "observations": accepted_obs, "space_events": len(p["space_events"]),
+                         "crew": len(p["crew"] or []), "ground": len(p["ground"] or []), "observations": accepted_obs, "space_events": len(p["space_events"]),
                          "goal_log": len(p["goal_log"]), "scenes": len(p["scenes"])},
             "duplicates": {"observations": len(p["observations"]) - accepted_obs}}
 
@@ -593,8 +641,8 @@ def import_package(source: Source, name: Optional[str] = None, bundled: bool = F
     pkg_name = name or (pathlib.Path(source).name if not isinstance(source, Mapping) else "upload")
     was_empty = count_observations() == 0
     with _transaction() as c:
-        accepted = _write(c, p)
-        if p["mission"] or p["observations"]:
+        accepted = _write(c, p, pkg_name)
+        if p["mission"] or (p["observations"] and loaded_package() is None):  # readings added to a loaded package do not rename it
             _set(c, "package", {"name": pkg_name, "preset": (p["mission"] or {}).get("preset") or (loaded_package() or {}).get("preset"),
                                 "bundled": bool(bundled)})
     _after_settings(p)
@@ -606,8 +654,9 @@ def import_package(source: Source, name: Optional[str] = None, bundled: bool = F
     return _counts(p, accepted)
 
 
-def _write(c, p: dict) -> int:
-    """Write a prepared package inside an open transaction. Returns how many observations were new."""
+def _write(c, p: dict, package: Optional[str] = None) -> int:
+    """Write a prepared package inside an open transaction. Returns how many observations were new. The readings are tagged
+    with `package`, the name of the package they came from, so a later reload for a preset never touches any other reading."""
     if p["mission"]:
         m = p["mission"]
         legs = p["plan"]["legs"] if p["plan"] else plan.preset_legs(m["preset"])
@@ -618,7 +667,7 @@ def _write(c, p: dict) -> int:
         _set(c, "mission", {"scene": None, "location": None, "custom": False})
         if p["crew"] is None and registry.stored() is not None:
             r = registry.stored()
-            _set(c, "registry", {**r, "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover}})
+            _set(c, "registry", {**r, "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover} | _waiver(m, p, r.get("ground"))})
     elif p["plan"]:
         cur = plan.get()
         _set(c, "plan", {**p["plan"], "preset": cur.get("preset")})
@@ -626,11 +675,23 @@ def _write(c, p: dict) -> int:
         m = p["mission"] or registry.mission_info() or registry.EMPTY_MISSION
         legs = p["plan"]["legs"] if p["plan"] else plan.get()["legs"]
         rover = any(plan.is_rover(l["location"]) for l in legs)
-        _set(c, "registry", {"crew": p["crew"], "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover}})
-        _set(c, "pins", auth.hashed_pins(p["pins"], keep=False))  # every registered PIN is stored hashed, replacing the earlier crew's
+        kept_ground = p["ground"] if p["ground"] is not None else registry.ground()
+        _set(c, "registry", {"crew": p["crew"], "ground": kept_ground,
+                             "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover} | _waiver(m, p, kept_ground)})
+        pins = auth.hashed_pins({**p["pins"], **p["ground_pins"]}, keep=False)  # every registered PIN is stored hashed, replacing the earlier crew's
+        if p["ground"] is None:  # no ground.csv: the ground accounts already registered keep their PINs
+            old = db.get_setting("pins") or {}
+            pins.update({g["id"]: old[g["id"]] for g in kept_ground if g["id"] in old})
+        _set(c, "pins", pins)
+    elif p["ground"]:  # ground.csv alone replaces the ground accounts of a registered crew
+        r = registry.stored() or {}
+        _set(c, "registry", {**r, "ground": p["ground"]})
+        pins = {k: v for k, v in (db.get_setting("pins") or {}).items() if not k.startswith(auth.GROUND_PREFIX)}
+        pins.update(auth.hashed_pins(p["ground_pins"], keep=False))
+        _set(c, "pins", pins)
     n = 0
     if p["observations"]:
-        n = _insert_observations(c, p["observations"])
+        n = _insert_observations(c, p["observations"], package)
     if p["space_events"]:
         c.executemany("INSERT OR REPLACE INTO space_events(id,kind,start_day,end_day,locations,extra_dose_msv,origin,source,note) VALUES(?,?,?,?,?,?,?,?,?)", p["space_events"])
     if p["scenes"]:
@@ -639,6 +700,14 @@ def _write(c, p: dict) -> int:
     if p["goal_log"]:
         c.executemany("INSERT OR IGNORE INTO goal_log(crew_id,day,goal_id,done,updated_at,done_at_time) VALUES(?,?,?,?,0,?)", p["goal_log"])
     return n
+
+
+def _waiver(m: dict, p: dict, ground: Optional[List[dict]]) -> dict:
+    """The risk-acceptance waiver a package carries (`dose_waiver` yes in mission.csv): accepted by its first MCC account."""
+    if not m.get("dose_waiver"):
+        return {}
+    by = next((g["id"] for g in (ground or []) if g["role"] == "mcc"), "package")
+    return {"waiver": {"accepted": True, "by": by, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}}
 
 
 def _after_settings(p: dict) -> None:
@@ -659,8 +728,11 @@ def demo_form() -> dict:
     read = lambda n: _csv_rows((d / n).read_text(encoding="utf-8-sig"))  # noqa: E731
     people, pins = _crew_file(read("crew.csv"))
     m = _mission_file(read("mission.csv"))
-    return {"crew": [{**p, "pin": pins[p["seat"]], "prior_dose_msv": None} for p in people],
-            "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")}}
+    ground, gpins = _ground_file(read("ground.csv")) if (d / "ground.csv").is_file() else ([], {})
+    flight = settings.mode == "flight"  # a PIN never leaves the server in flight mode (the demo form is demo-only anyway)
+    return {"crew": [{**p, **({} if flight else {"pin": pins[p["seat"]]}), "prior_dose_msv": None} for p in people],
+            "ground": [{**g, **({} if flight else {"pin": gpins[g["id"]]})} for g in ground],
+            "mission": {**{k: m[k] for k in ("callsign", "name", "launch_date", "preset")}, "dose_waiver": m["dose_waiver"]}}
 
 def package_dir(name: str) -> pathlib.Path:
     """Folder of a bundled package (under data/missions). Only plain names that exist are accepted: no paths, no `..`."""
@@ -679,8 +751,9 @@ def import_named(name: str) -> dict:
 
 
 def bootstrap() -> Optional[dict]:
-    """First start: with no measurements and no registered crew, load the configured package once."""
-    if settings.mission_package and count_observations() == 0 and registry.stored() is None:
+    """First start: with no measurements and no registered crew, load the configured package once. Never in flight mode:
+    a real mission is registered by Canary Control, not loaded from a bundle."""
+    if settings.mode == "demo" and settings.mission_package and count_observations() == 0 and registry.stored() is None:
         return import_named(settings.mission_package)
     return None
 
@@ -708,11 +781,12 @@ def reload_for_preset(preset: str) -> bool:
         return False
     p = prepare(d)
     with _transaction() as c:
-        c.execute("DELETE FROM observations")
+        family = "-".join(pkg["name"].split("-")[:-1]) + "-%"  # odyssey1-%: the bundled packages of this family
+        c.execute("DELETE FROM observations WHERE package IS NOT NULL AND (package=? OR package LIKE ?)", (pkg["name"], family))  # readings that came from elsewhere stay
         c.execute(f"DELETE FROM space_events WHERE id NOT LIKE '{CONTROL_EVENT_PREFIX}%'")
         c.execute("DELETE FROM scenes")
         c.execute("DELETE FROM goal_log WHERE updated_at=0")
-        _write(c, {**p, "mission": None, "plan": None, "crew": None, "pins": {}})
+        _write(c, {**p, "mission": None, "plan": None, "crew": None, "pins": {}, "ground": None, "ground_pins": {}}, d.name)
         _set(c, "package", {**pkg, "name": d.name, "preset": preset})
     return True
 
