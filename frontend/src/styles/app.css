@@ -908,6 +908,8 @@ ul.recent li { display: grid; grid-template-columns: minmax(120px, 200px) 1fr au
 /* ---------- health: the body always fills its column, no hole beside a tall panel ---------- */
 .hero > div:first-child { display: flex; flex-direction: column; }
 .hero > div:first-child .bodycard { flex: 1; height: auto; min-height: min(70vh, 620px); }
+/* the camera fits the body to the box height, so any height the column asks for frames it the same way */
+@media (max-width: 1100px) { .hero > div:first-child .bodycard { flex: none; height: 58vh; min-height: 420px; } }
 .tile > div:last-child { margin-top: auto; }
 
 /* ---------- goals: one area at a time, room to breathe ---------- */
@@ -1072,7 +1074,7 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .ask-row { align-items: flex-start; }
 
 /* ---------- health tab: one stack, no spacer, numbers in tiles that close their last row ---------- */
-.hero { align-items: start; }
+.hero { align-items: stretch; }
 .hero-side { gap: 26px; }
 .verdict { display: flex; flex-direction: column; gap: 26px; }
 .verdict .why { max-width: 56ch; }
