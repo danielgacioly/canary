@@ -84,9 +84,11 @@ export function glowMaterial(color: string, opacity = 1) {
       varying vec3 vN; varying vec3 vV; varying float vY;
       ${REVEAL}
       void main() {
-        float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
+        // A crisp rim and a thin fill: many real surfaces overlap, and a thick fill sums into a milky haze.
+        float e = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+        float f = pow(e, 2.2) + 0.35 * smoothstep(0.82, 0.97, e);
         float p = 1.0 + uPulse * (0.45 * sin(uTime * 5.0));
-        vec3 col = uColor * (0.06 + 0.62 * f) * p * (1.0 + uBoost * 1.8);
+        vec3 col = uColor * (0.035 + 0.75 * f) * p * (1.0 + uBoost * 1.8);
         gl_FragColor = vec4(col * uOpacity * reveal(vY, uReveal), 1.0);
       }`,
   })

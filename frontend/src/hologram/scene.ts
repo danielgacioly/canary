@@ -84,9 +84,13 @@ export class HologramScene {
     this.controls.target.copy(this.homeTarget)
     this.controls.addEventListener('start', () => { this.controls.autoRotate = false; this.zoomUntil = Infinity })
 
-    this.composer = new EffectComposer(this.renderer)
+    // The composer renders into its own target, so the renderer's antialias does nothing: the target itself must be
+    // multisampled, or the thin bones and vessels shimmer and look soft.
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 })
+    this.composer = new EffectComposer(this.renderer, target)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.2, 0.14)
+    // A light bloom that only catches the brightest edges; a low threshold fogs the dense real meshes.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.1, 0.38)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
 
@@ -234,12 +238,24 @@ export class HologramScene {
       if (m.uniforms.uTime) m.uniforms.uTime.value = t
       if (m.uniforms.uReveal) m.uniforms.uReveal.value = this.reveal
     }
-    if (this.body) this.body.material.uniforms.uLens.value = this.lens
+    // Focus: with a system selected everything else fades out, so the selected one reads on its own.
+    const ease = Math.min(1, dt * 5), sel = this.selected
+    const shellSelected = sel === 'skin' || sel === 'muscles'
+    if (this.body) {
+      const u = this.body.material.uniforms
+      u.uLens.value = this.lens
+      u.uDim.value += ((sel && !shellSelected ? 0.22 : 1) - u.uDim.value) * ease
+    }
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
       const mental = p.kind === 'nerve' || p.system === 'brain'
       const base = p.kind === 'nerve' ? 0.25 + 1.0 * this.lens : mental ? 0.9 + 0.4 * this.lens : 0.9 - 0.68 * this.lens
-      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1) * (p.mesh.userData.glow ?? 1)
+      // `glow` keeps dense meshes from summing to white when everything is on; a selected system is alone, so it
+      // gets close to full brightness.
+      const g = p.mesh.userData.glow ?? 1
+      const want = !sel ? g ** 0.6 : p.system === sel ? g ** 0.4 : 0.06 * g ** 0.6
+      const k = p.mesh.userData.k = (p.mesh.userData.k ?? want) + (want - (p.mesh.userData.k ?? want)) * ease
+      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1) * k
       if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.copy(p.mesh.userData.base).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
     }
     if (this.particles) {
