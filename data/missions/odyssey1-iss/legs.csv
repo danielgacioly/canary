@@ -1,0 +1,6 @@
+start_day,end_day,location
+-60,-1,earth
+0,1,rocket
+2,181,iss
+182,182,rocket
+183,270,earth

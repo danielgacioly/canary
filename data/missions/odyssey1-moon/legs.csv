@@ -1,0 +1,8 @@
+start_day,end_day,location
+-60,-1,earth
+0,4,rocket
+5,19,moon
+20,24,moon_rover
+25,34,moon
+35,39,rocket
+40,120,earth

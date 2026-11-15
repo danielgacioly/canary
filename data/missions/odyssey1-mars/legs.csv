@@ -1,0 +1,7 @@
+start_day,end_day,location
+-60,-1,earth
+0,3,rocket
+4,209,transit
+210,299,mars
+300,313,mars_rover
+314,720,mars
