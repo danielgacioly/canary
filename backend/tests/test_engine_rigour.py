@@ -25,7 +25,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def ctl():
-    return {"X-Canary-Control": gc._token(client, "/api/control/session", gc.CONTROL_PIN)}
+    return {"Authorization": "Bearer " + gc._token(client, "/api/control/session", gc.CONTROL_PIN)}
 
 
 @pytest.fixture()

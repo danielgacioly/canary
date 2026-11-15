@@ -45,11 +45,11 @@ def key():
 
 
 def ctl():
-    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    return control_headers(client)
 
 
 def me(cid="h", pin="1001"):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 def n_obs():
@@ -379,7 +379,7 @@ def test_a_custom_plan_does_not_change_the_data():
 # ---------------------------------------------------------------- space events and the control session
 def test_the_control_endpoints_need_the_control_session():
     ev = {"kind": "sep", "start_day": 10, "end_day": 11, "locations": ["transit"], "extra_dose_msv": 5}
-    for h in ({}, {"X-Canary-Control": "control.1.abc"}, me()):
+    for h in ({}, {"Authorization": "Bearer " + "control.1.abc"}, me()):
         assert client.get("/api/control/space-events", headers=h).status_code == 401
         assert client.post("/api/control/space-events", headers=h, json=ev).status_code == 401
         assert client.post("/api/control/import", headers=h, json={"package": "odyssey1-mars"}).status_code == 401

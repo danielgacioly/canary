@@ -27,7 +27,7 @@ def fresh(monkeypatch):
 
 
 def tok(cid, pin):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 H, K = lambda: tok("h", "1001"), lambda: tok("k", "1002")  # noqa: E731
@@ -117,7 +117,7 @@ def test_suggestions_and_choices_are_private():
         for headers in (K(), {}):
             r = (client.post if post else client.get)(path, headers=headers)
             assert r.status_code == 403, (path, r.status_code)
-    med = {"Authorization": "Bearer " + medical_headers(client)["Authorization"][7:]}
+    med = medical_headers(client)
     assert client.get("/api/suggestions/h", headers=med).status_code == 403  # the medical team reads the medical console, not these
 
 

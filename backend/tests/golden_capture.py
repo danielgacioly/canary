@@ -87,7 +87,7 @@ def control_headers(client) -> dict:
     if r.status_code != 200:
         r = client.post("/api/control/session", json={"pin": CONTROL_PIN})
     assert r.status_code == 200, r.text
-    return {"X-Canary-Control": r.json()["token"]}
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def reset_demo(client):
@@ -122,7 +122,7 @@ def capture_scene(client) -> Dict[str, Any]:
     """Every GET the frontend makes for the crew (My space, Crew, Mission plan, Ranking), the medical console and
     Canary Control, for the scene the app is in now. Assistant/LLM endpoints and photos are skipped."""
     out = {}  # type: Dict[str, Any]
-    crew_h = {c: {"X-Canary-Viewer": _token(client, f"/api/crew/{c}/session", PINS[c])} for c in CREW_IDS}
+    crew_h = {c: {"Authorization": "Bearer " + _token(client, f"/api/crew/{c}/session", PINS[c])} for c in CREW_IDS}
     med = medical_headers(client)
     ctl = control_headers(client)
 

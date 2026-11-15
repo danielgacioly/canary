@@ -6,8 +6,7 @@ flight surgeons) and Canary Control (MCC accounts).
   one table of PINs and never collide. CANARY_CREW_PINS (config) is only a fallback for a crew id with no stored PIN, and
   is empty in flight mode.
 - Signing in returns a signed token `{kind}.{account_id}.{roles}.{exp}.{jti}.{sig}`; `sig` is an HMAC over everything
-  before it with the token secret. `kind` is `crew`, `medical` or `control`, one per header (X-Canary-Viewer,
-  Authorization: Bearer, X-Canary-Control), and a token only counts in its own header. Logging out revokes the `jti`
+  before it with the token secret. `kind` is `crew`, `medical` or `control`; all travel as `Authorization: Bearer <token>` and the kind says which sign-in it is. Logging out revokes the `jti`
   (table `revoked_tokens`, pruned when expired).
 - Wrong PINs lock an account and a client address, stored in SQLite so a restart does not clear them: after every 5
   failures the wait grows 1, 5, 15, then 60 minutes.
@@ -146,12 +145,10 @@ def revoked(jti: str) -> bool:
     return bool(db.q("SELECT 1 FROM revoked_tokens WHERE jti=?", (jti,)))
 
 
-def verify(token: Optional[str], kind: str) -> Optional[dict]:
-    """{kind, id, roles, exp, jti} of a valid, unexpired, unrevoked token of this kind, else None."""
+def claims(token: Optional[str]) -> Optional[dict]:
+    """The claims of a valid, unexpired, unrevoked token of any kind, else None."""
     c = _parse(token)
-    if c is None or c["kind"] != kind or revoked(c["jti"]):
-        return None
-    return c
+    return None if c is None or revoked(c["jti"]) else c
 
 
 def revoke(token: Optional[str]) -> bool:

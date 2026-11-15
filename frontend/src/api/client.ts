@@ -4,19 +4,40 @@ import type {
   CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
-let medicalToken: string | null = sessionStorageGet('canary.med')
-// Mission Control (Canary Control) session: a separate token from a separate PIN.
-let controlToken: string | null = sessionStorageGet('canary.ctl')
-// Session token of whoever entered their private space on this terminal (from the 4-digit PIN sign-in).
-let viewerToken: string | null = sessionStorageGet('canary.viewer')
+/** One kind of sign-in per console: crew (a private space), medical (the medical console) or control (Canary Control). */
+export type Kind = 'crew' | 'medical' | 'control'
 
-function sessionStorageGet(k: string): string | null {
-  try { return sessionStorage.getItem(k) } catch { return null }
+// One token store, kept for this browser tab. Every call sends one `Authorization: Bearer` token: the one that fits the call.
+const STORE = 'canary.tokens'
+let tokens: Partial<Record<Kind, string>> = readTokens()
+
+function readTokens(): Partial<Record<Kind, string>> {
+  try { return JSON.parse(sessionStorage.getItem(STORE) ?? '{}') } catch { return {} }
 }
 
-function storeViewer(token: string | null) {
-  viewerToken = token
-  try { token === null ? sessionStorage.removeItem('canary.viewer') : sessionStorage.setItem('canary.viewer', token) } catch { /* private mode */ }
+function setToken(kind: Kind, token: string | null) {
+  const next = { ...tokens }
+  if (token === null) delete next[kind]; else next[kind] = token
+  tokens = next
+  try { Object.keys(next).length ? sessionStorage.setItem(STORE, JSON.stringify(next)) : sessionStorage.removeItem(STORE) } catch { /* private mode */ }
+}
+
+/** Calls only one kind of sign-in can make, by path; everything else follows the screen the person is on. */
+function kindFor(path: string, method: string): Kind | null {
+  if (path.startsWith('/control') || path.startsWith('/demo/') || path.startsWith('/setup') || (method !== 'GET' && (path.startsWith('/plan') || path === '/mission'))) return 'control'
+  if (path.startsWith('/medical/')) return 'medical'
+  const here = typeof location === 'undefined' ? '' : location.pathname
+  if (here.startsWith('/control')) return 'control'
+  if (here.startsWith('/medical') || (here.startsWith('/crew/') && tokens.medical)) return 'medical'
+  return null
+}
+
+/** The token a call carries: the kind it needs, else the crew sign-in, else the medical one (the crew pages a medical person reads). */
+function pick(path: string, method: string, as?: Kind): { kind: Kind; token: string } | null {
+  const want = as ?? kindFor(path, method)
+  const kind = want ?? (tokens.crew ? 'crew' : tokens.medical ? 'medical' : tokens.control ? 'control' : null)
+  const token = kind ? tokens[kind] : undefined
+  return kind && token ? { kind, token } : null
 }
 
 /** The token carries `{kind}.{id}.{roles}.{exp}.{jti}.{sig}`. A 403 on your own space, or any 401/403 after expiry, means it no longer works. */
@@ -27,12 +48,10 @@ function sessionLost(path: string, status: number, token: string): boolean {
   return status === 403 && !(otherPerson && otherPerson[1] !== id)
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+async function req<T>(path: string, init?: RequestInit & { as?: Kind }): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (medicalToken) headers.Authorization = `Bearer ${medicalToken}`
-  if (controlToken) headers['X-Canary-Control'] = controlToken
-  const sent = viewerToken
-  if (sent) headers['X-Canary-Viewer'] = sent
+  const sent = pick(path, init?.method ?? 'GET', init?.as)
+  if (sent) headers.Authorization = `Bearer ${sent.token}`
   if (init?.body instanceof FormData) delete headers['Content-Type']
   let r: Response
   try {
@@ -43,8 +62,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (!r.ok) {
     let detail: unknown = r.statusText
     try { detail = (await r.json()).detail ?? detail } catch { /* not json */ }
-    if (sent && sent === viewerToken && (r.status === 401 || r.status === 403) && !/\/(session|pin)$/.test(path) && sessionLost(path, r.status, sent)) {
-      storeViewer(null)
+    if (sent?.kind === 'crew' && sent.token === tokens.crew && (r.status === 401 || r.status === 403) && !/\/(session|pin)$/.test(path) && sessionLost(path, r.status, sent.token)) {
+      setToken('crew', null)
       window.dispatchEvent(new Event('canary:locked'))
     }
     const issues = issuesOf(detail)
@@ -80,9 +99,11 @@ export function errorText(e: unknown): string {
 }
 
 /** Ask the server to revoke a token (POST /api/session/logout). Best effort: the token is dropped here either way. */
-function endSession(headers: Record<string, string>, token: string | null) {
+function endSession(kind: Kind) {
+  const token = tokens[kind]
   if (!token) return
-  fetch('/api/session/logout', { method: 'POST', headers }).catch(() => undefined)
+  fetch('/api/session/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined)
+  setToken(kind, null)
 }
 
 const body = (b: unknown) => ({ body: JSON.stringify(b) })
@@ -104,10 +125,11 @@ export const api = {
   /** Sign in to a private space with the 4-digit PIN. Stores the session token and returns it. */
   crewSignIn: async (id: string, pin: string) => {
     const r = await req<{ token: string; expires_at: number; crew_id: string }>(`/crew/${id}/session`, { method: 'POST', ...body({ pin }) })
-    storeViewer(r.token)
+    setToken('crew', r.token)
     return r.token
   },
-  crewSignOut: () => { endSession({ 'X-Canary-Viewer': viewerToken ?? '' }, viewerToken); storeViewer(null) },
+  crewSignOut: () => endSession('crew'),
+  hasCrewSession: () => tokens.crew !== undefined,
   changePin: (id: string, current: string, next: string) =>
     req<{ changed: boolean }>(`/crew/${id}/pin`, { method: 'PUT', ...body({ current, new: next }) }),
   crew: () => req<CrewList>('/crew'),
@@ -138,10 +160,7 @@ export const api = {
 
   messages: (crew_id?: string) => req<Message[]>(`/messages${crew_id ? `?crew_id=${crew_id}` : ''}`),
   /** The sender is whoever is signed in. `as` sends only that console's token, so the message is from that person. */
-  send: (as: 'medical' | 'control' | 'crew', recipient: string, text: string) => req<Message[]>('/messages', {
-    method: 'POST', ...body({ recipient, text }),
-    headers: { ...(as !== 'medical' ? { Authorization: '' } : {}), ...(as !== 'control' ? { 'X-Canary-Control': '' } : {}), ...(as !== 'crew' ? { 'X-Canary-Viewer': '' } : {}) },
-  }),
+  send: (as: Kind, recipient: string, text: string) => req<Message[]>('/messages', { method: 'POST', as, ...body({ recipient, text }) }),
   accountsPublic: () => req<PublicAccounts>('/accounts/public'),
 
   spaceWeather: () => req<SpaceWeather>('/space-weather'),
@@ -156,26 +175,20 @@ export const api = {
 
   medicalSignIn: async (account_id: string, pin: string) => {
     const r = await req<{ token: string }>('/medical/session', { method: 'POST', ...body({ account_id, pin }) })
-    medicalToken = r.token
-    try { sessionStorage.setItem('canary.med', r.token) } catch { /* private mode */ }
+    setToken('medical', r.token)
     return true
   },
-  medicalSignOut: () => {
-    endSession({ Authorization: `Bearer ${medicalToken}` }, medicalToken)
-    medicalToken = null
-    try { sessionStorage.removeItem('canary.med') } catch { /* private mode */ }
-  },
-  isMedical: () => medicalToken !== null,
+  medicalSignOut: () => endSession('medical'),
+  isMedical: () => tokens.medical !== undefined,
 
   missionOverview: () => req<MissionOverview>('/mission/overview'),
   /** An MCC account and its PIN; without `account_id`, the first-access PIN (only until an MCC account is registered). */
   controlSignIn: async (pin: string, account_id?: string) => {
     const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body(account_id ? { account_id, pin } : { pin }) })
-    controlToken = r.token
-    try { sessionStorage.setItem('canary.ctl', r.token) } catch { /* private mode */ }
+    setToken('control', r.token)
   },
-  controlSignOut: () => { endSession({ 'X-Canary-Control': controlToken ?? '' }, controlToken); controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
-  isControl: () => controlToken !== null,
+  controlSignOut: () => endSession('control'),
+  isControl: () => tokens.control !== undefined,
   controlOverview: () => req<ControlOverview>('/control/overview'),
   controlDemo: () => req<ControlDemo>('/control/demo'),
   controlOptions: () => req<RegisterOptions>('/control/register-options'),

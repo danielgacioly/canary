@@ -45,7 +45,7 @@ def fresh(monkeypatch):
 
 
 def ctl():
-    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    return control_headers(client)
 
 
 def medical():
@@ -91,7 +91,7 @@ def go(day):
 def every_get(crew):
     """Every GET of the golden capture for this crew, as every role. Each must answer 200."""
     out = {}
-    tok = {c: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c}/session", PINS[c])} for c in crew}
+    tok = {c: {"Authorization": "Bearer " + gc._token(client, f"/api/crew/{c}/session", PINS[c])} for c in crew}
     med = medical()
     for p in gc.PUBLIC_PATHS:
         out[p] = gc._get(client, p, tok[crew[0]] if p in gc.SIGNED_IN_PATHS else None)
@@ -241,12 +241,12 @@ def test_a_person_without_preflight_data_is_learning_and_never_compared_with_a_s
     go(4)
     b = health.baselines("s2")
     assert all(v["mean"] is None and v["from"] in ("learning", "early_flight") for v in b.values()) or all(v["mean"] is None for v in b.values())
-    snap = client.get("/api/crew/s2", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s2/session", PINS["s2"])}).json()
+    snap = client.get("/api/crew/s2", headers={"Authorization": "Bearer " + gc._token(client, "/api/crew/s2/session", PINS["s2"])}).json()
     sleep = snap["indicators"]["sleep"]
     assert sleep["baseline"] is None and sleep["z"] is None and sleep["learning"] is True
     assert snap["indicators"]["gluc"]["value"] is None and snap["indicators"]["gluc"]["status"] == "no_data"
     assert "base" not in keys_of(snap)
-    assert client.get("/api/crew/s3", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s3/session", PINS["s3"])}).json()["no_data"] is True
+    assert client.get("/api/crew/s3", headers={"Authorization": "Bearer " + gc._token(client, "/api/crew/s3/session", PINS["s3"])}).json()["no_data"] is True
 
 
 def test_a_crew_without_a_medical_officer_still_works():
@@ -277,10 +277,10 @@ def test_the_demo_form_is_the_bundled_packages_crew():
 def test_a_registered_person_has_blood_only_from_their_own_observations():
     assert register(2).status_code == 200
     go(5)
-    b = client.get("/api/crew/s1", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
+    b = client.get("/api/crew/s1", headers={"Authorization": "Bearer " + gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
     assert b["analytes"] == {} and b["timepoints"] == [] and b["subject"] is None and b["origin"] is None
     post_obs([{**reading("s1", "lym", -20, 2100), "origin": "lab", "method": "blood", "source": "lab:test", "note": "L-20 draw"}])
-    b = client.get("/api/crew/s1", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
+    b = client.get("/api/crew/s1", headers={"Authorization": "Bearer " + gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
     assert b["timepoints"] == ["L-20"] and b["lymphocytes"] == [2100.0] and b["analytes"]["lym"]["status"] == ["in"]
 
 

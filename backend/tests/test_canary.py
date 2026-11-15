@@ -33,7 +33,7 @@ def as_(cid):
     """Sign in with the default PIN and send the session token, as the web app does."""
     r = client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]})
     assert r.status_code == 200
-    return {"X-Canary-Viewer": r.json()["token"]}
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def at(step):
@@ -286,12 +286,12 @@ def test_pin_attempts_are_rate_limited_per_person_and_per_address():
 
 
 def test_a_plain_id_in_the_viewer_header_is_rejected():
-    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
-    assert client.get("/api/crew/h", headers={"X-Canary-Viewer": "h"}).status_code == 403
+    assert client.get("/api/goals/h", headers={"Authorization": "Bearer " + "h"}).status_code == 403
+    assert client.get("/api/crew/h", headers={"Authorization": "Bearer " + "h"}).status_code == 403
     exp = int(time.time()) - 10  # a correctly signed but expired token
     body = f"crew.h.crew.{exp}.abcdef0123456789"
-    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": f"{body}.{auth._sig(body)}"}).status_code == 403
-    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": as_("h")["X-Canary-Viewer"] + "0"}).status_code == 403
+    assert client.get("/api/goals/h", headers={"Authorization": "Bearer " + f"{body}.{auth._sig(body)}"}).status_code == 403
+    assert client.get("/api/goals/h", headers={"Authorization": "Bearer " + as_("h")["Authorization"][7:] + "0"}).status_code == 403
 
 
 def test_a_token_only_opens_its_own_space():
@@ -394,8 +394,8 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.post("/api/control/session", json={"account_id": "g-mcc1", "pin": "0000"}).status_code == 401
     assert client.get("/api/control/overview").status_code == 401
     med = medical_headers(client)["Authorization"][7:]
-    assert client.get("/api/control/overview", headers={"X-Canary-Control": med}).status_code == 401  # a medical token is not a control token
-    c = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    assert client.get("/api/control/overview", headers={"Authorization": "Bearer " + med}).status_code == 401  # a medical token is not a control token
+    c = control_headers(client)
     assert client.get("/api/mission/overview").json()["callsign"] == "Odyssey 1"
     demo = client.get("/api/control/demo", headers=c).json()
     assert client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": demo["mission"], "ground": demo["ground"]}).status_code == 409  # registered: locked
@@ -417,7 +417,7 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
 
 def test_mission_control_brings_back_the_demo_data_on_an_empty_system_only():
     assert client.post("/api/control/demo-data").status_code == 401
-    c = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    c = control_headers(client)
     before = client.get("/api/control/data-status", headers=c).json()["counts"]
     assert client.post("/api/control/demo-data", headers=c).status_code == 409  # registered: only the demo reset starts over
     empty(client)
@@ -1715,7 +1715,7 @@ def _fields(r):
 
 
 def _ctl():
-    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    return control_headers(client)
 
 
 def _tests_count(cid, kind):
@@ -1860,7 +1860,7 @@ PERSONAL = ("prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit", 
 
 
 def _crew_facing():
-    ctl = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    ctl = control_headers(client)
     return {"crew overview": client.get("/api/crew/overview").json(), "mission overview": client.get("/api/mission/overview").json(),
             "leaderboard": client.get("/api/leaderboard").json(), "plan conditions": client.get("/api/plan/conditions").json(),
             "control overview": client.get("/api/control/overview", headers=ctl).json()}

@@ -93,8 +93,8 @@ def test_the_wrong_kind_of_token_is_refused():
     assert client.put("/api/medical/thresholds", json={"watch": 1.0, "act": 2.0}, headers=ctl).status_code == 401  # a medical write needs a medical token
     assert client.put("/api/medical/thresholds", json={"watch": 1.0, "act": 2.0}, headers=crew).status_code == 401
     # a token in another kind's header does not count either
-    tok = crew["X-Canary-Viewer"]
-    assert client.get("/api/control/overview", headers={"X-Canary-Control": tok}).status_code == 401
+    tok = crew["Authorization"][7:]
+    assert client.get("/api/control/overview", headers={"Authorization": "Bearer " + tok}).status_code == 401
     assert client.get("/api/medical/overview", headers={"Authorization": f"Bearer {tok}"}).status_code == 401
 
 
@@ -168,28 +168,29 @@ def test_the_medical_console_takes_the_crew_medical_officer_and_flight_surgeons_
 
 
 def test_a_token_is_one_signed_format_and_a_forged_one_is_nobody():
-    tok = crew_headers(client, "h")["X-Canary-Viewer"]
+    tok = crew_headers(client, "h")["Authorization"][7:]
     kind, who, roles, exp, jti, sig = tok.split(".")
     assert (kind, who, roles) == ("crew", "h", "crew") and exp.isdigit() and jti
-    assert client.get("/api/goals/h", headers={"X-Canary-Viewer": tok}).status_code == 200
+    assert client.get("/api/goals/h", headers={"Authorization": "Bearer " + tok}).status_code == 200
     for forged in (tok.replace(".crew.", ".crew+cmo.", 1), tok[:-1] + ("0" if tok[-1] != "0" else "1"), "h", f"control.g-mcc1.mcc.{exp}.{jti}.{sig}"):
-        assert client.get("/api/goals/h", headers={"X-Canary-Viewer": forged}).status_code == 403
-    assert client.get("/api/control/overview", headers={"X-Canary-Control": f"control.g-mcc1.mcc+x.{exp}.{jti}.{sig}"}).status_code == 401
+        assert client.get("/api/goals/h", headers={"Authorization": "Bearer " + forged}).status_code == 403
+    assert client.get("/api/control/overview", headers={"Authorization": "Bearer " + f"control.g-mcc1.mcc+x.{exp}.{jti}.{sig}"}).status_code == 401
 
 
 def test_logout_revokes_the_token():
     ctl, crew = control_headers(client), crew_headers(client, "h")
     assert client.get("/api/control/overview", headers=ctl).status_code == 200
     assert client.post("/api/session/logout").status_code == 401  # nothing to end
-    r = client.post("/api/session/logout", headers={**ctl, **crew})
-    assert r.status_code == 200 and r.json()["revoked"] == 2
+    for h in (ctl, crew):
+        r = client.post("/api/session/logout", headers=h)
+        assert r.status_code == 200 and r.json()["revoked"] == 1
     assert client.get("/api/control/overview", headers=ctl).status_code == 401
     assert client.get("/api/goals/h", headers=crew).status_code == 403
     assert db.q("SELECT COUNT(*) n FROM revoked_tokens")[0]["n"] == 2
     other = crew_headers(client, "h")  # a new sign-in works
     assert client.get("/api/goals/h", headers=other).status_code == 200
     db.x("UPDATE revoked_tokens SET exp=0")
-    auth.revoke(other["X-Canary-Viewer"])  # an expired entry is pruned when the next one is added
+    auth.revoke(other["Authorization"][7:])  # an expired entry is pruned when the next one is added
     assert db.q("SELECT COUNT(*) n FROM revoked_tokens")[0]["n"] == 1
 
 
@@ -198,7 +199,7 @@ def test_the_bootstrap_pin_opens_control_only_while_no_mcc_account_exists():
     r = client.post("/api/control/session", json={"pin": "4242"})
     assert r.status_code == 200 and r.json()["roles"] == ["bootstrap"]
     assert client.post("/api/control/session", json={"pin": "1111"}).status_code == 401
-    ctl = {"X-Canary-Control": r.json()["token"]}
+    ctl = {"Authorization": "Bearer " + r.json()["token"]}
     assert client.get("/api/control/overview", headers=ctl).status_code == 200
     form = demo_form_after_empty = None  # noqa: F841
     reg = register_on_empty()

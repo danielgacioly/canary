@@ -158,9 +158,9 @@ def _crew(crew_id: str) -> dict:
 
 
 # ---------------------------------------------------------------- who is signed in
-# One signed token format for everybody (auth.py). A token counts only in its own header: X-Canary-Viewer (crew),
-# Authorization: Bearer (the medical console: the crew medical officer or a ground flight surgeon) and X-Canary-Control
-# (Canary Control: an MCC account, or the bootstrap sign-in while no MCC account exists).
+# One signed token format for everybody (auth.py), one header: `Authorization: Bearer <token>`. The token's kind says which sign-in it
+# is: crew, medical (the crew medical officer or a ground flight surgeon) or control (an MCC account, or the bootstrap sign-in while
+# no MCC account exists). A route asks for one kind and a token of another kind is not a sign-in for it.
 BOOTSTRAP_ID = "bootstrap"
 
 
@@ -170,27 +170,27 @@ def demo_only() -> None:
         raise HTTPException(404, "Not found")
 
 
-def _crew_actor(token: Optional[str]) -> Optional[dict]:
-    c = auth.verify(token, "crew")
-    acct = registry.account(c["id"]) if c else None
+def _bearer(authorization: Optional[str]) -> Optional[str]:
+    parts = (authorization or "").split(None, 1)
+    return parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
+
+
+def _crew_actor(c: dict) -> Optional[dict]:
+    acct = registry.account(c["id"])
     if not acct or acct["kind"] != "crew" or c["id"] not in CREW_BY_ID:
         return None
     return {"id": c["id"], "kind": "crew", "role": "cmo" if "cmo" in acct["roles"] else "crew", "roles": acct["roles"], "name": acct["name"]}
 
 
-def _medical_actor(authorization: Optional[str]) -> Optional[dict]:
-    c = auth.verify((authorization or "").replace("Bearer ", "", 1), "medical")
-    acct = registry.account(c["id"]) if c else None
+def _medical_actor(c: dict) -> Optional[dict]:
+    acct = registry.account(c["id"])
     if not acct or not ({"cmo", "flight_surgeon"} & set(acct["roles"])):
         return None
     return {"id": c["id"], "kind": "medical", "role": "cmo" if "cmo" in acct["roles"] else "flight_surgeon",
             "roles": acct["roles"], "name": acct["name"]}
 
 
-def _control_actor(token: Optional[str]) -> Optional[dict]:
-    c = auth.verify(token, "control")
-    if not c:
-        return None
+def _control_actor(c: dict) -> Optional[dict]:
     if c["id"] == BOOTSTRAP_ID:  # the first-access sign-in dies the moment an MCC account exists
         return None if registry.has_mcc() else {"id": BOOTSTRAP_ID, "kind": "control", "role": "bootstrap", "roles": ["bootstrap"], "name": "Canary Control first access"}
     acct = registry.account(c["id"])
@@ -199,32 +199,38 @@ def _control_actor(token: Optional[str]) -> Optional[dict]:
     return {"id": c["id"], "kind": "control", "role": "mcc", "roles": acct["roles"], "name": acct["name"]}
 
 
-def require_medical(authorization: Optional[str] = Header(None)) -> dict:
+_ACTORS = {"crew": _crew_actor, "medical": _medical_actor, "control": _control_actor}
+
+
+def current_actor(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """The person behind `Authorization: Bearer <token>`: `{id, kind, role, roles, name}` (kind: crew, medical or control), or None for no
+    header, a forged, expired or revoked token, or an account that no longer qualifies. The token itself says which sign-in it is."""
+    c = auth.claims(_bearer(authorization))
+    return _ACTORS[c["kind"]](c) if c else None
+
+
+def _need(kind: str, actor: Optional[dict], message: str) -> dict:
+    if actor is None or actor["kind"] != kind:
+        raise HTTPException(401, message)
+    return actor
+
+
+def require_medical(actor: Optional[dict] = Depends(current_actor)) -> dict:
     """The medical console's actor `{id, role}` (role: cmo or flight_surgeon), or 401."""
-    a = _medical_actor(authorization)
-    if a is None:
-        raise HTTPException(401, "medical team sign-in required")
-    return a
+    return _need("medical", actor, "medical team sign-in required")
 
 
-def require_control(x_canary_control: Optional[str] = Header(None)) -> dict:
+def require_control(actor: Optional[dict] = Depends(current_actor)) -> dict:
     """Canary Control's actor `{id, role}` (role: mcc, or bootstrap before any MCC account exists), or 401."""
-    a = _control_actor(x_canary_control)
-    if a is None:
-        raise HTTPException(401, "Mission Control sign-in required")
-    return a
+    return _need("control", actor, "Mission Control sign-in required")
 
 
-def viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
-           x_canary_control: Optional[str] = Header(None)) -> dict:
-    """Who is looking. Each header carries the token of its own sign-in; a bare id, a forged, expired or revoked token is nobody.
-    `id` is the crew id (crew sign-in only), `medical` is true for the crew medical officer and flight surgeons, `roles` is
-    everything the tokens grant, `actor` the first person found (crew, then medical, then control) and `me` every id signed in."""
-    crew, med, ctl = _crew_actor(x_canary_viewer), _medical_actor(authorization), _control_actor(x_canary_control)
-    actors = [a for a in (crew, med, ctl) if a]
-    return {"id": crew["id"] if crew else None, "medical": med is not None, "control": ctl is not None,
-            "roles": sorted({r for a in actors for r in a["roles"]}), "actor": actors[0] if actors else None,
-            "me": {a["id"] for a in actors}}
+def viewer(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """Who is looking. `id` is the crew id (crew sign-in only), `medical` is true for the crew medical officer and flight surgeons in the
+    medical console, `control` for Canary Control, `roles` is what the token grants, `actor` the person (or None) and `me` their id."""
+    kind = actor["kind"] if actor else None
+    return {"id": actor["id"] if kind == "crew" else None, "medical": kind == "medical", "control": kind == "control",
+            "roles": sorted(actor["roles"]) if actor else [], "actor": actor, "me": {actor["id"]} if actor else set()}
 
 
 def any_person(v: dict = Depends(viewer)) -> dict:
@@ -316,7 +322,7 @@ def medical_session(body: AccountPinIn, request: Request):
 
 @app.post("/api/crew/{crew_id}/session", tags=["crew"])
 def crew_session(crew_id: str, body: PinIn, request: Request):
-    """Sign in to a private space with the 4-digit PIN. Returns the token for the X-Canary-Viewer header."""
+    """Sign in to a private space with the 4-digit PIN. Returns the token for the Authorization header."""
     c = _crew(crew_id)
     _attempt(request, crew_id, c["name"], auth.check_pin(crew_id, body.pin))
     return auth.issue("crew", crew_id, registry.account(crew_id)["roles"])
@@ -339,18 +345,14 @@ def control_session(body: ControlPinIn, request: Request):
 
 
 @app.post("/api/session/logout", tags=["system"])
-def logout(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
-           x_canary_control: Optional[str] = Header(None)):
-    """End the sessions these headers carry: each token is revoked at once and stops working everywhere."""
-    n = 0
-    for t in (x_canary_viewer, (authorization or "").replace("Bearer ", "", 1), x_canary_control):
-        c = auth._parse(t)
-        if auth.revoke(t):
-            n += 1
-            audit.record({"id": c["id"], "role": c["kind"]}, "auth.logout", f"{c['kind']}:{c['id']}")
-    if not n:
+def logout(authorization: Optional[str] = Header(None)):
+    """End the session this header carries: the token is revoked at once and stops working everywhere."""
+    t = _bearer(authorization)
+    c = auth.claims(t)
+    if not c or not auth.revoke(t):
         raise HTTPException(401, "no session to end")
-    return {"revoked": n}
+    audit.record({"id": c["id"], "role": c["kind"]}, "auth.logout", f"{c['kind']}:{c['id']}")
+    return {"revoked": 1}
 
 
 @app.get("/api/accounts/public", tags=["system"])
@@ -1179,14 +1181,14 @@ def del_med_goal(gid: int, body: Optional[VoidIn] = Body(None), actor: dict = De
 
 
 # ---------------------------------------------------------------- audit trail
-def _audit_reader(authorization: Optional[str] = Header(None), x_canary_control: Optional[str] = Header(None)) -> dict:
+def _audit_reader(a: Optional[dict] = Depends(current_actor)) -> dict:
     """Who may read the audit trail: an MCC account (health values redacted) or a flight surgeon (everything)."""
-    ctl, med = _control_actor(x_canary_control), _medical_actor(authorization)
-    if med and med["role"] == "flight_surgeon":
-        return {**med, "redacted": False}
-    if ctl and ctl["role"] == "mcc":
-        return {**ctl, "redacted": True}
-    raise HTTPException(401 if not (ctl or med) else 403, "audit trail: sign in as flight surgeon or MCC" if not (ctl or med) else "only a flight surgeon or an MCC account reads the audit trail")
+    if a and a["kind"] == "medical" and a["role"] == "flight_surgeon":
+        return {**a, "redacted": False}
+    if a and a["kind"] == "control" and a["role"] == "mcc":
+        return {**a, "redacted": True}
+    signed = a is not None and a["kind"] in ("medical", "control")  # a crew sign-in is no sign-in for this route
+    raise HTTPException(403 if signed else 401, "only a flight surgeon or an MCC account reads the audit trail" if signed else "audit trail: sign in as flight surgeon or MCC")
 
 
 @app.get("/api/audit", tags=["audit"])
@@ -1204,16 +1206,14 @@ def verify_audit(reader: dict = Depends(_audit_reader)):
 
 
 # ---------------------------------------------------------------- alert events
-def _alert_viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
-                  x_canary_control: Optional[str] = Header(None)) -> dict:
+def _alert_viewer(a: Optional[dict] = Depends(current_actor)) -> dict:
     """{actor, scope}: `all` (crew medical officer, flight surgeon), `own` (a crew member), `ids` (Canary Control: no values)."""
-    crew, med, ctl = _crew_actor(x_canary_viewer), _medical_actor(authorization), _control_actor(x_canary_control)
-    if med:
-        return {"actor": med, "scope": "all"}
-    if crew:
-        return {"actor": crew, "scope": "all" if crew["role"] == "cmo" else "own"}
-    if ctl and ctl["role"] == "mcc":
-        return {"actor": ctl, "scope": "ids"}
+    if a and a["kind"] == "medical":
+        return {"actor": a, "scope": "all"}
+    if a and a["kind"] == "crew":
+        return {"actor": a, "scope": "all" if a["role"] == "cmo" else "own"}
+    if a and a["kind"] == "control" and a["role"] == "mcc":
+        return {"actor": a, "scope": "ids"}
     raise HTTPException(401, "sign-in required")
 
 
@@ -1227,14 +1227,13 @@ def alert_events(open_only: bool = False, limit: int = 100, who: dict = Depends(
             "escalate_after_s": notify.escalate_after_s()}
 
 
-def _acker(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> dict:
+def _acker(a: Optional[dict] = Depends(current_actor)) -> dict:
     """The officer on board (medical console or crew sign-in) or a flight surgeon, who may acknowledge an alert."""
-    for a in (_medical_actor(authorization), _crew_actor(x_canary_viewer)):
-        if a and a["role"] in notify.ACK_ROLES:
-            return a
-    raise HTTPException(401 if not (_medical_actor(authorization) or _crew_actor(x_canary_viewer)) else 403,
-                        "sign in as the crew medical officer or a flight surgeon" if not (_medical_actor(authorization) or _crew_actor(x_canary_viewer))
-                        else "only the crew medical officer or a flight surgeon acknowledges an alert")
+    if a and a["kind"] in ("crew", "medical") and a["role"] in notify.ACK_ROLES:
+        return a
+    signed = a is not None and a["kind"] in ("crew", "medical")  # Canary Control is no sign-in for this route
+    raise HTTPException(403 if signed else 401, "only the crew medical officer or a flight surgeon acknowledges an alert" if signed
+                        else "sign in as the crew medical officer or a flight surgeon")
 
 
 @app.post("/api/alerts/events/{event_id}/ack", tags=["alerts"])

@@ -128,7 +128,7 @@ def test_registration_is_audited():
     MISSION = {"callsign": "Test 1", "name": "Test mission", "launch_date": "2036-03-01", "preset": "mars", "dose_waiver": True}
     c = client.post("/api/control/session", json={"pin": "4242"}).json()["token"]
     body = {"crew": [person(0), person(1)], "mission": MISSION, "ground": [{"id": "g-mcc1", "name": "Test Controller", "role": "mcc", "pin": "4242"}]}
-    r = client.post("/api/control/register", headers={"X-Canary-Control": c}, json=body)
+    r = client.post("/api/control/register", headers={"Authorization": "Bearer " + c}, json=body)
     assert r.status_code == 200, r.text
     row = db.q("SELECT * FROM audit_log WHERE action='mission.register'")[0]
     assert "4242" not in json.dumps(row) and row["actor_id"] == "bootstrap"
@@ -143,7 +143,7 @@ def test_sign_in_failure_lockout_success_and_logout_are_recorded_without_pins():
     assert client.post("/api/crew/a/session", json={"pin": "1003"}).status_code == 429  # locked, even for the right PIN
     auth.clear_failures()
     tok = client.post("/api/crew/a/session", json={"pin": "1003"}).json()["token"]
-    assert client.post("/api/session/logout", headers={"X-Canary-Viewer": tok}).status_code == 200
+    assert client.post("/api/session/logout", headers={"Authorization": "Bearer " + tok}).status_code == 200
     new = actions()
     for a in ("auth.signin_failed", "auth.lockout", "auth.signin", "auth.logout"):
         assert a in new, a

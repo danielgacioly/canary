@@ -23,7 +23,7 @@ def fresh():
 
 
 def crew(cid):
-    return {"X-Canary-Viewer": _token(client, f"/api/crew/{cid}/session", PINS[cid])}
+    return {"Authorization": "Bearer " + _token(client, f"/api/crew/{cid}/session", PINS[cid])}
 
 
 def medical():
@@ -86,7 +86,7 @@ def test_a_briefing_message_is_private():
 def test_reset_needs_the_control_sign_in():
     assert client.post("/api/demo/reset").status_code == 401
     assert client.post("/api/demo/reset", headers=crew("h")).status_code == 401
-    assert client.post("/api/demo/reset", headers={"X-Canary-Control": medical()["Authorization"][7:]}).status_code == 401
+    assert client.post("/api/demo/reset", headers={"Authorization": "Bearer " + medical()["Authorization"][7:]}).status_code == 401
     assert client.post("/api/demo/reset", headers=control_headers(client)).status_code == 200
 
 

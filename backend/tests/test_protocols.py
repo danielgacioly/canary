@@ -154,8 +154,8 @@ def test_care_window_is_for_the_medical_team_only_and_never_names_anyone():
     tok = client.post("/api/crew/t/session", json={"pin": "1004"}).json()["token"]
     em = client.post("/api/emergencies", json={}, headers=crew_headers(client, "h")).json()
     client.post(f"/api/emergencies/{em['id']}", json={"close": True, "outcome": "stable", "patient": "t", "protocol": "seizure"}, headers=crew_headers(client, "h"))
-    med = {"Authorization": "Bearer " + medical_headers(client)["Authorization"][7:]}
-    crew = client.get("/api/protocols/library", headers={"X-Canary-Viewer": tok}).json()
+    med = medical_headers(client)
+    crew = client.get("/api/protocols/library", headers={"Authorization": "Bearer " + tok}).json()
     anon = client.get("/api/protocols/library").json()
     doc = client.get("/api/protocols/library", headers=med).json()
     assert "care" not in {i["id"] for i in anon["in_force"]} and "care" not in {i["id"] for i in crew["in_force"]}

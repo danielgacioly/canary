@@ -70,9 +70,9 @@ def remove_all_observations():
 
 
 def tokens():
-    crew = {c: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c}/session", gc.PINS[c])} for c in [x["id"] for x in catalog.CREW]}
+    crew = {c: {"Authorization": "Bearer " + gc._token(client, f"/api/crew/{c}/session", gc.PINS[c])} for c in [x["id"] for x in catalog.CREW]}
     med = {"Authorization": "Bearer " + gc.medical_token(client, "g-fs1")}
-    ctl = {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    ctl = control_headers(client)
     return crew, med, ctl
 
 
@@ -148,7 +148,7 @@ def test_a_registered_crew_with_no_measurements_is_empty_too(monkeypatch):
     assert r.status_code == 200, r.text
     remove_all_observations()
     day(60)
-    ch = {c["id"]: {"X-Canary-Viewer": gc._token(client, f"/api/crew/{c['id']}/session", str(2001 + i))} for i, c in enumerate(catalog.CREW)}
+    ch = {c["id"]: {"Authorization": "Bearer " + gc._token(client, f"/api/crew/{c['id']}/session", str(2001 + i))} for i, c in enumerate(catalog.CREW)}
     for c in catalog.CREW:
         s = gc._get(client, f"/api/crew/{c['id']}", ch[c["id"]])
         assert s["no_data"] is True and not [a for a in s["alerts"] if not a.get("data")]
@@ -255,7 +255,7 @@ def test_current_averages_only_the_days_that_are_not_stale_and_renormalises_the_
     reset_crew(monkeypatch)
     add("h", "react", 5, 330)  # old: from day 9 on it is stale (react: max_age 3)
     day(100)
-    h = {"X-Canary-Viewer": gc._token(client, "/api/crew/h/session", gc.PINS["h"])}
+    h = {"Authorization": "Bearer " + gc._token(client, "/api/crew/h/session", gc.PINS["h"])}
     day(14)
     assert client.post("/api/checkins", json={"crew_id": "h", "kind": "pvt", "payload": {"ms": 300}}, headers=h).status_code == 200
     assert telemetry.observation("h", "react", 13)["stale"] and telemetry.observation("h", "react", 14)["origin"] == "user"

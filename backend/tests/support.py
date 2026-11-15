@@ -22,11 +22,11 @@ def crew_token(client, crew_id: str) -> str:
 
 
 def crew_headers(client, crew_id: str) -> dict:
-    return {"X-Canary-Viewer": crew_token(client, crew_id)}
+    return {"Authorization": "Bearer " + crew_token(client, crew_id)}
 
 
 def control_token(client) -> str:
-    return control_headers(client)["X-Canary-Control"]
+    return control_headers(client)["Authorization"][7:]
 
 
 def fresh(client, package: str = "odyssey1-mars"):

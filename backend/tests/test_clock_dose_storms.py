@@ -30,15 +30,15 @@ def fresh(monkeypatch):
 
 
 def ctl():
-    return {"X-Canary-Control": control_headers(client)["X-Canary-Control"]}
+    return control_headers(client)
 
 
 def me(cid="h", pin="1001"):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 def medical():
-    return {"Authorization": "Bearer " + medical_headers(client)["Authorization"][7:]}
+    return medical_headers(client)
 
 
 def day(d):
