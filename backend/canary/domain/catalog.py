@@ -217,13 +217,13 @@ PERSONAL_BY_ID = {g["id"]: g for g in PERSONAL_GOALS}
 # crew (goals.crew_quorum) on each of its days.
 TEAM_GOALS: List[dict] = [
     # Counts the routine exercise goal ticked, never the measured exercise minutes: those are health data.
-    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: {target} sessions this week", "per_person": 6, "unit": "sessions", "metric": "count:exercise"},
-    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "unit": "meals", "metric": "all_done:social"},
-    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "unit": "days", "metric": "all_done:mood"},
-    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "unit": "nights", "metric": "all_done:leisure"},
-    {"id": "team_mind", "area": "mental", "title": "Crew mind: {target} meditation sessions", "per_person": 5, "unit": "sessions", "metric": "count:meditate"},
-    {"id": "team_books", "area": "mental", "title": "Book club: {hours} hours of reading", "per_person": 150, "unit": "min", "metric": "count20:read"},
-    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "unit": "days", "metric": "all_done:water"},
+    {"id": "team_exercise", "area": "physical", "title": "Crew exercise: {target} sessions this week", "per_person": 6, "what": "Every exercise session anyone on the crew completes adds one to the total.", "unit": "sessions", "metric": "count:exercise"},
+    {"id": "team_meals", "area": "mental", "title": "Share a meal as a crew 5 times", "target": 5, "what": "A day counts when most of the crew spends their off-duty time together.", "unit": "meals", "metric": "all_done:social"},
+    {"id": "team_checkins", "area": "mental", "title": "Crew mood check-ins on 6 of 7 days", "target": 6, "what": "A day counts when most of the crew has done their mood check-in.", "unit": "days", "metric": "all_done:mood"},
+    {"id": "team_movie", "area": "mental", "title": "Movie night together, twice", "target": 2, "what": "A night counts when most of the crew takes time for something they enjoy.", "unit": "nights", "metric": "all_done:leisure"},
+    {"id": "team_mind", "area": "mental", "title": "Crew mind: {target} meditation sessions", "per_person": 5, "what": "Every meditation, prayer or slow-breathing session adds one to the total.", "unit": "sessions", "metric": "count:meditate"},
+    {"id": "team_books", "area": "mental", "title": "Book club: {hours} hours of reading", "per_person": 150, "what": "Every reading session adds twenty minutes to the crew's total.", "unit": "min", "metric": "count20:read"},
+    {"id": "team_water", "area": "physical", "title": "Crew hydrated: 2.5 L on 6 days of 7", "target": 6, "what": "A day counts when most of the crew reaches their water goal.", "unit": "days", "metric": "all_done:water"},
 ]
 
 BADGES: List[dict] = [
