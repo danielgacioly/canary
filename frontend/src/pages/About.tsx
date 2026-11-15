@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { Icon } from '../components/ui'
 import { useApi, useSession } from '../state/session'
+import { modelLine } from '../lib/assistant'
 
 export default function About() {
   const { catalog } = useSession()
@@ -39,13 +40,14 @@ Canary API (FastAPI, one process)
    ├─ protocols   Guided Response bank
    ├─ nasa        DONKI · RAD · OSD-569
    ├─ medical     PIN → short token
-   └─ assistant   LLMProvider slot
+   └─ assistant   model or rules
    ▼
 SQLite on board  ──later──▶  ground sync`}</pre>
         </section>
         <section className="col">
-          <div className="head"><h2>The AI slot</h2><span className="tag right">{st ? (st.configured ? st.provider : 'no model connected') : '…'}</span></div>
-          <p className="muted">The assistant is designed, wired and testable; the model is the last piece. It explains and never diagnoses.</p>
+          <div className="head"><h2>The assistant</h2><span className="tag right">{modelLine(st)}</span></div>
+          <p className="muted">{st?.configured ? 'A model writes the answers; the same rules check every one of them.' : 'No model is connected: the same rules answer from the same data.'} It explains and never diagnoses.</p>
+          {st?.warning && <p className="small err" role="alert">{st.warning}</p>}
           <ul className="steps">{st?.rules.map(r => <li key={r}>{r}</li>)}</ul>
           <span className="lbl about-tools-lbl">Tools a model can call</span>
           <div className="row wrap about-tools">{st?.tools.map(t => <span key={t.name} className="tag" title={t.description}>{t.name}</span>)}</div>

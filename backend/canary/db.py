@@ -62,8 +62,34 @@ CREATE TABLE IF NOT EXISTS suggestion_feedback (
   day INTEGER NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
-  response TEXT NOT NULL, created_at REAL NOT NULL);
+  response TEXT NOT NULL, created_at REAL NOT NULL,
+  provider TEXT, model TEXT, kb_version TEXT, outcome TEXT, guard_flags TEXT,
+  latency_ms INTEGER, input_tokens INTEGER, output_tokens INTEGER);
+CREATE TABLE IF NOT EXISTS assistant_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, log_id INTEGER NOT NULL REFERENCES assistant_log(id) ON DELETE CASCADE,
+  step INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, sources TEXT NOT NULL, ok INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS assistant_turns_log ON assistant_turns(log_id);
 """
+
+# Columns added to existing tables after their first release. CREATE TABLE IF NOT EXISTS does not add
+# columns to a table that already exists, so migrate() adds any that are missing (see docs/ai/schema.md §4).
+ADDED_COLUMNS = {
+    "assistant_log": [
+        ("provider", "TEXT"), ("model", "TEXT"), ("kb_version", "TEXT"), ("outcome", "TEXT"),
+        ("guard_flags", "TEXT"), ("latency_ms", "INTEGER"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER"),
+        ("asked_by", "TEXT"),  # "self" (the astronaut) or "medical" (the medical team asked about them); NULL for older rows
+    ],
+}
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent: add every column in ADDED_COLUMNS that the table does not have yet (all nullable)."""
+    for table, cols in ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, typ in cols:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
+
 
 _lock = threading.RLock()
 _conn: Optional[sqlite3.Connection] = None
@@ -97,6 +123,7 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             _conn = sqlite3.connect(path or settings.db_path, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            migrate(_conn)
             cols = [r[1] for r in _conn.execute("PRAGMA table_info(goal_log)").fetchall()]
             if "done_at_time" not in cols:  # a database made before the goal log carried the time of day
                 _conn.execute("ALTER TABLE goal_log ADD COLUMN done_at_time TEXT")
@@ -131,6 +158,16 @@ def x(sql: str, args: tuple = ()) -> int:
         return cur.lastrowid
 
 
+def write(sql: str, args: tuple = ()) -> int:
+    """Like x(), but returns the number of rows changed: a conditional UPDATE can tell whether it applied."""
+    with _lock:
+        c = connect()
+        cur = c.execute(sql, args)
+        c.commit()
+        _forget()
+        return cur.rowcount
+
+
 def get_setting(key: str, default: Any = None) -> Any:
     rows = q("SELECT value FROM settings WHERE key=?", (key,))
     return json.loads(rows[0]["value"]) if rows else default
@@ -143,7 +180,8 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "suggestion_feedback", "advice", "care_events", "notices", "observations", "space_events", "scenes"):
+        # Children before parents: assistant_turns references assistant_log.
+        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "advice", "care_events", "notices", "suggestion_feedback", "observations", "space_events", "scenes"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
         _forget()

@@ -1,19 +1,56 @@
-"""Test speed. Two things made the suite slow: every test that wants the demo resets the database and loads the ~93,000-row
-mission package again (parsing, validating and indexing it), and every registered PIN is hashed with PBKDF2.
+"""Isolate tests from local data and cloud credentials before importing the application, and keep them fast.
 
-- The package is loaded for real once per session; the freshly loaded database is kept as an in-memory SQLite copy, and
-  every later reset-then-load of the same package restores that copy (the SQLite backup API) and reuses the observation
-  table built from it. What a test sees is the same database a real load would leave; a load into a database that is not
-  empty (an import on top of other data) always runs for real.
-- PBKDF2 rounds are lowered with CANARY_PBKDF2_ITERATIONS, set here before the app is imported. Production keeps its default
-  of 100,000 (canary/config.py).
+- Settings are read at import time, so the environment is set here before any test imports canary: no .env, no LLM
+  provider, empty keys, a short provider timeout, and a temporary database.
+- Test speed: every test that wants the demo resets the database and loads the ~93,000-row mission package again
+  (parsing, validating and indexing it), and every registered PIN is hashed with PBKDF2.
+  - The package is loaded for real once per session; the freshly loaded database is kept as an in-memory SQLite copy, and
+    every later reset-then-load of the same package restores that copy (the SQLite backup API) and reuses the observation
+    table built from it. What a test sees is the same database a real load would leave; a load into a database that is not
+    empty (an import on top of other data) always runs for real.
+  - PBKDF2 rounds are lowered with CANARY_PBKDF2_ITERATIONS. Production keeps its default of 100,000 (canary/config.py).
 """
 import os
 import sqlite3
+import tempfile
+from pathlib import Path
 
-os.environ.setdefault("CANARY_PBKDF2_ITERATIONS", "1000")
+# Settings are read at import time: set everything before any test imports canary.
+_TEST_DIRECTORY = tempfile.TemporaryDirectory(prefix='canary-tests-')
+# Never read the developer's .env (real keys, local timeouts) during tests; config.py honours this flag.
+os.environ['CANARY_SKIP_DOTENV'] = '1'
+os.environ['CANARY_DB'] = str(Path(_TEST_DIRECTORY.name) / 'canary.db')
+os.environ['CANARY_LLM_PROVIDER'] = 'none'
+os.environ['CANARY_LLM_MODEL'] = ''
+os.environ['CANARY_LLM_TIMEOUT_S'] = '15'
+os.environ['GEMINI_API_KEY'] = ''
+os.environ['ANTHROPIC_API_KEY'] = ''
+# CANARY_KB keeps the application default (backend/kb.db, read-only); tests that need it skip when it is missing.
+os.environ.setdefault('CANARY_DAY_SYNC', '0')
+os.environ.setdefault('CANARY_PBKDF2_ITERATIONS', '1000')
 
 import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def offline_provider_environment(monkeypatch):
+    from canary.config import settings
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    monkeypatch.setattr(settings, 'llm_provider', 'none')
+    monkeypatch.setattr(settings, 'llm_model', '')
+    monkeypatch.setattr(settings, 'llm_timeout_s', 15.0)
+
+
+@pytest.fixture(autouse=True)
+def fresh_suggestions_cache(monkeypatch):
+    """The suggestions build is cached per crew member in memory, and the assistant's rate limits are counted per process:
+    each test starts with no cached build and full quotas, so a fake provider of one test never answers for another."""
+    from canary.assistant import limits, suggestions
+    suggestions._cache.clear()
+    monkeypatch.setattr(limits, 'LIMITS', limits.Limiter())
+    yield
+    suggestions._cache.clear()
 
 
 @pytest.fixture(scope="session", autouse=True)

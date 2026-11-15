@@ -43728,11 +43728,13 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -43751,6 +43753,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:a:social:day-30"
     ],
@@ -43783,6 +43786,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -43813,13 +43817,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -43843,6 +43848,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -43858,14 +43864,19 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/h [as h]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -43884,6 +43895,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:social:day-30"
     ],
@@ -43916,6 +43928,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -43946,13 +43959,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -43976,6 +43990,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -43991,14 +44006,19 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/k [as k]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -44017,6 +44037,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:k:social:day-30"
     ],
@@ -44049,6 +44070,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -44079,13 +44101,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -44109,6 +44132,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Walk outside without a phone, 20 minutes",
@@ -44124,14 +44148,19 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/t [as t]": {
+  "configured": false,
   "context": {
    "in_force": [],
    "place": "Earth"
   },
   "day": -30,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -44150,6 +44179,7 @@
      "priority": 80,
      "score": 80.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:social:day-30"
     ],
@@ -44182,6 +44212,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -44212,13 +44243,14 @@
      "priority": 60,
      "score": 60.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "20 minutes before lights out",
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -44242,6 +44274,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Cook a dish from a crewmate's home city",
@@ -44257,6 +44290,9 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  }
 }

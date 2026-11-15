@@ -46019,6 +46019,7 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -46028,6 +46029,7 @@
    "place": "Launch"
   },
   "day": 2,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -46046,6 +46048,7 @@
      "priority": 80,
      "score": 100.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:a:social:day2"
     ],
@@ -46078,6 +46081,7 @@
      "priority": 88,
      "score": 88.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:a:hr:day2",
      "telemetry:a:water:day2"
@@ -46108,6 +46112,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46120,9 +46125,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/h [as h]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -46132,6 +46141,7 @@
    "place": "Launch"
   },
   "day": 2,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -46150,6 +46160,7 @@
      "priority": 90,
      "score": 90.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:sleep:day2"
     ],
@@ -46182,6 +46193,7 @@
      "priority": 88,
      "score": 88.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:hr:day2",
      "telemetry:h:water:day2"
@@ -46212,6 +46224,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46224,9 +46237,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/k [as k]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -46236,6 +46253,7 @@
    "place": "Launch"
   },
   "day": 2,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -46254,6 +46272,7 @@
      "priority": 88,
      "score": 88.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:k:hr:day2",
      "telemetry:k:water:day2"
@@ -46284,6 +46303,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46296,9 +46316,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/t [as t]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -46308,6 +46332,7 @@
    "place": "Launch"
   },
   "day": 2,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -46326,6 +46351,7 @@
      "priority": 88,
      "score": 108.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:hr:day2",
      "telemetry:t:water:day2"
@@ -46356,6 +46382,7 @@
      "priority": 70,
      "score": 90.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:stress:day2",
      "telemetry:t:mood:day2"
@@ -46389,6 +46416,7 @@
      "priority": 65,
      "score": 85.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:water:day2"
     ],
@@ -46421,6 +46449,7 @@
      "priority": 50,
      "score": 50.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Learn ten words of Yoruba a day with Amara",
@@ -46436,6 +46465,9 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  }
 }

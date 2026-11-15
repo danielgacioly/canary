@@ -148,7 +148,7 @@ def _fatigue(crew_id: str, day: int) -> dict:
     log = goals._log(crew_id)
     if not any(goals.is_done(crew_id, "mood", d, day, log) for d in (day, day - 1, day - 2)):
         ev.append({"checkin": "missing_mood", "value": None, "baseline": None, "z": None, "origin": "user",
-                   "source": f"goal:{crew_id}:mood:day{day}", "points": FATIGUE["checkins"]["missing_mood"],
+                   "source": f"goals:{crew_id}:mood:day{day}", "points": FATIGUE["checkins"]["missing_mood"],
                    "text": "No mood check-in for 3 days"})
         signals += 1
     score = round(sum(e["points"] for e in ev), 2)

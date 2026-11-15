@@ -406,7 +406,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                   "title": "No mood check-in for 3 days.",
                   "why": "Canary reads your mood and stress less well without a check-in, and the numbers can look better than the days feel. Nothing is wrong with skipping; days get busy.",
                   "todo": ["A 30-second mood check-in is enough", "Add a line about why if you want the medical team to know"],
-                  "sources": [f"goal:{crew_id}:mood:day{day}"], "goals": []})
+                  "sources": [f"goals:{crew_id}:mood:day{day}"], "goals": []})
 
     for i, d in inds.items():
         if d["level"] and (i not in used or d["population"]["status"] == "critical" or (d.get("standard") or {}).get("level") == 2):

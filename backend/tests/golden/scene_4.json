@@ -10863,7 +10863,7 @@
     "seen": false,
     "since_day": 152,
     "sources": [
-     "goal:h:mood:day153"
+     "goals:h:mood:day153"
     ],
     "sys": "brain",
     "test": "mood",
@@ -12390,7 +12390,7 @@
       "checkin": "missing_mood",
       "origin": "user",
       "points": 0.5,
-      "source": "goal:h:mood:day153",
+      "source": "goals:h:mood:day153",
       "text": "No mood check-in for 3 days",
       "value": null,
       "z": null
@@ -15411,7 +15411,7 @@
     "seen": false,
     "since_day": 152,
     "sources": [
-     "goal:h:mood:day153"
+     "goals:h:mood:day153"
     ],
     "sys": "brain",
     "test": "mood",
@@ -16938,7 +16938,7 @@
       "checkin": "missing_mood",
       "origin": "user",
       "points": 0.5,
-      "source": "goal:h:mood:day153",
+      "source": "goals:h:mood:day153",
       "text": "No mood check-in for 3 days",
       "value": null,
       "z": null
@@ -41008,7 +41008,7 @@
       "seen": false,
       "since_day": 152,
       "sources": [
-       "goal:h:mood:day153"
+       "goals:h:mood:day153"
       ],
       "sys": "brain",
       "test": "mood",
@@ -47445,6 +47445,7 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -47454,6 +47455,7 @@
    "place": "Transit to Mars"
   },
   "day": 153,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -47472,6 +47474,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Add leg and balance work three times a week",
@@ -47502,6 +47505,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -47514,9 +47518,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/h [as h]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -47526,6 +47534,7 @@
    "place": "Transit to Mars"
   },
   "day": 153,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -47544,6 +47553,7 @@
      "priority": 80,
      "score": 100.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:social:day153"
     ],
@@ -47576,6 +47586,7 @@
      "priority": 74,
      "score": 94.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:bone:day153"
     ],
@@ -47608,6 +47619,7 @@
      "priority": 90,
      "score": 90.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:sleep:day153"
     ],
@@ -47640,6 +47652,7 @@
      "priority": 70,
      "score": 90.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:h:stress:day153",
      "telemetry:h:mood:day153"
@@ -47673,6 +47686,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Add leg and balance work three times a week",
@@ -47703,6 +47717,7 @@
      "priority": 50,
      "score": 70.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Sketch Earth or the stars from the window, ten minutes a day",
@@ -47718,9 +47733,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/k [as k]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -47730,6 +47749,7 @@
    "place": "Transit to Mars"
   },
   "day": 153,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -47748,6 +47768,7 @@
      "priority": 74,
      "score": 94.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:k:bone:day153"
     ],
@@ -47780,6 +47801,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Add leg and balance work three times a week",
@@ -47810,6 +47832,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -47822,9 +47845,13 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  },
  "/api/suggestions/t [as t]": {
+  "configured": false,
   "context": {
    "in_force": [
     "eva",
@@ -47834,6 +47861,7 @@
    "place": "Transit to Mars"
   },
   "day": 153,
+  "fallback_reason": null,
   "items": [
    {
     "accepted": false,
@@ -47852,6 +47880,7 @@
      "priority": 74,
      "score": 94.0
     },
+    "source": "rules",
     "sources": [
      "telemetry:t:bone:day153"
     ],
@@ -47884,6 +47913,7 @@
      "priority": 55,
      "score": 75.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Add leg and balance work three times a week",
@@ -47914,6 +47944,7 @@
      "priority": 10,
      "score": 10.0
     },
+    "source": "rules",
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -47926,6 +47957,9 @@
    }
   ],
   "mode": "rules",
-  "provider": "none"
+  "model": null,
+  "provider": "none",
+  "rejected_numbers": [],
+  "rewritten": 0
  }
 }

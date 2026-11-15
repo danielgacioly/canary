@@ -33,10 +33,10 @@ It compares every astronaut with **their own normal**, turns early warnings into
 
 ## Run it
 
-Needs **Python 3.9+** and **Node 18+**.
+Needs **Python 3.10+** and **Node 18+**.
 
 ```bash
-make setup     # backend venv + npm install
+make setup     # backend venv, npm install and the knowledge base index
 make dev       # API on :8000 and web app on :5173
 ```
 
@@ -61,13 +61,22 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `make test` | backend tests (the demo's golden snapshots, ingest and import, empty and stale data, crew of 1 to 6, clock, dose and storms, alerts, risks, advice, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, Mission Control, assistant guard, API) and the frontend type check |
-| `make serve` | builds the web app and serves everything from one process on <http://localhost:8000> |
+| `make test` | backend tests (the demo's golden snapshots, ingest and import, empty and stale data, crew of 1 to 6, clock, dose and storms, alerts, risks, advice, story, mission plan, setup and conditions, goals, privacy, hazards, PINs and sessions, Mission Control, API, and the AI layer: contracts, tools, knowledge base and its freshness, guard, model loop with a scripted fake, provider selection, protocol matching, suggestions, briefing access, rate limits) and the frontend type check. No network |
+| `make index` | builds the knowledge base `backend/kb.db` (also run by `make setup` and `make serve`; the API rebuilds it in the background at start-up when it is missing or built from another corpus) |
+| `make serve` | builds the web app and the knowledge base index, then serves everything from one process on <http://localhost:8000> |
 | `http://localhost:8000/docs` | interactive API documentation (OpenAPI) |
 | Medical console PIN | `1961` (demo only, set `CANARY_MEDICAL_PIN` anywhere else; always exactly 4 digits) |
 | Mission Control PIN | `4242` for Canary Control (demo only, set `CANARY_CONTROL_PIN`) |
 
 ### Settings (environment variables)
+
+Copy `env.example` to `.env` and fill in the desired API key. The backend automatically loads the repository-root `.env`, regardless of its working directory. Variables already exported in the process take precedence. From the repository root:
+
+```bash
+make dev
+```
+
+Keep unused API keys empty and restart the backend after changes. `.env` is ignored by Git. The example uses `gemini-3.1-flash-lite` and the 15-second answer deadline; the table below lists the application defaults.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -81,6 +90,19 @@ Other commands:
 | `CANARY_DELAY_SPEEDUP` | `20` | communication delay runs this many times faster in the demo |
 | `CANARY_LIVE_SPACE_WEATHER` | `0` | `1` also asks NASA DONKI for the last 30 days: each solar particle event becomes a space event, but only while the mission clock follows the real date. Offline or rate-limited, nothing happens |
 | `NASA_API_KEY` | `DEMO_KEY` | key for api.nasa.gov |
+| `CANARY_LLM_PROVIDER` | `auto` | `auto`, `none`, `gemini`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
+| `CANARY_LLM_MODEL` | unset | optional model override for the selected provider; leave unset when switching by API key |
+| `CANARY_GEMINI_MODEL` | `gemini-3.1-flash-lite` | default Gemini model |
+| `CANARY_ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Anthropic model |
+| `CANARY_LLM_EFFORT` | `low` | effort level sent to the model (`low` keeps tool calls few and answers short) |
+| `CANARY_LLM_TIMEOUT_S` | `15` | one deadline per question; past it the answer falls back to grounded rules |
+| `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
+| `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds; extra calls get an error result |
+| `CANARY_KB` | `backend/kb.db` | knowledge base file, built by `make index` or at start-up when stale (see [The AI slot](#the-ai-slot)) |
+| `CANARY_EMBEDDER` | `local` | `local` (fastembed, `bge-small-en-v1.5`) or `none` (BM25 only, fully offline) |
+| `GEMINI_API_KEY` | none | selects Gemini in auto mode; backend only, never commit it |
+| `ANTHROPIC_API_KEY` | none | selects Anthropic in auto mode when no Gemini key is present; backend only, never commit it |
+| `CANARY_EVAL_PRICE_IN` / `CANARY_EVAL_PRICE_OUT` | provider-dependent | USD per million tokens for eval estimates; Gemini `0.75` / `3.75` through 2026-12-31, Anthropic `2` / `10`; override for other models |
 | `CANARY_INGEST_KEY` | empty | secret a sensor, wearable or lab sends in the `X-Canary-Key` header of `POST /api/observations`. Empty: ingest is off (503). Control › Data only says "configured" or "off", never the key. See [Live data](#live-data) |
 | `CANARY_MISSION_PACKAGE` | `odyssey1-mars` | bundled package (a folder under `data/missions`) loaded on the first start, when the database holds no data and no crew, and by **Reset demo**. Set it to `""` for an empty start: no crew, no readings, no scenes. See [Mission data](#mission-data) |
 | `CANARY_MISSIONS_DIR` | `data/missions` | where bundled packages are looked up by name |
@@ -88,7 +110,6 @@ Other commands:
 | `CANARY_DAY_SYNC_SECONDS` | `600` | how often that thread looks (and, with `CANARY_LIVE_SPACE_WEATHER=1`, asks DONKI) |
 | `CANARY_WARM` | `1` | `1` computes each person's health once at start-up so the first click is quick; `0` skips it |
 | `CANARY_PBKDF2_ITERATIONS` | `100000` | rounds of the PIN hash. Leave it alone: a stored hash does not record the count, so changing it locks every stored PIN out. The test suite sets it low to run fast |
-| `CANARY_LLM_PROVIDER` | `none` | `none`, `anthropic` or `local` (see [The AI slot](#the-ai-slot)) |
 
 ---
 
@@ -130,6 +151,10 @@ Canary follows the team's data-use draft: a visibility contract the crew agrees 
 | Critical alert | Immediately | Immediately | No | Delayed briefing |
 | Photo of a vitals display (check-in photo) | Yes | Yes | No | No |
 | Hazards and crew goals | Yes | Yes | Yes | Yes |
+| Questions to Ask Canary and their answers | Yes | Yes (they can read them; the audit lists them) | No | No |
+| Weekly briefing drafts | Yes | Yes | No | No |
+| Approved briefing | Yes | Yes | No | Delayed, sent to Earth after approval |
+| Suggestions (My space) | Yes | No | No | No |
 
 Where each piece of information lives. This is the funnel: general pages say what is the same for everyone, My space and the medical console say what is personal, Canary Control registers and follows.
 
@@ -153,7 +178,9 @@ How the API enforces it:
 - **Check-in photos (C2).** On a vital-signs check-in you can add a photo of the device's display (`<input capture="environment">` on a phone). The browser shrinks it to 1024 px on the long edge as a JPEG before sending; `POST /api/checkins` takes it as the optional `photo` data URL, for vitals only (PNG, JPEG or WebP checked by its first bytes, at most 600 KB, else 422 with field `photo`). It lives in its own table, `checkin_photos(checkin_id, crew_id, data_url, created_at)`, never in the check-in payload, so it feeds no chart, alert or assistant answer: the numbers typed are what counts, the photo is evidence. `GET /api/checkins/{id}` and the crew detail only say `has_photo`; `GET /api/checkins/{id}/{checkin_id}/photo` returns it to that person and the medical team (403 to anyone else), and a demo reset deletes it. It never appears in the crew overview, leaderboard, mission overview or Canary Control.
 - `GET /api/crew/overview` is the only crew-wide view: participation (goals done today, streaks), hazards, crew missions. No status, indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
 - `GET /api/crew/{id}` answers only the astronaut (session token) and the medical team (bearer token). There is no sharing switch: health never leaves those two.
-- Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. `GET /api/crew` with full summaries is medical-only.
+- Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. Suggestions answer only the astronaut. `GET /api/crew` with full summaries is medical-only.
+- **Questions are not private from the medical team.** A question the medical team asks is stored with `asked_by: medical`, and the astronaut's history labels it "Asked by the medical team". The medical team can read every question and answer in the assistant audit.
+- **Briefings.** Only the astronaut or the medical team can approve a draft, once (404 for an unknown id, 409 after that). An approved briefing is private: the astronaut and the medical team see it in the message feed, the crew and Mission Control do not.
 - Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status. After a closed emergency the status is at least the protocol's `ops` until the end of the care window, with `reason` and `until_day` (see [After an emergency](#after-an-emergency-and-who-is-told)).
 - **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per episode (`crew_id`, `alert_id`, `since_day`); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The list is in `GET /api/medical/overview` → `notices`.
 - Guided Response itself is a crew-wide event (the whole crew is alerted, and `GET /api/emergencies` lists protocol, patient and outcome as before). What follows it, the care window, the restricted status and the tightened thresholds, is private to the person and the medical team (`care_events` in `GET /api/crew/{id}` and the medical overview).
@@ -324,7 +351,7 @@ curl -X POST http://localhost:8000/api/observations \
    ├─ domain/nasa        DONKI · Curiosity RAD · OSD-569 snapshot (+ optional live DONKI)
    ├─ domain/plan        mission plan: itinerary legs, presets, location by day
    ├─ domain/mission     mission clock, place, demo story
-   ├─ assistant/         the AI slot: provider · knowledge · tools · guard · chat · briefing · suggestions
+   ├─ assistant/         the AI layer: providers · tools · kb · guard · chat · briefing · suggestions
    ├─ auth               PINs (hashed), crew session tokens, rate limit
    └─ main.py            routes, PIN sign-in for each private space and the medical console
    ▼
@@ -504,26 +531,45 @@ What the standard sets and Canary cannot check is listed in `standards.NOT_CHECK
 
 ## The AI slot
 
-The assistant is **designed, wired and testable, but no model is connected.** Everything around the model exists, so plugging one in touches one class.
+**A real model with tool calling, behind a guard that checks every sentence.** Deterministic code still decides alerts, emergencies and thresholds; the model only explains what tools return. Without a model, the same path answers from rules. Design: [docs/ai/plan.md](docs/ai/plan.md); data shapes: [docs/ai/schema.md](docs/ai/schema.md).
 
 ```
-question ─► guard.precheck ─► tools (read-only) ─► LLMProvider ─► guard.validate_claims ─► log
-              │ emergency → "hold EMERGENCY"          │ none connected → grounded rule-based answer
-              │ diagnosis / dosing → refused          ▼
-                                             {answer, claims:[{text, source_ids}]}
+question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagnosis / dose / injection → refused   (no model call)
+              ▼
+         provider loop (Gemini or Anthropic, ≤ 3 rounds, ≤ 6 tool calls, one deadline)
+              │ the model picks tools; each runs for the signed-in person only, its sources join the turn
+              ▼
+         AssistantResponse {status, answer, observations, explanations, limitations, recommended_action_id}
+              ▼
+         guard.postcheck ─► sources exist and fit the claim type · numbers in tool data · no dose, diagnosis
+              │             or "this is safe" · action from the allow-list · nobody else's health
+              ├─ pass → mode "ai"
+              └─ fail, loop guard, timeout, refusal, API error → grounded rule answer, mode "fallback"
+         log: assistant_log (provider, model, kb version, outcome, guard flags, latency, tokens) + assistant_turns
 ```
 
 | File | Role |
 | --- | --- |
-| `assistant/providers.py` | `LLMProvider` interface. `NullProvider` (default), `AnthropicProvider` and `LocalProvider` are slots with a `TODO` |
-| `assistant/knowledge.py` | The only knowledge allowed: body-system cards and protocols, each with an id. Small enough for a cached prompt, no vector database |
-| `assistant/tools.py` | Read-only tools a model can call (`get_status`, `get_indicator`, `explain_system`, `get_risks`, `get_protocol`, `list_goals`); each result carries source ids. `route()` is the rule-based stand-in for tool choice |
-| `assistant/guard.py` | Sends emergencies to Guided Response, refuses diagnosis and doses, drops any claim citing a source the tools did not return, rejects briefing text with invented numbers |
-| `assistant/chat.py` | Entry 1: an astronaut asks a question |
-| `assistant/briefing.py` | Entry 2: one-page weekly briefing for the flight surgeon. Code computes the facts, the model only writes prose, the astronaut approves it before it is queued for Earth |
-| `assistant/suggestions.py` | Entry 3: personal suggestions in My space. Code gathers the facts (indicators against the personal normal, goals met this week, self-tests, the next leg), rules write each suggestion with the numbers behind it, and a connected model may only rephrase the reason; `guard.unknown_numbers` rejects a rewrite with any number not in the facts. Accepted suggestions become goals for 7 days |
+| `assistant/providers.py` | `GeminiProvider` and `AnthropicProvider` (shared guarded tool loop), `NullProvider` (no key), `LocalProvider` (slot for an on-board model) |
+| `assistant/chat.py` | Entry 1: a question about one person, from that person or the medical team. `ask(crew_id, question, viewer)` |
+| `assistant/briefing.py` | Entry 2: weekly briefing. Code computes the facts, the model rewrites them as a `BriefingDraft`; any unknown number or rule violation (`guard.text_violations`) keeps the template; `mode` is `ai` or `template` |
+| `assistant/suggestions.py` | Entry 3: suggestions in My space. Rules write them; a model may only rephrase the reason, checked by `guard.unknown_numbers` and `guard.text_violations`. Reused until its inputs change (day, facts, feedback, provider); `mode` is `ai` or `rules` |
+| `assistant/tools.py` | 10 strict tools (`get_status`, `get_indicator`, `explain_system`, `get_risks`, `get_protocol`, `list_goals`, `get_checkins`, `get_weekly_summary`, `get_dose_and_eva`, `search_knowledge`), bound to the signed-in viewer; `route()` picks them by rule when no model runs, and an off-topic question gets none |
+| `assistant/guard.py` + `data/guard_rules.json` | Rule bank with ids (`G-DOSE-02`, `G-PRIV-01`…) in English, Portuguese and Spanish. Text is folded first (invisible characters removed, accents and full-width letters normalised). Precheck before the model, postcheck after; `text_violations` checks briefing lines and suggestion rewrites |
+| `assistant/kb/` | Knowledge base in `kb.db`: protocols, body-system cards, places, NASA sources, hazards, the privacy contract, self-tests, risk cards (`RISK-*`) and care windows after a closed emergency (`CARE-*`). Hybrid BM25 (FTS5) + vectors (sqlite-vec), filtered by gravity and place; BM25 only when no embedder is available. At startup the API compares the file's corpus hash with the code and rebuilds it in the background when they differ (`kb/freshness.py`) |
+| `assistant/limits.py` | Rate limits for the paid calls: a token bucket per crew member for `ask` (10 a minute), `briefing` (3) and `suggestions` (6). In memory, per process |
+| `assistant/contracts.py` | `ToolContext`, the tool result envelope, `AssistantResponse`, `BriefingDraft`, source-id and action formats |
+| `assistant/prompts/` | Versioned system prompts (`system_v3.md` active; `system_v2.md` and `system_v1.md` kept unchanged for history; `briefing_v1.md`); the version is logged with every answer |
 
-**To plug in a model:** implement `complete()` in `AnthropicProvider` (ground segment, needs a link; read `ANTHROPIC_API_KEY` from the environment, never commit it) or `LocalProvider` (on board, e.g. a small model through llama.cpp or Ollama), return the JSON shape in the module docstring, then run with `CANARY_LLM_PROVIDER=anthropic`. The guard and the tests stay the same.
+Both cloud providers use native REST APIs through the existing `httpx` dependency and share one guarded tool executor. With `CANARY_LLM_PROVIDER=auto` (the default), only `GEMINI_API_KEY` selects Gemini, only `ANTHROPIC_API_KEY` selects Anthropic, and neither key selects offline rules. If both keys are set, Gemini wins. Explicit `gemini` or `anthropic` selects that provider (without its key, answers come out as `fallback`); `none` forces offline mode. HTTP 503 and 529 (overloaded) responses get at most two retries per model round, three tries in all, with 1 s / 2 s backoff (or a longer numeric `Retry-After`) within the remaining question deadline. The last round the loop allows is sent without tools, so the model must answer. Timeouts and other errors are not retried. A persistent API failure uses deterministic fallback, never another cloud provider.
+
+**Run automatically:** `make index` (once), then set either API key in the backend environment and run `make dev`. If you previously exported `CANARY_LLM_PROVIDER=gemini`, change it to `auto`; unset `CANARY_LLM_MODEL` to use the appropriate provider default. Use `CANARY_GEMINI_MODEL` and `CANARY_ANTHROPIC_MODEL` to customize models independently. Restart the backend after changing environment variables in your shell. `GET /api/assistant/status` reports the selected provider and model, never the keys.
+
+The default models are `gemini-3.1-flash-lite` and `claude-sonnet-5-5`, both at `low` effort. Without any key, answers use rules (`mode: "grounded"`); when an explicitly selected provider is unconfigured or fails, answers use `"fallback"`; without a model, an off-topic question answers `"unknown"` (no tool runs, so nothing looks supported); with a model it gets `status` `out_of_scope` or `insufficient_evidence`. The `status` values are `supported`, `insufficient_evidence` and `out_of_scope`. Every question records who asked (the astronaut or the medical team). The medical console lists recent questions, who asked, tools used and guard flags (`GET /api/medical/assistant-audit`).
+
+**Limits:** per crew member, 10 questions, 3 briefing builds and 6 suggestion builds a minute. Over the limit the API answers HTTP 429 with the `{detail: [{field, message}]}` shape (`field` is `question`, `briefing` or `suggestions`) and a `Retry-After` header. Refused calls cost nothing: no log row, no model call. The counters live in memory and reset on restart. Repeated suggestion requests with the same inputs reuse the last build: no model call and no new log row.
+
+**Eval:** `cd backend && .venv/bin/python -m evals.run --dry` runs 36 adversarial cases (diagnosis, medication, prompt injection, emergencies, someone else's data, off-topic, invented numbers) through the real loop and guard with a scripted model, free. `--yes` runs them against the real API (costs money; see `backend/evals/README.md`).
 
 Real-world parallel: NASA and Google are testing a Crew Medical Officer Digital Assistant (CMO-DA) as a proof of concept ([Google Cloud](https://cloud.google.com/blog/topics/public-sector/how-google-and-nasa-are-testing-ai-for-medical-care-in-space), [NASA NTRS](https://ntrs.nasa.gov/citations/20260001797)). Canary differs on purpose: it watches each person against their own normal, turns warnings into goals, guides first response deterministically, and its assistant explains without diagnosing.
 
@@ -591,10 +637,11 @@ backend/
     auth.py              PINs (PBKDF2), crew session tokens, rate limit
     config.py            environment settings
     db.py                SQLite schema and helpers
-    domain/              validation (input checks shared by every form), catalog, registry (crew and mission registered by Mission Control), plan, data (the one path in for measurements, events, scenes), telemetry, dose, live (DONKI), simdata (the demo generator's helpers), health, risk, standards (NASA-STD-3001), reference, advice, goals, privacy, protocols, nasa, mission, selftests
-    assistant/           the AI slot: chat, briefing, suggestions, guard
-    data/                protocols.json, nasa_snapshot.json, observations.csv (the generator's reference table, not read at runtime)
-  tests/                 test_canary.py, test_golden.py (the demo, number by number), test_ingest.py, test_mission_package.py, test_empty_and_stale.py, test_crew_size.py, test_clock_dose_storms.py; conftest.py reuses one loaded database per session
+    domain/              validation (input checks shared by every form), catalog, registry (crew and mission registered by Mission Control), plan, data (the one path in for measurements, events, scenes), telemetry, dose, live (DONKI), simdata (the demo generator's helpers), health, risk, standards (NASA-STD-3001), reference, advice, goals, privacy, protocols, protocol_match, nasa, mission, selftests, guide
+    assistant/           the AI layer: providers, chat, briefing, suggestions, protocol_match, tools, guard, contracts, limits, prompts/, kb/
+    data/                protocols.json, nasa_snapshot.json, guard_rules.json, kb_map.json, observations.csv (the generator's reference table, not read at runtime)
+  tests/                 test_canary.py, test_golden.py (the demo, number by number), test_ingest.py, test_mission_package.py, test_empty_and_stale.py, test_crew_size.py, test_clock_dose_storms.py; AI tests: test_contracts, test_tools, test_kb, test_kb_freshness, test_guard, test_chat_loop, test_provider_selection, test_suggestions, test_suggestions_balance, test_briefing_access, test_rate_limit; fakes.py; conftest.py reuses one loaded database per session
+  evals/                 adversarial assistant eval (cases.py, run.py; reports in out/)
   requirements.txt
 frontend/
   src/
@@ -663,7 +710,12 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence |
 | `GET /api/crew/{id}` → `indicators[*].standard`, `standard_profile`, `dose.career_msv` | NASA-STD-3001 check of each indicator, the person's EVA role and earlier dose, the career dose |
 | `GET /api/catalog` → `standards` | What Canary checks against NASA-STD-3001, with the items, and what it cannot check |
-| `GET /api/assistant/status` · `POST /api/assistant/ask` · `POST /api/briefings` | AI slot |
+| `GET /api/assistant/status` · `POST /api/assistant/ask` | AI layer: provider and model (never keys). Ask: self or medical team, 10 a minute (429 after that) |
+| `GET /api/medical/assistant-audit` | Recent assistant questions: who asked (`asked_by`), mode, tools, guard flags, latency (medical team only) |
+| `GET /api/assistant/history/{id}` | The person's own questions and answers, with `asked_by` (medical questions are labelled) |
+| `POST /api/briefings` · `GET /api/briefings/{crew_id}` | Build a weekly briefing draft (self, 3 a minute), list the person's briefings (self or medical) |
+| `POST /api/briefings/{bid}/approve` | Queue a draft for Earth: the astronaut or the medical team, once (404 for an unknown id, 409 when it is no longer a draft) |
+| `GET /api/suggestions/{id}`, `POST /api/suggestions/{id}/accept`, `POST /api/suggestions/{id}/dismiss` | My space suggestions: astronaut only (6 builds a minute); a repeat with the same inputs reuses the last build |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
 
 ---
@@ -686,7 +738,7 @@ Full, interactive documentation at `/docs`. The main routes:
 
 ## What to build next
 
-1. **AI provider:** implement `AnthropicProvider` or `LocalProvider`; keep the guard tests green.
+1. **AI layer:** run the paid eval and tune the guard's number matching from its dropped-claim rate; an on-board `LocalProvider` (llama.cpp or Ollama with schema-constrained output) on the same loop and guard; clinical review of `guard_rules.json`.
 2. **Real devices:** a small bridge that turns a wearable's or a lab's export into `POST /api/observations` calls (the endpoint, the checks and the key exist; the bridges do not).
 3. **Ground sync:** store-and-forward of messages, briefings and check-ins to a ground station, with conflict rules.
 4. **Clinical review:** replace the illustrative protocols with flight-surgeon-approved ones; per-person medication allergies in Guided Response.
@@ -726,6 +778,7 @@ The accepted ranges are listed in "Limits, honestly": they catch typos, they say
 - **Sparse measurements:** a blood panel, urine panel or scale reading is only as fresh as its last collection. Blood pressure, grip and the bone estimate are daily in the file on purpose: the alert rules blend three days, and sparser readings changed the demo alerts.
 - **Not clinically reviewed:** Guided Response protocols are illustrative first aid adapted to spaceflight. Real ones come from the flight surgeon.
 - **To verify before quoting:** daily dose by place (and the rover's, set to its planet's surface), bone loss of about 1% per month, delays to Mars. The 600 mSv career limit and the 250 mSv solar-event limit are checked (NASA-STD-3001 V1 4030 and V1 4031).
+- **AI assistant, not clinically reviewed:** `guard_rules.json` is illustrative. Its English, Portuguese and Spanish patterns are a starting list, not a complete one, and the medical team has not reviewed them. The answers are checked by rules, not by a clinician. The rate limits are per process and in memory.
 - **Demo shortcuts:** the PINs are public (crew `1001` to `1004`, medical `1961`, all in this README and shown as a hint on the pad), and a 4-digit PIN with a rate limit is a prototype lock, not real security; session tokens are signed with a random secret per start unless `CANARY_TOKEN_SECRET` is set; the communication delay runs 20× faster; fonts load from Google Fonts (bundle them for an offline ship).
 
 ---

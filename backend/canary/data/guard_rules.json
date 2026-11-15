@@ -1,0 +1,540 @@
+{
+  "version": 1,
+  "reviewed": false,
+  "note": "Assistant safety rules, reviewed by the medical team like the protocols. Patterns are case-insensitive Python regular expressions matched on text with accents removed. Each rule id shows in the guard report and in assistant_log. Illustrative: NOT clinically reviewed.",
+  "precheck": [
+    {
+      "id": "G-EMERG-01",
+      "mode": "emergency",
+      "answer": "emergency",
+      "description": "Acute emergencies go to Guided Response, never to a chat answer.",
+      "patterns": [
+        "\\b(seizure|convuls\\w*|not breathing|unconscious|passed out|choking|can'?t breathe|heavy bleeding|bleeding (heavily|a lot)|chest pain (now|right now)|having a heart attack|anaphyla\\w*)\\b"
+      ],
+      "protocol": "triage",
+      "protocol_by": [
+        {
+          "pattern": "\\b(seizure|convuls\\w*)\\b",
+          "protocol": "seizure"
+        },
+        {
+          "pattern": "\\bchoking\\b",
+          "protocol": "choke"
+        },
+        {
+          "pattern": "\\b(not breathing|can'?t breathe)\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\b(heavy bleeding|bleeding (heavily|a lot))\\b",
+          "protocol": "bleed"
+        },
+        {
+          "pattern": "\\b(chest pain|having a heart attack)\\b",
+          "protocol": "chest"
+        },
+        {
+          "pattern": "\\banaphyla\\w*\\b",
+          "protocol": "allergy"
+        },
+        {
+          "pattern": "\\b(unconscious|passed out)\\b",
+          "protocol": "cpr"
+        }
+      ],
+      "past_ok_for_medical": true
+    },
+    {
+      "id": "G-EMERG-02",
+      "mode": "emergency",
+      "answer": "emergency",
+      "description": "Someone who cannot be woken, is unresponsive, has blue lips, fainted, collapsed, has a severe allergic reaction or an overdose.",
+      "patterns": [
+        "\\b(can'?t|cannot|won'?t) (wake|be woken)\\b",
+        "\\b(blue lips|lips (are |have |were )?(turn\\w* |go\\w* |gone )?blue)\\b",
+        "\\b(fainted|fainting|collapsed|collapsing|unresponsive|not responding|won'?t (answer|respond))\\b",
+        "\\bsevere(ly)? allergic\\b",
+        "\\boverdos\\w*\\b"
+      ],
+      "protocol": "cpr",
+      "protocol_by": [
+        {
+          "pattern": "\\bsevere(ly)? allergic\\b",
+          "protocol": "allergy"
+        },
+        {
+          "pattern": "\\boverdos\\w*\\b",
+          "protocol": "triage"
+        }
+      ],
+      "past_ok_for_medical": true
+    },
+    {
+      "id": "G-EMERG-03",
+      "mode": "emergency",
+      "answer": "crisis",
+      "description": "Self-harm or suicide phrasing goes to the crisis protocol.",
+      "patterns": [
+        "\\bsuicid\\w*\\b",
+        "\\b(kill|hurt|harm|cut) (myself|himself|herself|themselves)\\b",
+        "\\bself[- ]?harm\\w*\\b",
+        "\\bend (my|his|her|their) (own )?life\\b",
+        "\\b(want|wants|wanted) to die\\b",
+        "\\b(don'?t|do not|doesn'?t) want to (live|be alive|wake up)\\b",
+        "\\bquero (me )?matar\\b",
+        "\\bquiero (morir|matarme|me matar)\\b",
+        "\\bquero morrer\\b",
+        "\\bnao quero (mais )?viver\\b",
+        "\\bno quiero vivir\\b",
+        "\\bquiero acabar con mi vida\\b",
+        "\\bquero acabar com (a )?minha vida\\b",
+        "\\bending it all\\b",
+        "\\bend it all\\b",
+        "\\bfeel(ing)? like ending (it|my life|everything)\\b",
+        "\\bno reason (for me )?to (live|go on)\\b",
+        "\\bfeel(ing)? hopeless\\b|\\bi am hopeless\\b|\\bi'?m hopeless\\b",
+        "\\bsem (nenhum )?motivo para viver\\b|\\bsem razao para viver\\b|\\bsin (ninguna )?razon para vivir\\b",
+        "\\bnao (tenho|tem|vejo) (mais )?(motivo|razao|sentido) para (viver|continuar|seguir)\\b|\\bsem (mais )?motivo para viver\\b",
+        "\\bno (tengo|tiene|veo) (ningun |ningún |ningun )?(motivo|razon|sentido) para (vivir|seguir)\\b|\\btengo ganas de morir\\b|\\bquiero morir\\b|\\bme quiero morir\\b"
+      ],
+      "protocol": "crisis"
+    },
+    {
+      "id": "G-EMERG-04",
+      "mode": "emergency",
+      "answer": "emergency",
+      "description": "Acute emergencies in Portuguese, Spanish and English that are not in the rules above: stroke, breathing, chest pain, fainting, bleeding, shaking on the floor.",
+      "patterns": [
+        "\\b(estou|esta|ta|estamos|estao) tendo (um |uma )?(derrame|infarto|avc)\\b",
+        "\\b(having|am having|is having) (a |an )?stroke\\b",
+        "\\bisn'?t breathing\\b|\\bis not breathing\\b|\\bstopped breathing\\b",
+        "\\bnao consigo respirar\\b|\\bnao consegue respirar\\b|\\bno puedo respirar\\b|\\bno consigue respirar\\b|\\bno respira\\b|\\bnao respira\\b|\\bno esta respirando\\b|\\bnao esta respirando\\b",
+        "\\bdor (no peito|de peito|forte no peito)\\b|\\bdolor (en el pecho|de pecho)\\b",
+        "\\bdesmai\\w*\\b|\\bdesmay\\w*\\b|\\bse desmayo\\b",
+        "\\b(sangramento|sangrado|sangrando|sangra|sangre|hemorragia)\\s+(forte|intenso|intensa|grave|muito|bastante|mucho|fuerte|severo|abundante|sem parar)\\b|\\b(sangrando|sangra|sangre) (muito|mucho)\\b",
+        "\\bshaking on the (floor|ground)\\b|\\b(convulsing|jerking) on the (floor|ground)\\b"
+      ],
+      "protocol": "triage",
+      "protocol_by": [
+        {
+          "pattern": "\\b(dor|dói|doi|dolor)\\b.{0,20}\\b(peito|pecho)\\b|\\b(dor|dolor) (no peito|de peito|forte no peito|en el pecho|de pecho)\\b",
+          "protocol": "chest"
+        },
+        {
+          "pattern": "\\bdesmai\\w*\\b|\\bdesmay\\w*\\b|\\bse desmayo\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\b(sangr\\w*|sangre|hemorragia)\\b",
+          "protocol": "bleed"
+        },
+        {
+          "pattern": "\\b(respir\\w*|respira)\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\bshaking on the|convulsing|jerking on the",
+          "protocol": "seizure"
+        }
+      ],
+      "past_ok_for_medical": true
+    },
+    {
+      "id": "G-EMERG-05",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "chest",
+      "past_ok_for_medical": true,
+      "description": "Chest pain, chest pressure or a tight chest in any wording (Guided Response: chest pain).",
+      "patterns": [
+        "\\bchest (pain|pains|hurts?|ache|aches|aching|pressure|tightness|tight)\\b",
+        "\\bpain (in|across|under) (my|his|her|their|the) chest\\b",
+        "\\b(dor|doi|pressao|aperto) (no|do|de) peito\\b",
+        "\\b(dolor|presion|opresion) (en|de|del) (el )?pecho\\b|\\bme duele el pecho\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-06",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "bleed",
+      "past_ok_for_medical": true,
+      "description": "Bleeding from a cut or wound, or bleeding that will not stop (Guided Response: heavy bleeding).",
+      "patterns": [
+        "\\bbleeding (from|off)\\b",
+        "\\b(won'?t|will not|doesn'?t|does not|can'?t|cannot|isn'?t|is not) stop(ping)? bleeding\\b|\\bcan'?t stop the bleeding\\b|\\bbleed\\w*\\b.{0,20}\\b(won'?t|will not|doesn'?t|does not|can'?t|cannot) stop\\b",
+        "\\b(nao|no) para de sangrar\\b",
+        "\\b(sangr\\w*|sangre)\\b.{0,25}\\b(corte|cortadura|ferida|herida|ferimento)\\b",
+        "\\b(corte|cortadura|ferida|herida|ferimento)\\b.{0,25}\\b(sangr\\w*|sangre)\\b",
+        "\\b(i'?m|i am|is|am|are|was|got) bleeding\\b|\\bbleeding (badly|heavily|a lot|profusely)\\b|\\bbleed\\w*\\b.{0,20}\\b(badly|heavily|a lot|profusely)\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-07",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "eye",
+      "past_ok_for_medical": true,
+      "description": "Something splashed into an eye, or a chemical in an eye (Guided Response: eye injury).",
+      "patterns": [
+        "\\b(splash\\w*|chemical\\w*|acid|bleach|spray\\w*)\\b.{0,40}\\beyes?\\b",
+        "\\beyes?\\b.{0,30}\\b(chemical\\w*|splash\\w*|acid|bleach)\\b",
+        "\\b(respin\\w*|salpic\\w*|quimic\\w*|produto quimico|liquido)\\b.{0,40}\\b(olhos?|ojos?)\\b",
+        "\\b(olhos?|ojos?)\\b.{0,30}\\b(quimic\\w*|respin\\w*|salpic\\w*)\\b",
+        "\\b(in|into) (my|his|her|their|the|one|both) eyes?\\b.{0,30}\\b(burn\\w*|sting\\w*|hurt\\w*|blind\\w*|stings?)\\b|\\b(burn\\w*|sting\\w*)\\b.{0,20}\\b(my|his|her|their|the|one|both) eyes?\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-08",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "rad",
+      "past_ok_for_medical": true,
+      "description": "Radiation sickness: vomiting, nausea or weakness after a storm or a radiation exposure (Guided Response: radiation storm).",
+      "patterns": [
+        "\\bradiation sickness\\b|\\bsick (from|after|because of) (the )?(radiation|storm)\\b",
+        "\\b(vomit\\w*|throwing up|throw up|threw up|nause\\w*)\\b.{0,30}\\b(after|since|following) (the |a |an )?(storm|radiation|solar|flare|particle)\\b",
+        "\\b(enjoo|vomit\\w*|nausea)\\b.{0,30}\\b(depois da (tempestade|radiacao)|apos a (tempestade|radiacao))\\b",
+        "\\b(mal|enfermedad|enfermo|nausea|vomito|vomitos)\\b.{0,30}\\b(despues de la (tormenta|radiacion)|tras la (tormenta|radiacion))\\b|\\bmal de radiacion\\b|\\bmal por radiacion\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-09",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "triage",
+      "past_ok_for_medical": true,
+      "description": "Smoke or fire on board. There is no fire protocol: triage is the first step, and the crew sees the same emergency alarm.",
+      "patterns": [
+        "\\bsmoke\\b.{0,30}\\b(cabin|module|station|galley|lab|air|room|shelter|airlock)\\b",
+        "\\b(cabin|module|station|galley|lab|room|shelter|airlock)\\b.{0,30}\\b(smoke|on fire|fire|flames?|burning)\\b",
+        "\\b(there is|there'?s|i see|see|smell|smelling) (a |some |the )?(fire|smoke|flames?|burning)\\b|\\bon fire\\b|\\bcatching fire\\b",
+        "\\b(fumaca|humo|incendio|fuego|fogo)\\b.{0,30}\\b(cabine|cabina|modulo|estacion|estacao|cocina|cozinha|laboratorio|lab|sala|quarto)\\b",
+        "\\b(tem|hay|ha) (fumaca|humo|fogo|fuego|incendio)\\b"
+      ]
+    },
+    {
+      "id": "G-INJECT-01",
+      "mode": "refused",
+      "answer": "inject",
+      "description": "Attempts to make the assistant ignore its rules, play a doctor or skip a protocol are refused and logged.",
+      "patterns": [
+        "\\b(ignore|disregard|forget|override|bypass|drop)\\s+(all\\s+|any\\s+|your\\s+|the\\s+|my\\s+|these\\s+|those\\s+|previous\\s+|prior\\s+|above\\s+|earlier\\s+|safety\\s+)*(instructions?|rules?|protocols?|guidelines?|guard\\w*|system prompt|prompt|restrictions?|safety|filters?|policy|policies)\\b",
+        "\\b(pretend|imagine|act|behave|roleplay|role-play)\\s+(that\\s+)?(you\\s+are|you'?re|to be|as|like)\\s+(an?\\s+|my\\s+|the\\s+)?(real\\s+)?(doctor|physician|surgeon|flight surgeon|medic|nurse|pharmacist|medical officer)\\b",
+        "\\byou are (now )?(an? |my )(doctor|physician|surgeon|pharmacist)\\b",
+        "\\bskip (the |this |that )?(protocol|guided response|rules?)\\b",
+        "\\byou('re| are) (allowed|permitted|authori[sz]ed) to\\b",
+        "\\b(jailbreak|developer mode|dan mode|no restrictions|without (any )?restrictions)\\b",
+        "\\b(reveal|show|print|repeat) (me )?(your|the) (system )?(prompt|instructions)\\b"
+      ]
+    },
+    {
+      "id": "G-INJECT-02",
+      "mode": "refused",
+      "answer": "inject",
+      "description": "Portuguese, Spanish and English attempts to make the assistant ignore its rules or play a doctor without limits.",
+      "patterns": [
+        "\\b(ignore|ignora|ignorar|desconsidere|desconsidera|esqueca|esquece|olvida|olvide)\\s+(\\w+\\s+){0,3}?(regras|reglas|instrucoes|instrucciones|protocolos?|limites|restricciones)\\b",
+        "\\b(finja|finge|finjas|finjam)\\s+(que\\s+)?(ser\\s+)?(e\\s+|eres\\s+|es\\s+)?(um\\s+|uma\\s+|un\\s+|una\\s+)?(medic[oa]|doutor[a]?|doctor[a]?)\\b",
+        "\\b(eres|es|voce e|voce eh|tu eres)\\s+(um |uma |un |una )?(medic[oa]|doutor[a]?|doctor[a]?)\\s+(sin|sem)\\s+(limites|restricciones|restricoes)\\b",
+        "\\byou (are|'re) (\\w+ )?(with|without) (no|any) (limits|restrictions)\\b"
+      ]
+    },
+    {
+      "id": "G-DOSE-01",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "No medication or doses: the crew medical officer decides that. Radiation dose is mission data and goes through (W1-1).",
+      "patterns": [
+        "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu|milligrams?|micrograms?)\\b(?!\\s*/\\s*dl)",
+        "\\bhow (many|much) (mg|mcg|milligrams?|micrograms?|pills|tablets|capsules|drops|puffs)\\b",
+        "\\bwhich (medication|medicine|drug|pill|tablet)s?\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b(should|must) (i|we|he|she|they) take\\b",
+            "\\b\\d+(\\.\\d+)?\\s?(ml|millilit\\w*|units?)\\b",
+            "\\b(doses?|dosage|dosing|dosis|dosificaci\\w*|dosagem)\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(dose|dosage|dosing|dosis|dosagem)\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G-DOSE-02",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "More dosing phrasings: how much can I take, increasing or stopping a medication, painkillers, sleeping pills, named drugs.",
+      "patterns": [
+        "\\b(increase|raise|double|reduce|lower|change) (my|his|her|the) (medication|medicine|meds|pills?|tablets?)\\b",
+        "\\b(stop|quit) taking\\b",
+        "\\bpain ?killers?\\b",
+        "\\bsleeping (pills?|tablets?)\\b",
+        "\\b(take|taking|took|give|giving|use|have) (some |more |an? |another |extra )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
+        "\\b(pop|take|swallow) (a |an |some |a couple of |a few |two |three |\\d+ )*(pain ?relievers?|painkillers?|sleeping pills?|sleep meds?|sleeping meds?|tylenol|advil|aleve|motrin)\\b",
+        "\\bhow (many|much) (tylenol|advil|aleve|motrin|excedrin|nyquil|benadryl|ambien)\\b",
+        "\\b(double|triple) (up )?(on )?(my |the |his |her |their )?(sleep |sleeping |pain )?(meds?|medications?|medicines?|pills?|tablets?)\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\bhow (much|many)\\b[\\w\\s'-]{0,40}?\\b(can|should|may|could|do) (i|we|he|she|they) (take|have|use|give)\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(increase|raise|double|reduce|lower|change) (my|his|her|the) (dose|dosage)\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G-DOSE-03",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "A named drug or a pill with a take / how many / how much / can I / should I / is it ok question, in either order.",
+      "patterns": [
+        "\\b(take|taking|took|have|use|how many|how much|can (i|we|he|she|they)|should (i|we|he|she|they)|may (i|we)|is (it|that) (ok|okay|safe|fine))\\b.{0,60}?\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?|naproxen|diphenhydramine|loratadine|cetirizine|ondansetron|meclizine|tramadol|caffeine pills?)\\b",
+        "\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?|naproxen|diphenhydramine|loratadine|cetirizine|ondansetron|meclizine|tramadol|caffeine pills?)\\b.{0,60}?\\b(ok|okay|safe|allowed|fine|can (i|we|he|she|they)|should (i|we|he|she|they)|how (many|much))\\b",
+        "\\b(take|taking|have|use) (a |an |one |two |three |four |half a |\\d+ |more |another |extra |some )*(pills?|tablets?|capsules?)\\b"
+      ]
+    },
+    {
+      "id": "G-DOSE-04",
+      "mode": "refused",
+      "answer": "dosing",
+      "description": "Dosing in Portuguese and Spanish: how many pills, a dose of a remedy, a sleep remedy; with a medication word, 'can I take' in either language.",
+      "patterns": [
+        "\\bquantos comprimidos\\b|\\bcuantos comprimidos\\b|\\bcuantas pastillas\\b|\\bquantas pilulas\\b",
+        "\\bdose de (remedio|medicamento|comprimido)\\b",
+        "\\bremedio para dormir\\b|\\bpastillas? para dormir\\b|\\bpastilla para dormir\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b(posso|puedo|devo|debo|deberia|deveria) tomar\\b",
+            "\\bquanto(s)? .{0,20}(posso|devo) tomar\\b",
+            "\\bcuanto(s)? .{0,20}(puedo|debo) tomar\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G-DIAG-01",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "No diagnosis: Canary shows numbers against the person's normal, the medical officer interprets them.",
+      "patterns": [
+        "\\b(do i have|have i got|is (it|this) (cancer|a tumou?r|a stroke|serious)|diagnos\\w*|what disease|what illness)\\b"
+      ]
+    },
+    {
+      "id": "G-DIAG-02",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "More diagnosis phrasings: is it a (condition), could this be (a condition), am I sick with, what's wrong with me.",
+      "patterns": [
+        "\\bis (it|this|that) an? (sign|symptom) of\\b",
+        "\\b(is|could|might|can) (it|this|that)( be)? (an? )?([\\w-]+ )?(disease|disorder|infection|syndrome|tumou?r|cancer|stroke|heart attack|concussion|fracture|condition|illness|virus|depression)\\b",
+        "\\bcould (it|this|that) be (something )?(serious|bad|dangerous)\\b",
+        "\\bam i (sick|ill)\\b",
+        "\\bwhat'?s? (is )?wrong with (me|my)\\b",
+        "\\bis (something|anything) wrong with (me|my)\\b",
+        "\\bcould ([\\w'-]+ ){0,4}?be (an? )?(meningitis|encephalitis|appendicitis|pneumonia|sepsis|aneurysm|embolism|leukemia|diabetes|stroke|tumou?r|cancer|infection|disease|disorder|syndrome|fracture|concussion)\\b"
+      ]
+    },
+    {
+      "id": "G-DIAG-03",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "Diagnosis questions about mental-health conditions (depressed, depression, anxiety disorder, PTSD, bipolar, burnout as a condition). Feelings ('I feel down', 'why is my mood low') go through.",
+      "patterns": [
+        "\\b(am i|are you saying i'?m|could i be|might i be|may i be|do you think i'?m|is (he|she)|would i be)\\s+(clinically |really |actually |getting |becoming )?(depressed|bipolar|burn(ed|t)[ -]?out|traumati[sz]ed|psychotic|manic|mentally ill|anorexic)\\b",
+        "\\b(do|could|might|can|may) (i|he|she) (have|be having|be suffering from|suffer from|have got|be getting|be developing)\\s+(an? )?(clinical |major )?(depression|anxiety disorder|an anxiety disorder|ptsd|post-?traumatic stress( disorder)?|bipolar( disorder)?|burn-?out|panic disorder|ocd|adhd|psychosis|eating disorder|mental illness)\\b",
+        "\\b(is|could|might) (this|it|that)( be)? (an? )?(clinical |major |real )?(depression|anxiety disorder|ptsd|bipolar( disorder)?|burn-?out|panic disorder|psychosis|nervous breakdown|breakdown|mental illness)\\b",
+        "\\b(have i got|do i suffer from|am i suffering from|am i showing signs of|signs (that|of) i (have|am))\\b.{0,30}\\b(depress\\w*|anxiety|ptsd|bipolar|burn-?out|disorder)\\b"
+      ]
+    },
+    {
+      "id": "G-DIAG-04",
+      "mode": "refused",
+      "answer": "diagnosis",
+      "description": "Diagnosis requests in Portuguese and Spanish: 'I have depression', 'is it a stroke', 'could it be meningitis'. Feelings ('estou triste') go through.",
+      "patterns": [
+        "\\b(eu )?(tenho|tem|estou com)\\s+(um |uma )?(depressao|cancer|tumor|avc|derrame|infarto|burnout|meningite)\\b",
+        "\\b(tengo|tienes|tiene)\\s+(una? )?(depresion|cancer|tumor|derrame|infarto|burnout|meningitis)\\b",
+        "\\b(e|es|sera|pode ser|puede ser|poderia ser|podria ser|seria) (um |uma |un |una )?(derrame|infarto|avc|tumor|tumour|cancer|meningite|meningitis|depressao|depresion|burnout)\\b",
+        "\\b(poderia|podia|pode|seria|sera|puede|podria)\\s+(ser\\s+)?(um |uma |un |una )?(meningite|meningitis|derrame|infarto|cancer|tumor|depressao|depresion)\\b"
+      ]
+    }
+  ],
+  "answers": {
+    "emergency": "This sounds like an emergency. Hold the EMERGENCY button now: Guided Response will take you through it step by step and alert the crew and Earth.",
+    "crisis": "Thank you for saying it. You are not alone with this. Hold the EMERGENCY button now and choose the crisis protocol: it alerts the medical officer, who will talk with you right away.",
+    "dosing": "I can't advise on medication or doses. The crew medical officer decides that, with the flight surgeon. I can send them a message with your recent data.",
+    "diagnosis": "I can't diagnose. I can show what your numbers did against your own normal, and the medical officer can take it from there.",
+    "inject": "I can't change how I work. I stay within Canary's safety rules and the approved protocols. Ask me about your own data, or talk to the crew medical officer."
+  },
+  "postcheck": [
+    {
+      "id": "G-SCHEMA-01",
+      "effect": "hard_fail",
+      "description": "The final answer is valid JSON in the AssistantResponse shape."
+    },
+    {
+      "id": "G-SRC-01",
+      "effect": "drop_claim",
+      "description": "Every source id of a claim was returned by a tool in this turn."
+    },
+    {
+      "id": "G-SRC-02",
+      "effect": "drop_claim",
+      "description": "Observations cite data ids; explanations cite kb: (or legacy card: / protocol:) ids."
+    },
+    {
+      "id": "G-NUM-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "Every number in the answer and observations appears in this turn's tool data (unit-aware: 6.1 h, 104 bpm)."
+    },
+    {
+      "id": "G-OUT-DOSE-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "No dose or medication instruction in the output. Radiation dose wording (mSv, 'reduce your dose' in a storm) is mission data (W1-1).",
+      "patterns": [
+        "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)",
+        "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|drops?|puffs?)\\b",
+        "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (medication|medicine|meds)\\b",
+        "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b",
+        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(him|her|them|me|us|someone|the crew|a |an |some |more |another |extra |\\d+ )*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b",
+        "\\btry (some |a |an |more |another |extra )?(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill|sleep meds?)\\b"
+      ],
+      "gated": [
+        {
+          "when": "medication",
+          "patterns": [
+            "\\b\\d+(\\.\\d+)?\\s?(ml|units?)\\b",
+            "\\b(doses?|dosage|dosing)\\b",
+            "\\b(you should|you can|you could|it is ok to|it's ok to) take\\b"
+          ]
+        },
+        {
+          "unless": "radiation",
+          "override": "medication",
+          "patterns": [
+            "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (dose|dosage)\\b",
+            "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?doses?\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "G-OUT-DIAG-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "No diagnosis wording in the output.",
+      "patterns": [
+        "\\byou (have|'ve got|have got|are suffering from|suffer from|are showing signs of) (an? )?([\\w-]+ ){0,2}(disease|disorder|infection|syndrome|cancer|tumou?r|stroke|condition|illness|concussion|diabetes|hypertension|arrhythmia|anemia|anaemia|pneumonia|fracture)\\b",
+        "\\b(this|it|that) (is|looks like|sounds like|could be|might be|is probably|is likely) (an? )?(sign of (an? )?)?([\\w-]+ ){0,2}(stroke|heart attack|tumou?r|cancer|infection|disease|disorder|syndrome|concussion|fracture|arrhythmia)\\b",
+        "\\b(diagnosed with|the diagnosis is|my diagnosis|i diagnose)\\b",
+        "\\b(has|have|having|suffers? from|suffering from|likely has|probably has|may have|might have)\\s+(an?\\s+|the\\s+|early\\s+|mild\\s+|severe\\s+|clinical\\s+|major\\s+|chronic\\s+)*(depression|anxiety( disorder)?|ptsd|bipolar( disorder)?|burn-?out|panic disorder|disorder|syndrome|infection|tumou?r|cancer|stroke|diabetes|arrhythmia|concussion|fracture)\\b",
+        "\\bconsistent with (an? |early |mild |severe |chronic |clinical |major )*(hypertension|infection|disease|disorder|syndrome|cancer|tumou?r|stroke|diabetes|anemia|anaemia|arrhythmia|concussion|fracture|depression|anxiety|ptsd|pneumonia|sepsis)\\b",
+        "\\byou (probably|likely|may|might|could) (have|has) (an? )?([\\w-]+ ){0,2}(disease|disorder|infection|syndrome|cancer|tumou?r|stroke|condition|illness|concussion|diabetes|hypertension|arrhythmia|anemia|anaemia|pneumonia|fracture|depression|anxiety)\\b"
+      ]
+    },
+    {
+      "id": "G-OUT-SAFE-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "No reassurance that something is safe or harmless: a value without context is never called safe.",
+      "patterns": [
+        "\\b(this|that|it) (is|'s|seems|looks|sounds) (perfectly |completely |totally |entirely )?(safe|harmless|not dangerous|nothing serious)\\b",
+        "\\bit'?s (perfectly |completely |totally )?(safe|harmless)\\b",
+        "\\b(perfectly|completely|totally) (safe|normal|fine|harmless)\\b",
+        "\\bnothing to worry about\\b",
+        "\\bno need to (worry|see|contact|talk to|tell) ",
+        "\\byou('re| are) (perfectly |completely )?(fine|healthy|safe|okay|ok)\\b",
+        "\\bnot (dangerous|a concern)\\b",
+        "\\b(cleared|clear) for (eva|evas|a spacewalk|spacewalks?|duty|surgery)\\b",
+        "\\bnothing (alarming|concerning|to be concerned about|to worry about)\\b"
+      ]
+    },
+    {
+      "id": "G-ACT-01",
+      "effect": "action set to null",
+      "description": "recommended_action_id is goal: from today's list, protocol: from the bank, contact_cmo, send_briefing or null."
+    },
+    {
+      "id": "G-STATUS-01",
+      "effect": "status downgraded",
+      "description": "supported with no surviving observation becomes insufficient_evidence."
+    },
+    {
+      "id": "G-PRIV-01",
+      "effect": "drop_claim or sentence",
+      "description": "Nothing about another crew member's health, status or data. Names come from catalog.CREW; the bound person is exempt. Also drops claims citing another person's data ids.",
+      "health_patterns": [
+        "\\b(health\\w*|sleep\\w*|slept|pulse|heart|bpm|blood|pressure|oxygen|spo2|temperature|fever|glucose|mood|stress\\w*|anxi\\w*|depress\\w*|wellbeing|well-being|tired|fatigue\\w*|sleepy|exhausted|sick|ill|illness|unwell|symptoms?|pain|headache|nause\\w*|vitals?|data|readings?|scores?|results?|tests?|check-?ins?|alerts?|status|fit for|eva|off critical|off duty|reaction time|grip|bone|weight|injur\\w*|condition|doing|feeling|feels|struggling|ok|okay|fine|worse|better)\\b"
+      ],
+      "contact_patterns": [
+        "\\b(talk to|talk with|speak to|speak with|ask|contact|message|tell|call|see|reach|ping) (dr\\.? )?$"
+      ]
+    },
+    {
+      "id": "G-PRIV-02",
+      "effect": "drop_claim or sentence",
+      "description": "No crew averages or comparisons with the others: with four people an average reveals individuals.",
+      "patterns": [
+        "\\b(crew|team|group)('s)? (average|mean|median|norm)\\b",
+        "\\b(average|mean|median) (of|across|for|among) (the )?(crew|team|others|everyone|all of you|the rest)\\b",
+        "\\b(compared|relative) (to|with) (the )?(crew|team|others|everyone else|the rest of the crew|your crewmates)\\b",
+        "\\b(than|as) (the )?(rest of the crew|other crew members|your crewmates|everyone else|the others)\\b"
+      ]
+    },
+    {
+      "id": "G-WELL-01",
+      "effect": "drop_claim, hard_fail in the answer",
+      "description": "Wellbeing check-ins (PHQ-2 / GAD-2) are screening, never a diagnosis.",
+      "patterns": [
+        "\\b(clinical(ly)?|major) depress\\w*\\b",
+        "\\bdepressive (disorder|episode)\\b",
+        "\\b(generali[sz]ed |social )?anxiety disorder\\b",
+        "\\byou (are|'re|seem|sound|might be|may be|could be|are probably|are likely) (clinically )?(depressed|mentally ill)\\b",
+        "\\byou (have|'ve got|have got|suffer from|are suffering from|are showing signs of|show signs of) (depression|anxiety|an? (mental|mood|anxiety) (illness|disorder))\\b",
+        "\\b(signs|symptoms) of (depression|an anxiety disorder|a mental illness)\\b",
+        "\\b(phq-?2|gad-?2|wellbeing)\\b.{0,40}\\b(shows|indicates|confirms|means|proves|diagnos\\w*)\\b.{0,40}\\b(depress\\w*|anxiety|disorder|mental illness)\\b"
+      ]
+    }
+  ],
+  "contexts": {
+    "_about": "Context words for gated patterns. A pattern listed under a rule's `gated` with `when` fires only if the text also matches that context; with `unless` it fires unless the text matches that context, and the `override` context switches it back on. So 'radiation dose' is mission data, while 'dose of melatonin' or a plain 'increase your dose' is still dosing (W1-1).",
+    "medication": [
+      "\\b(medications?|medicines?|meds|drugs?|pills?|tablets?|capsules?|painkillers?|pain ?killers?|sleeping (pills?|tablets?)|injections?|inhalers?|syrups?|drops|puffs?|lozenges?|suppositor\\w*)\\b",
+      "\\b(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|iodine tablets?|steroids?|opioids?|sedatives?|sleeping aids?)\\b",
+      "\\b(mg|mcg|ug|milligrams?|micrograms?)\\b(?!\\s*/\\s*dl)",
+      "\\b\\d+(\\.\\d+)?\\s?(mg|mcg|ug|iu)\\b(?!\\s*/\\s*dl)",
+      "\\b(remedios?|medicament\\w*|medicac\\w*|comprimidos?|pastillas?|pilulas?|xarope|analgesic\\w*|calmante\\w*|ibuprofeno|dipirona|paracetamol|melatonina|dormir)\\b"
+    ],
+    "radiation": [
+      "\\b(radiation|radioactiv\\w*|irradiat\\w*|sieverts?|millisieverts?|msv|mgy|gray|dosimet\\w*|cosmic|solar (storm|flare|particle\\w*|event)|particle (storm|event)|spe|storm|shelter\\w*|exposure)\\b",
+      "\\b(career|mission|lifetime|cumulative) (dose|doses|limit)\\b",
+      "\\b(evas?|space ?walks?|extravehicular)\\b",
+      "\\b(radiacao|radiacion|radiac\\w*|sievert\\w*|dosimetro\\w*)\\b"
+    ],
+    "past": [
+      "\\b(yesterday|last (night|week|day|time|month)|earlier (today|this week)?|two days ago|this morning|(had|has had) (a |an |some )?\\w+|\\w+ ago|ontem|semana passada|ayer|la semana pasada)\\b"
+    ],
+    "now": [
+      "\\b(right now|just now|at the moment|currently|still|is happening|happening now|going on|ahora|agora|neste momento)\\b"
+    ]
+  }
+}

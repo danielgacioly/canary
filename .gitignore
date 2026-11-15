@@ -3,10 +3,17 @@ __pycache__/
 *.pyc
 backend/.venv/
 backend/*.db
+backend/kb.db
+# eval reports (python -m evals.run)
+backend/evals/out/
+# fastembed model cache (point FASTEMBED_CACHE_PATH here)
+backend/.cache/
 .pytest_cache/
 # Node
 frontend/node_modules/
 frontend/dist/
+# Vite dependency cache
+frontend/.vite/
 # Local
 .DS_Store
 .env

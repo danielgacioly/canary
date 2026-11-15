@@ -160,7 +160,7 @@ def test_briefing_is_approved_then_queued():
     at(2)
     b = client.post("/api/briefings", json={"crew_id": "h"}, headers=as_("h")).json()
     assert b["status"] == "draft" and "WHAT WORRIES" in b["text"]
-    assert client.post(f"/api/briefings/{b['id']}/approve").json()["status"] == "queued"
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h")).json()["status"] == "queued"  # the astronaut approves
 
 
 def test_medical_endpoints_need_the_pin():
@@ -942,8 +942,9 @@ def test_suggestions_never_contradict_the_level_of_the_indicator_they_cite():
 def test_get_risks_is_a_read_only_tool_with_sources_and_chat_answers_from_it():
     from canary.assistant import tools
     at(2)
-    r = tools.get_risks("h")
-    assert r["data"][0]["level"] == 2 and r["sources"] and "get_risks" in tools.TOOLS
+    r = tools.run_tool(tools._bind("h"), "get_risks", {})  # strict tool: crew_id comes from the ToolContext
+    assert r.ok and r.data[0]["level"] == 2 and r.sources and "get_risks" in tools.TOOLS
+    assert tools.run_tool(tools._bind("h"), "get_risks", {"crew_id": "k"}).error  # never a model argument
     a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "Am I at risk of fatigue?"}, headers=as_("h")).json()
     assert a["mode"] == "grounded" and any(t["tool"] == "get_risks" for t in a["tools_used"])
     assert any("since day" in c["text"] for c in a["claims"]) and all(c["source_ids"] for c in a["claims"])
@@ -1522,8 +1523,8 @@ def test_the_hazard_matrix_is_the_teams_with_a_source_on_every_link():
 def test_the_assistant_exposes_the_risks_with_hazards_and_cards():
     from canary.assistant import knowledge, tools
     ms = at(2)
-    res = tools.get_risks("h")
-    assert [r["id"] for r in res["data"]] == RISK_IDS and "card:risk:fatigue" in res["sources"] and "card:hazard:I" in res["sources"]
+    res = tools.run_tool(tools._bind("h"), "get_risks", {})
+    assert [r["id"] for r in res.data] == RISK_IDS and "card:risk:fatigue" in res.sources and "card:hazard:I" in res.sources
     cards = knowledge.by_id(ms["location"])
     assert "card:risk:radiation" in cards and "card:hazard:G" in cards and "never a proven cause" in cards["card:hazard:I"]["text"]
     a = client.post("/api/assistant/ask", json={"crew_id": "h", "question": "What is my fatigue risk and why?"}, headers=as_("h")).json()

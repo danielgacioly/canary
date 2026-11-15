@@ -10,18 +10,23 @@ person accepted or dismissed before (table suggestion_feedback; the AI slot may 
 Code gathers the facts (each indicator against the person's own normal, how often each goal was
 done this week, recent self-tests, the next leg of the mission plan). Rules turn them into
 suggestions that carry the numbers behind them. A connected model may only rephrase the "why" of
-each suggestion; guard.unknown_numbers rejects any rewrite that brings a number the facts do not
-contain. With no model, the rule text is shown as it is.
+each suggestion. Each rewrite is checked on its own (guard.unknown_numbers against the facts, non-empty,
+not too long); the ones that pass are used and the rest keep the rule text. The response says how many were
+rewritten and, when the model was not used or only partly used, why (`fallback_reason`). With no model, the
+rule text is shown as it is. Every build is logged in assistant_log with metadata only: the medical audit
+sees that suggestions were built and how, never what they say.
 """
+import copy
+import hashlib
 import json
 import time
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 from .. import db
-from ..domain import advice, goals, health, mission, plan, privacy, protocol_pages, risk, telemetry
+from ..domain import advice, goals, health, mission, plan, privacy, protocol_pages, risk, selftests, telemetry
 from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS, RECORDS
-from . import guard
+from . import chat, guard
 from .providers import ProviderRequest, get_provider
 
 HOBBIES = {
@@ -46,6 +51,11 @@ def _r(x: Optional[float], dp: int):
     return None if x is None else int(round(x)) if dp == 0 else round(x, dp)
 
 
+def _known(d: dict) -> bool:
+    """A reading and a normal of the person's own: the only case a sentence may quote both numbers."""
+    return d.get("value") is not None and d.get("normal") is not None
+
+
 def _language(crew_id: str) -> Optional[str]:
     """A language a person speaks besides English, first of their registered languages (None when they list none)."""
     langs = (RECORDS.get(crew_id) or {}).get("languages") or []
@@ -59,6 +69,12 @@ def _week_counts(crew_id: str, today: int) -> Dict[str, int]:
         for g in hist.get(d, {}).get("done", []):
             counts[g] = counts.get(g, 0) + 1
     return counts
+
+
+def _checkin_fact(crew_id: str, kind: str, day: int, window: int) -> Optional[dict]:
+    """The latest check-in of a kind as a fact: its allow-listed numbers only (no note, no reading title)."""
+    row = health.latest_checkin(crew_id, kind, day, window=window)
+    return None if row is None else {**selftests.model_values(kind, row), "day": row["day"]}
 
 
 def facts(crew_id: str) -> dict:
@@ -78,6 +94,7 @@ def facts(crew_id: str) -> dict:
                "isolation": {"level": iso["level"], "label": iso["label"], "here": iso["here"]},
                "in_force": [i["id"] for i in protocol_pages.in_force(ms, dose)]}
     return {
+        **privacy.duty_facts(snap),  # the operational status and the active care window (the person's own facts)
         "outside": outside, "career": {"msv": mine["career_msv"], "pct": mine["career_pct_of_limit"]},
         "crew_id": crew_id, "name": CREW_BY_ID[crew_id]["name"].split(" ")[0], "day": ms["day"], "learning": ms["learning"],
         "location": ms["location"], "gravity_key": place["gravity_key"], "reply": place["reply"],
@@ -90,9 +107,9 @@ def facts(crew_id: str) -> dict:
         "exercise_target": EXERCISE_BY_PLACE[ms["location"]][1],
         "next_leg": {"location": nxt["location"], "label": nxt.get("label") or LOCATIONS[nxt["location"]]["name"],
                      "in_days": leg["days_to_next"], "gravity_key": LOCATIONS[nxt["location"]]["gravity_key"]} if nxt else None,
-        "reading": health.latest_checkin(crew_id, "reading", ms["day"], window=14),
-        "kss": health.latest_checkin(crew_id, "kss", ms["day"], window=1),
-        "wellbeing": health.latest_checkin(crew_id, "wellbeing", ms["day"], window=14),
+        "reading": _checkin_fact(crew_id, "reading", ms["day"], 14),
+        "kss": _checkin_fact(crew_id, "kss", ms["day"], 1),
+        "wellbeing": _checkin_fact(crew_id, "wellbeing", ms["day"], 14),
     }
 
 
@@ -176,11 +193,13 @@ def candidates(f: dict) -> List[dict]:
 
     s = i["sleep"]
     if s["level"] or "sleep" in fat["signals"]:
+        known = _known(s)
         add("sleep", "mental", 90, "Protect your sleep window",
-            f"You are sleeping {s['value']} h against your normal {s['normal']} h.",
+            f"You are sleeping {s['value']} h against your normal {s['normal']} h." if known else
+            "Protecting your sleep window helps, and there is no reading of your sleep yet to compare with your normal.",
             ["Same lights-out time every night, within 30 minutes", "Amber light only, 2 hours before bed", "No screens after 21:00"],
             "Lights out at the same time tonight", src("sleep"),
-            inside=f"You sleep {s['value']} h against your normal {s['normal']} h")
+            inside=f"You sleep {s['value']} h against your normal {s['normal']} h" if known else "")
 
     k = f["kss"]
     if k and i["kss"]["level"]:
@@ -193,11 +212,11 @@ def candidates(f: dict) -> List[dict]:
     soc = i["social"]
     if soc["level"] or w.get("social", 0) <= 3:
         add("social", "mental", 80, "More time with the crew, off duty",
-            (f"Time with the crew is {soc['value']} min a day against your normal {soc['normal']} min, and " if soc["level"] else "")
+            (f"Time with the crew is {soc['value']} min a day against your normal {soc['normal']} min, and " if soc["level"] and _known(soc) else "")
             + f"you met the crew-time goal on {w.get('social', 0)} of the last 7 days.",
             ["Ask someone to share a meal today", "Suggest a film or game night this week", "Ten minutes of talk that is not about work"],
             "Share one meal with someone today", src("social"),
-            inside=(f"Crew time is {soc['value']} min a day against your normal {soc['normal']}" if soc["level"] else f"You met the crew-time goal on {w.get('social', 0)} of the last 7 days"))
+            inside=(f"Crew time is {soc['value']} min a day against your normal {soc['normal']}" if soc["level"] and _known(soc) else f"You met the crew-time goal on {w.get('social', 0)} of the last 7 days"))
 
     ex = i["exer"]
     if not f["learning"] and ex["level"]:
@@ -208,7 +227,7 @@ def candidates(f: dict) -> List[dict]:
             inside=f"You average {ex['value']} min a day")
 
     bone = i.get("bone")
-    if bone and bone["level"]:
+    if bone and bone["level"] and bone["value"] is not None:
         add("bone", "physical", 74, "Load your bones every day",
             f"Your estimated bone density is {100 + bone['value']:.1f}% of its pre-flight value; NASA asks for 95% or more.",
             ["Heavy resistance on the squat and deadlift", "Calcium and vitamin D with breakfast", "Impact work on the treadmill harness"],
@@ -226,7 +245,7 @@ def candidates(f: dict) -> List[dict]:
             inside=(f"Stress is {st['value']} of 5 against your normal {st['normal']}" if None not in (st["value"], st["normal"]) else "Stress or mood is off your normal"))
 
     wa = i["water"]
-    if wa["level"]:
+    if wa["level"] and _known(wa):
         add("water", "physical", 65, "Drink before you are thirsty",
             f"You drink {wa['value']} L a day against your normal {wa['normal']} L. Thirst fades in space.",
             ["A full bag with every meal", "One more between meals, at a set time", "Watch urine colour"],
@@ -235,9 +254,8 @@ def candidates(f: dict) -> List[dict]:
 
     r = f["reading"]
     if w.get("read", 0) <= 3 or r:
-        title = r.get("title") if r else None
-        add("read", "mental", 60, f"Keep going with {title}" if title else "Read more, for yourself",
-            (f"You last logged {r.get('minutes')} min of {title}. " if title else "") + f"You met the reading goal on {w.get('read', 0)} of the last 7 days.",
+        add("read", "mental", 60, "Keep reading, for yourself",  # the title of a book is free text: never in a fact or a rewrite
+            (f"You last logged {r.get('minutes')} min of reading. " if r else "") + f"You met the reading goal on {w.get('read', 0)} of the last 7 days.",
             ["20 minutes before lights out", "Keep the book where you sleep", "Log it on the Tests page"],
             "Read 20 minutes before lights out", [f"checkin:{f['crew_id']}:reading:day{r['day']}"] if r else [],
             inside=f"You met the reading goal on {w.get('read', 0)} of the last 7 days")
@@ -325,30 +343,113 @@ def ranked(crew_id: str, f: dict) -> List[dict]:
     return sorted(items, key=lambda s: -s["rank"]["score"])[:6]
 
 
-def build(crew_id: str) -> dict:
+MAX_WHY = 300  # a rewritten "why" longer than this is not one warm sentence: keep the rule text
+
+
+def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Optional[str], List[str], Any, List[str]]:
+    """Ask the model to rephrase each "why". Returns (accepted rewrites by id, fallback reason or None, rejected numbers,
+    the ProviderResult or None, rejected rule ids). Each item is checked on its own: a rewrite with an invented number
+    or with wording/privacy rule violations (guard.text_violations) keeps the rule text."""
+    try:
+        out = provider.complete(ProviderRequest(task="suggestions",
+                                                system="Rephrase each 'why' warmly in one sentence. Use only the numbers given. Never diagnose.",
+                                                question=json.dumps([{"id": s["id"], "why": s["why"]} for s in items]),
+                                                context=[{"facts": f}]))
+    except Exception:  # noqa: BLE001 - a provider bug must not break the page; the rule text stays
+        return {}, "api:error", [], None, []
+    if not out.ok:
+        return {}, out.guard_exit or ("api:error" if provider.configured else None), [], out, []
+    try:
+        raw = json.loads(out.answer)
+        pairs = [(r["id"], r["why"]) for r in raw]
+    except (ValueError, KeyError, TypeError):
+        return {}, "parse_error", [], out, []
+    ids, blob = {s["id"] for s in items}, json.dumps(f)
+    accepted: Dict[str, str] = {}
+    rejected: List[str] = []
+    rules: List[str] = []
+    for sid, why in pairs:
+        if sid not in ids or not isinstance(why, str):
+            continue
+        why = why.strip()
+        if not why or len(why) > MAX_WHY:
+            continue
+        unknown = guard.unknown_numbers(why, blob)
+        if unknown:
+            rejected += unknown
+            continue
+        broken = guard.text_violations(why, subject_crew_id=f["crew_id"])
+        if broken:
+            rules += broken
+            continue
+        accepted[sid] = why
+    reason = None
+    if len(accepted) < len(items):
+        reason = "numbers_rejected" if rejected else "rules_rejected" if rules else "model:bad_output"  # else: missing, empty or too long
+    return accepted, reason, list(dict.fromkeys(rejected)), out, list(dict.fromkeys(rules))
+
+
+class Busy(Exception):
+    """A suggestions build the rate limit refused (main answers 429). `wait` is the whole seconds to wait."""
+    def __init__(self, wait: int):
+        super().__init__(f"wait {wait} seconds")
+        self.wait = wait
+
+
+# The last build per crew member. A build is reused while its inputs are the same: the mission day, the facts, the feedback
+# (accepted and dismissed suggestions), the goals already taken from suggestions and the provider. Nothing else is read.
+_cache: Dict[str, dict] = {}
+
+
+def _key(crew_id: str, f: dict, provider_name: str) -> str:
+    taken = sorted(g["id"] for g in goals.suggested(crew_id, f["day"]))
+    feedback = db.q("SELECT sid, action, day FROM suggestion_feedback WHERE crew_id=? ORDER BY id", (crew_id,))
+    raw = json.dumps({"crew": crew_id, "day": f["day"], "facts": f, "taken": taken, "feedback": feedback, "provider": provider_name},
+                     sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def build(crew_id: str, admit: Optional[Callable[[], Optional[int]]] = None) -> dict:
+    """The suggestions for today. Cached per crew member (see _cache): a repeat with the same inputs returns the last build,
+    with no model call and no new assistant_log row. `admit` is asked only before a real build: it returns None to allow it
+    or the seconds to wait; a refusal raises Busy."""
+    t0 = time.monotonic()
     f = facts(crew_id)
-    items = ranked(crew_id, f)
     provider = get_provider()
-    mode = "rules"
-    out = provider.complete(ProviderRequest(task="suggestions",
-                                            system="Rephrase each 'why' warmly in one sentence. Use only the numbers given. Never diagnose.",
-                                            question=json.dumps([{"id": s["id"], "why": s["why"]} for s in items]),
-                                            context=[{"facts": f}]))
-    if out.ok and out.answer:
-        try:
-            rewrites = {r["id"]: r["why"] for r in json.loads(out.answer)}
-            blob = json.dumps(f)
-            if all(not guard.unknown_numbers(t, blob) for t in rewrites.values()):
-                for s in items:
-                    s["why"] = rewrites.get(s["id"], s["why"])
-                mode = "ai"
-        except (ValueError, KeyError, TypeError):
-            pass
+    key = _key(crew_id, f, provider.name)
+    hit = _cache.get(crew_id)
+    if hit and hit["key"] == key:
+        return copy.deepcopy(hit["result"])
+    if admit is not None:
+        wait = admit()
+        if wait is not None:
+            raise Busy(wait)
+    items = ranked(crew_id, f)
+    configured = bool(getattr(provider, "configured", False))
+    rewrites, reason, rejected, out, rules = _rewrite(provider, f, items)
+    for s in items:
+        if s["id"] in rewrites:
+            s["why"], s["source"] = rewrites[s["id"]], "ai"
+        else:
+            s["source"] = "rules"
+    n = len(rewrites)
+    mode = "ai" if n else "rules"
+    model = (out.model if out and out.model else getattr(provider, "model", None)) if configured else None
     taken = {g["id"] for g in goals.suggested(crew_id, f["day"])}
     for s in items:
         s["accepted"] = f"sg_{s['id']}" in taken
-    return {"mode": mode, "provider": provider.name, "day": f["day"], "items": items,
-            "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
+    # The medical audit sees that a build happened and how, never what the suggestions say (astronaut-only).
+    flags = ([reason] if reason else []) + rules + (list(out.notes) if out else [])
+    chat.record(crew_id, chat.SUGGESTIONS_LOG,
+                {"mode": mode, "status": "suggestions", "provider": provider.name, "model": model,
+                 "rewritten": n, "total": len(items), "fallback_reason": reason, "rejected_rules": rules},
+                provider.name, model, mode, flags, t0,
+                out.input_tokens if out else 0, out.output_tokens if out else 0)
+    result = {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
+              "fallback_reason": reason, "rejected_numbers": rejected, "rejected_rules": rules, "day": f["day"], "items": items,
+              "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
+    _cache[crew_id] = {"key": key, "result": result}
+    return copy.deepcopy(result)
 
 
 def dismiss(crew_id: str, sid: str) -> dict:
