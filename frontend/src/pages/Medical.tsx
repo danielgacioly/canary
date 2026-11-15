@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
+import type { AlertEvent, Briefing, MedGoal, MedicalOverview } from '../api/types'
 import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
@@ -89,11 +89,43 @@ function redRisks(c: Person) {
   return { text: red.length === 1 ? red[0].name : `${red.length} NASA red risks`, title: red.map(r => r.name).join(', '), level: Math.max(...red.map(r => r.level)) }
 }
 
+/** Open alert events with who acknowledged them. The officer on board or a flight surgeon acknowledges; that stops the escalation. */
+function OpenAlerts() {
+  const { rev, bump } = useSession()
+  const [events, setEvents] = useState<AlertEvent[] | null>(null)
+  const ack = useAction('inline')
+  useEffect(() => {
+    const load = () => api.alertEvents(true).then(r => setEvents(r.events)).catch(() => setEvents([]))
+    load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [rev])
+  if (!events?.length) return null
+  return (
+    <section>
+      <div className="section-head"><h2>Open alerts</h2><span className="sub">A critical alert nobody acknowledges goes to the commander, then to the flight surgeon.</span></div>
+      <ul className="plain">
+        {events.map(e => (
+          <li key={e.id} className="row wrap" style={{ gap: 10 }}>
+            <span className={`alert-line s${e.level}`}><span className="dot" /><b>{e.name}</b></span>
+            <span className="grow">{e.title ?? e.key}</span>
+            <span className="small muted num">level {e.level} · since day {e.opened_day}</span>
+            <span className="small muted">{e.acknowledged ? `Acknowledged by ${(e.acknowledged_by_names ?? e.acknowledged_by).join(', ')}` : e.escalation_stage ? `Not acknowledged, escalated (step ${e.escalation_stage})` : 'Not acknowledged'}</span>
+            {!e.acknowledged && <button className="btn sm" disabled={ack.busy} onClick={() => ack.run(async () => { await api.ackAlert(e.id); bump() })}>Acknowledge</button>}
+          </li>
+        ))}
+      </ul>
+      <ActionError error={ack.error} />
+    </section>
+  )
+}
+
 function Triage({ ov }: { ov: MedicalOverview }) {
   const inds = Object.keys(ov.crew[0].indicators)
   const first = (c: Person) => c.name.split(' ')[0]
   return (
     <>
+      <OpenAlerts />
       <section>
         <ul className="triage">
           {ov.crew.map(c => {
@@ -243,7 +275,11 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
       <section><div className="section-head"><h2>Active prescriptions</h2></div>
         <div className="col">{(goals ?? []).map((g: MedGoal) => (
           <div key={g.id} className="goal"><div className="grow"><b>{g.title}</b><div className="small dim">{g.who === 'all' ? 'Whole crew' : ov.crew.find(c => c.id === g.who)?.name} · day {g.from_day} to {g.to_day} · {g.area}</div></div>
-            <button className="btn sm" disabled={remove.busy} onClick={() => remove.run(async () => { setData(await api.delMedGoal(g.id)); bump() })}>Remove</button></div>))}
+            <button className="btn sm" disabled={remove.busy} onClick={() => remove.run(async () => {
+              const reason = window.prompt('Why is this goal being removed? It stays in the record, marked as voided.')?.trim()
+              if (!reason) return
+              setData(await api.delMedGoal(g.id, reason)); bump()
+            })}>Remove</button></div>))}
           <ActionError error={remove.error} />
           {!goals?.length && <p className="muted">None. Guided Response adds follow-up care here automatically.</p>}</div>
       </section>

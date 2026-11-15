@@ -1,6 +1,6 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
-  AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
+  AlertEvent, AlertEvents, AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
   CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
@@ -199,5 +199,10 @@ export const api = {
   medGoals: () => req<MedGoal[]>('/medical/goals'),
   addMedGoal: (g: { who: string; area: string; title: string; why: string; days: number }) =>
     req<MedGoal[]>('/medical/goals', { method: 'POST', ...body(g) }),
-  delMedGoal: (id: number) => req<MedGoal[]>(`/medical/goals/${id}`, { method: 'DELETE' }),
+  /** Health records are never deleted: this voids the goal, and the server refuses it without a reason. */
+  delMedGoal: (id: number, reason: string) => req<MedGoal[]>(`/medical/goals/${id}`, { method: 'DELETE', ...body({ reason }) }),
+  /** Stored alert events: all of them for the medical console, ids and levels only for Canary Control. */
+  alertEvents: (openOnly = true) => req<AlertEvents>(`/alerts/events?open_only=${openOnly}`),
+  /** The crew medical officer or a flight surgeon acknowledges an alert event (stops its escalation). */
+  ackAlert: (id: number) => req<AlertEvent>(`/alerts/events/${id}/ack`, { method: 'POST' }),
 }

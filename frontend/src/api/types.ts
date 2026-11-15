@@ -241,6 +241,17 @@ export interface MedicalOverview {
     dose: Dose; standard_profile?: CrewDetail['standard_profile']
   }[]
 }
+/** A stored alert event (GET /api/alerts/events). Canary Control gets only the fields before `title`: who, which alert, level, times, acknowledgement. */
+export interface AlertEvent {
+  id: number; crew_id: string; name: string; key: string; level: 1 | 2; opened_at: string; opened_day: number
+  closed_at: string | null; closed_day: number | null; escalation_stage: number; acknowledged: boolean; acknowledged_by: string[]
+  title?: string; env?: boolean; rule?: string; rules_version?: string
+  inputs?: Record<string, unknown>; thresholds?: Record<string, unknown>
+  recipients?: { id: string; role: string; reason: string; stage: number; at: string; deliver_at: string }[]
+  acks?: { by: string; role: string; at: string }[]; acknowledged_by_names?: string[]
+}
+export interface AlertEvents { events: AlertEvent[]; rules_version: string; escalate_after_s: number }
+
 export interface MedGoal { id: number; who: string; area: Area; title: string; why: string; from_day: number; to_day: number }
 export interface TestResult { id: number; kind: string; day: number; at: number; summary: string; payload: Record<string, unknown>
   /** vitals only: a photo of the display is kept with it (the person and the medical team can open it) */

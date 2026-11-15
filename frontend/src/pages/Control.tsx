@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
+import type { AlertEvent, ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
 import Timeline from '../components/Timeline'
 import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
@@ -110,6 +110,35 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
 }
 
 /* ---------------------------------------------------------------- dashboard */
+/** Open alert events, read-only: who, which alert, level, since when and whether somebody acknowledged it. No values. */
+function OpenAlerts() {
+  const { rev } = useSession()
+  const [events, setEvents] = useState<AlertEvent[] | null>(null)
+  useEffect(() => {
+    const load = () => api.alertEvents(true).then(r => setEvents(r.events)).catch(() => setEvents([]))
+    load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [rev])
+  if (!events?.length) return null
+  const what = (k: string) => k.replace(/^ind_/, '').replace(/_/g, ' ')
+  return (
+    <section className="rise" style={{ ['--d' as string]: 1 }}>
+      <div className="section-head"><h2>Open alerts</h2><span className="sub">Who, which alert and whether the ship acknowledged it. The readings stay on board.</span></div>
+      <ul className="plain">
+        {events.map(e => (
+          <li key={e.id} className="row wrap" style={{ gap: 10 }}>
+            <span className={`alert-line s${e.level}`}><span className="dot" /><b>{e.name}</b></span>
+            <span className="grow">{what(e.key)}</span>
+            <span className="small muted num">level {e.level} · since day {e.opened_day}</span>
+            <span className="small muted">{e.acknowledged ? 'Acknowledged' : e.escalation_stage ? `Not acknowledged, escalated (step ${e.escalation_stage})` : 'Not acknowledged'}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function Dashboard({ ov, demoMode, onDemo, onRegister }: { ov: ControlOverview; demoMode: boolean; onDemo: () => Promise<void>; onRegister: () => void }) {
   const demo = useAction()
   if (!ov.registered) {
@@ -149,6 +178,8 @@ function Dashboard({ ov, demoMode, onDemo, onRegister }: { ov: ControlOverview; 
           ))}
         </div>
       </section>
+
+      <OpenAlerts />
 
       <section className="rise" style={{ ['--d' as string]: 2 }}>
         <div className="section-head"><h2>Hazards at {ms.place.name}</h2></div>
