@@ -1,7 +1,8 @@
 // The hologram scene: body shell + inner anatomy + platform + particles, with bloom.
 // Systems can be hovered, selected, tinted by status and seen through two lenses (physical, mental).
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
@@ -24,16 +25,18 @@ export interface HoloOptions {
   onSelect?: (sys: SystemId | null) => void
 }
 
-let assets: Promise<{ geometry: THREE.BufferGeometry; joints: Joints }> | null = null
+let assets: Promise<{ geometry: THREE.BufferGeometry; joints: Joints; anatomy: GLTF | null }> | null = null
 function loadAssets() {
   assets ??= Promise.all([
     new GLTFLoader().loadAsync('/models/body.glb'),
     fetch('/models/joints.json').then(r => r.json()),
-  ]).then(([gltf, j]) => {
+    // the real bones and organs; if this fails for any reason the procedural ones are built instead
+    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/models/anatomy.glb').catch(() => null),
+  ]).then(([gltf, j, anatomy]) => {
     let geometry: THREE.BufferGeometry | null = null
     gltf.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) geometry = (o as THREE.Mesh).geometry })
     if (!geometry) throw new Error('body mesh missing')
-    return { geometry, joints: j.joints as Joints }
+    return { geometry, joints: j.joints as Joints, anatomy }
   })
   return assets
 }
@@ -104,14 +107,16 @@ export class HologramScene {
   }
 
   async load() {
-    const { geometry, joints } = await loadAssets()
+    const { geometry, joints, anatomy } = await loadAssets()
     if (this.disposed) return
     const mat = bodyMaterial()
     this.body = new THREE.Mesh(geometry, mat)
     this.body.userData = { kind: 'body' }
     this.scene.add(this.body)
     this.animated.push(mat)
-    const { group, parts, centers } = buildAnatomy(joints)
+    let built
+    try { built = buildAnatomy(joints, anatomy) } catch { built = buildAnatomy(joints) }
+    const { group, parts, centers } = built
     this.scene.add(group)
     this.parts = parts
     this.centers = centers
@@ -234,8 +239,8 @@ export class HologramScene {
       const m = p.mesh.material as THREE.ShaderMaterial
       const mental = p.kind === 'nerve' || p.system === 'brain'
       const base = p.kind === 'nerve' ? 0.25 + 1.0 * this.lens : mental ? 0.9 + 0.4 * this.lens : 0.9 - 0.68 * this.lens
-      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1)
-      if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.setScalar(1).multiply(new THREE.Vector3(0.042, 0.05, 0.04)).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
+      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1) * (p.mesh.userData.glow ?? 1)
+      if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.copy(p.mesh.userData.base).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
     }
     if (this.particles) {
       const p = this.particles.geometry.getAttribute('position') as THREE.BufferAttribute
