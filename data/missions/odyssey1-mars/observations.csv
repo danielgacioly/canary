@@ -13344,7 +13344,7 @@ cabin,150,dose_rate,1.8,mSv/day,simulated,dosimeter,mock:dosimeter,,2035-10-29T0
 cabin,151,co2,3506,ppm,simulated,environment,recipe:co2,,2035-10-30T08:00:00Z
 cabin,151,dose_rate,1.8,mSv/day,simulated,dosimeter,mock:dosimeter,,2035-10-30T08:00:00Z
 cabin,152,co2,3441,ppm,simulated,environment,recipe:co2,,2035-10-31T08:00:00Z
-cabin,152,dose_rate,1.8,mSv/day,simulated,dosimeter,mock:dosimeter,,2035-10-31T08:00:00Z
+cabin,152,dose_rate,23.8,mSv/day,simulated,dosimeter,mock:dosimeter,,2035-10-31T08:00:00Z
 cabin,153,co2,3440,ppm,simulated,environment,recipe:co2,,2035-11-01T08:00:00Z
 cabin,153,dose_rate,1.8,mSv/day,simulated,dosimeter,mock:dosimeter,,2035-11-01T08:00:00Z
 cabin,154,co2,3428,ppm,simulated,environment,recipe:co2,,2035-11-02T08:00:00Z

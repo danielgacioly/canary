@@ -1291,9 +1291,9 @@ def test_there_are_eight_risks_and_four_are_nasas_red_ones():
 
 
 def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_passes_it():
-    from canary.domain import risk, telemetry
-    curve = risk.dose_curve()
-    assert all(abs(curve[d] - telemetry.cumulative_dose(d, catalog.LOCATIONS and mission.plan.location_at(d), None)) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))
+    from canary.domain import dose, risk
+    curve = dose.curve(None, -1)  # the projection: the plan's rates and the storm events
+    assert all(abs(curve[d] - dose.mission(None, d)["msv"]) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))  # the cabin dosimeter says the same
     assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
     _day(100)
     assert _risk("a", "radiation")["level"] == 0

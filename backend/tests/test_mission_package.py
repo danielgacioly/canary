@@ -84,16 +84,16 @@ def test_dose_rate_rows(pkg, preset):
     assert [int(r["day"]) for r in rows] == list(range(0, max(l["end"] for l in legs) + 1))
     for r in rows:
         assert (r["crew_id"], r["unit"], r["origin"], r["method"], r["source"]) == ("cabin", "mSv/day", "simulated", "dosimeter", "mock:dosimeter")
-        assert float(r["value"]) == catalog.LOCATIONS[simdata.location_at(legs, int(r["day"]))]["dose_rate"]
+        day, loc = int(r["day"]), simdata.location_at(legs, int(r["day"]))
+        # the storm's extra dose is inside the reading of the day the storm starts, when it hits the place
+        extra = sum(float(e[5]) for e in gd.SPACE_EVENTS if e[2] == day and loc in e[4].split(";"))
+        assert float(r["value"]) == pytest.approx(catalog.LOCATIONS[loc]["dose_rate"] + extra)
 
 
-def test_dose_rate_sums_to_cumulative_dose():
-    plan.reset_cache()
+def test_the_storm_is_in_the_cabin_dosimeter_of_its_start_day():
     rate = {int(r["day"]): float(r["value"]) for r in read("odyssey1-mars", "observations.csv") if r["indicator"] == "dose_rate"}
-    for day in (0, 1, 10, 100, 151, 152, 153, 222, 300, 500, 720):
-        total = round(sum(rate[d] for d in range(0, day + 1)), 1)
-        storm = 22.0 if day >= 152 else 0.0
-        assert telemetry.cumulative_dose(day, plan.location_at(day), None) - storm == pytest.approx(total, abs=0.11)
+    assert rate[152] == pytest.approx(1.8 + 22) and rate[151] == 1.8 and rate[153] == 1.8
+    assert rate[222] == catalog.LOCATIONS["mars"]["dose_rate"]  # the Mars storm adds no dose
 
 
 def test_space_events():
@@ -135,7 +135,7 @@ def test_goal_log_reproduces_the_old_simulated_history():
     last = max(l["end"] for l in plan.get()["legs"])
     for today in (-30, -5, 2, 147, 152, 153, 222, 400):
         for c in registry.DEMO_CREW:
-            for day in range(goals.HISTORY_START, last + 1):
+            for day in range(gd.HISTORY_START, last + 1):
                 for gid in goals.daily_goal_ids(plan.location_at(day)):
                     assert goals.is_done(c["id"], gid, day, today, log[c["id"]], "12:00") == reference_sim_done(c["id"], gid, day, today), (c["id"], gid, day, today)
 

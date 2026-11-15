@@ -10,7 +10,6 @@ from typing import Dict, Optional, Protocol
 
 from .. import db
 from . import data, plan
-from .catalog import LOCATIONS
 from .simdata import h01  # noqa: F401  (re-exported: goals and suggestions use it)
 
 
@@ -139,14 +138,3 @@ def current(crew_id: str, ind: str, day: int) -> float:
 def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
     uv = user_values(crew_id, day - n + 1, day)
     return [[d, round(observation(crew_id, ind, d, uv)["value"], 2)] for d in range(day - n + 1, day + 1)]
-
-
-def cumulative_dose(day: int, location_now: str, storm: Optional[str]) -> float:
-    """Mission dose in mSv up to `day`, following the reference timeline. Simulated."""
-    if day < 0:
-        return 0.0
-    total = sum(LOCATIONS[plan.location_at(d)]["dose_rate"] for d in range(0, day))
-    total += LOCATIONS[location_now]["dose_rate"]
-    if day >= 152 and plan.location_at(152) in ("transit", "moon"):
-        total += 22.0  # simulated extra dose behind the storm shelter during the replayed May 2024 storm
-    return round(total, 1)
