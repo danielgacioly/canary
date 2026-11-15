@@ -210,6 +210,14 @@ DRUG_CASES = [
     ("Am I bipolar?", "G-DIAG-03"),
     ("Could I have an anxiety disorder?", "G-DIAG-03"),
     ("Could this be PTSD?", "G-DIAG-03"),
+    # a pronoun, article or number between the verb and the drug, and Portuguese / Spanish forms
+    ("Give her melatonin.", "G-DOSE-02"),
+    ("Give him ibuprofen now.", "G-DOSE-02"),
+    ("Give her a melatonin.", "G-DOSE-02"),
+    ("Give them 2 ibuprofen.", "G-DOSE-02"),
+    ("Offer him some paracetamol.", "G-DOSE-02"),
+    ("dê melatonina para ela", "G-DOSE-04"),
+    ("dale ibuprofeno", "G-DOSE-04"),
 ]
 
 
@@ -223,9 +231,32 @@ def test_precheck_named_drugs_and_mental_health_diagnosis(q, rule):
     "I feel down", "Why is my mood low?", "I feel anxious", "Why am I so stressed?", "How do I avoid burnout?",
     "Is my mood getting worse?", "I feel burnt out lately", "What does the anxiety score mean?",
     "Can I take a nap?", "Can I take a break now?", "How much coffee can I have?", "Can I use the treadmill?",
+    "Give her a hand with the chores.", "Use the treadmill after lunch.", "Give me my radiation dose.",
 ])
 def test_precheck_lets_feelings_and_non_drug_questions_through(q):
     assert guard.precheck(q) is None
+
+
+@pytest.mark.parametrize("text,rule", [
+    ("Give her melatonin.", "G-DOSE-02"),
+    ("Give him ibuprofen now.", "G-DOSE-02"),
+    ("Give her a melatonin.", "G-DOSE-02"),
+    ("Give them 2 ibuprofen.", "G-DOSE-02"),
+    ("Offer him some paracetamol.", "G-DOSE-02"),
+    ("Give her melatonin before bed.", "G-DOSE-02"),
+    ("dê melatonina para ela", "G-DOSE-04"),
+    ("dale ibuprofeno", "G-DOSE-04"),
+])
+def test_text_violations_catch_dosing_with_a_pronoun_or_article_before_the_drug(text, rule):
+    assert rule in guard.text_violations(text, subject_crew_id="h")
+
+
+@pytest.mark.parametrize("text", [
+    "Give her a hand.", "Take a break.", "Use the treadmill.", "Give her a warm blanket.",
+    "What is my career dose?", "Give me my radiation dose.", "Qual minha dose de radiação?",
+])
+def test_text_violations_leave_non_drug_and_radiation_wording_alone(text):
+    assert guard.text_violations(text, subject_crew_id="h") == []
 
 
 # ---------------------------------------------------------------- legacy helpers keep working
@@ -625,6 +656,10 @@ POSTCHECK_CASES = [
     ("G-OUT-DIAG-01", lambda: run(good(answer="Your values are consistent with early hypertension."))),
     ("G-OUT-DIAG-01", lambda: run(good(answer="You probably have an infection."))),
     ("G-OUT-DOSE-01", lambda: run(good(answer="Try some melatonin before bed."))),
+    ("G-OUT-DOSE-01", lambda: run(good(answer="Give her melatonin before bed."))),
+    ("G-OUT-DOSE-01", lambda: run(good(answer="Offer them 2 ibuprofen tonight."))),
+    ("G-OUT-DOSE-01", lambda: run(good(answer="Dê melatonina para ela antes de dormir."))),
+    ("G-OUT-DOSE-01", lambda: run(good(answer="Dale ibuprofeno antes de dormir."))),
     ("G-NUM-01", lambda: run(good(limitations=["Only 9.5 h of sleep were measured."]))),
 ]
 
