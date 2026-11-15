@@ -75,3 +75,5 @@
 @media (prefers-reduced-motion: reduce) { .scene *, .data-col, .steps-ahead li { animation: none !important; } }
 
 .intro-visual .intro-holo { width: 100%; }
+
+.scene.photo { width: 100%; height: auto; max-height: min(70vh, 640px); object-fit: cover; border-radius: 14px; }
