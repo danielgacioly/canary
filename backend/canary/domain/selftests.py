@@ -156,7 +156,7 @@ def normalise(kind: str, payload: dict) -> dict:
 # kind -> [(payload field, indicator)] for the tests that get a conclusion.
 CONCLUDES = {"pvt": [("ms", "react")], "dsst": [("correct", "dsst")], "span": [("span", "span")], "kss": [("level", "kss")],
              "tlx": [("raw", "tlx")], "mood": [("mood", "mood")], "sleep": [("hours", "sleep")],
-             "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")]}
+             "vitals": [("hr", "hr"), ("bp", "sbp"), ("dbp", "dbp"), ("temp", "temp"), ("spo2", "spo2")]}
 _POP_TEXT = {"in": "Within the normal human range", "out": "Outside the usual adult range", "critical": "Past the safety limit"}
 _DIRECTION = {"react": ("slower", "faster")}  # words for above / below your own average
 _RANK = {"critical": 2, "out": 1, "in": 0}

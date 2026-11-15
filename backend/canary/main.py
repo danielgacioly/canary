@@ -35,7 +35,7 @@ def _warm_story() -> None:
     from .domain import risk
     try:
         for day in dict.fromkeys(sc["day"] for sc in data.scenes()):
-            ms = {**risk._day_ms(day), "storm": data.storm_at(day, plan.location_at(day))}
+            ms = {**risk._day_ms(day), "storm": dose.active_storm(day, plan.location_at(day))}
             for c in list(CREW):
                 health.snapshot(c["id"], ms)
     except Exception:  # a warm-up must never take the API down; the next request computes it anyway
@@ -324,7 +324,8 @@ def plan_conditions():
     series = [[d, curve[d]] for d in days]
     return {"name": p["name"], "legs": legs, "today": ms["day"], "leg_index": ms["leg"]["index"],
             "dose": {"series": series, "now_msv": health.dose(ms)["mission_msv"], "end_msv": series[-1][1],
-                     "limit_msv": CAREER_LIMIT_MSV, "simulated": True}}
+                     "limit_msv": CAREER_LIMIT_MSV, "simulated": True,
+                     **dose.plan_conditions(ms["day"], [c["id"] for c in CREW], {c["id"]: standards.prior_dose(c["id"]) for c in CREW})}}
 
 
 class LegIn(BaseModel):
@@ -405,7 +406,7 @@ def crew_list():
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
-            "space_weather": {k: v for k, v in nasa.space_weather(data.storm_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+            "space_weather": {k: v for k, v in nasa.space_weather(dose.active_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
 @app.get("/api/crew/photos", tags=["crew"])
@@ -424,7 +425,7 @@ def crew_overview():
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "today": board["people"][c["id"]]})
-    sw = nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
+    sw = nasa.space_weather(dose.active_event(ms["day"], ms["location"]))
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
@@ -771,7 +772,7 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
 @app.get("/api/space-weather", tags=["nasa"])
 def space_weather():
     ms = mission.state()
-    return nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
+    return nasa.space_weather(dose.active_event(ms["day"], ms["location"]))
 
 
 @app.get("/api/nasa/rad", tags=["nasa"])

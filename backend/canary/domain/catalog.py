@@ -5,54 +5,69 @@ checked before the pitch.
 """
 from typing import Dict, List, Optional
 
+from . import assumptions as A
+
 # ---------------------------------------------------------------- places
 LOCATIONS: Dict[str, dict] = {
     "earth": {"name": "Earth", "sub": "Pre-flight training", "gravity_key": "g1", "gravity": "1 g",
-              "delay_s": 0, "reply": "Live", "hospital": "Minutes", "dose_rate": 0.01,
+              "delay_s": 0, "hospital": "Minutes",
               "what": "Canary is learning what your normal looks like. No alerts yet."},
     "rocket": {"name": "Launch", "sub": "First 72 hours", "gravity_key": "g0", "gravity": "0 g",
-               "delay_s": 0, "reply": "Live", "hospital": "Hours", "dose_rate": 0.5,
+               "delay_s": 0, "hospital": "Hours",
                "what": "Your body is adjusting to weightlessness. Short goals, patient alerts."},
     "iss": {"name": "Space station", "sub": "Low Earth orbit", "gravity_key": "g0", "gravity": "0 g",
-            "delay_s": 0, "reply": "Live", "hospital": "About 1 day", "dose_rate": 0.5,
+            "delay_s": 0, "hospital": "About 1 day",
             "what": "Two hours of exercise a day protect bone and muscle."},
     "moon": {"name": "Moon", "sub": "Lunar surface", "gravity_key": "gp", "gravity": "1/6 g",
-             "delay_s": 1.3, "reply": "3 seconds", "hospital": "About 3 days", "dose_rate": 1.37,
+             "delay_s": 1.3, "hospital": "About 3 days",
              "what": "No magnetic shield. Every walk outside depends on space weather."},
     "transit": {"name": "Transit to Mars", "sub": "Deep space", "gravity_key": "g0", "gravity": "0 g",
-                "delay_s": 300, "reply": "10 minutes", "hospital": "No way back", "dose_rate": 1.8,
+                "delay_s": 300, "hospital": "No way back",
                 "what": "Earth is too far to help in time. Canary guides the crew first, then reports."},
     "mars": {"name": "Mars", "sub": "Gale crater", "gravity_key": "gp", "gravity": "3/8 g",
-             "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
+             "delay_s": 840, "hospital": "About 500 days",
              "what": "Your body is relearning weight after months in 0 g. Stand up slowly."},
     "moon_rover": {"name": "Lunar rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "1/6 g",
-                   "delay_s": 1.3, "reply": "3 seconds", "hospital": "About 3 days", "dose_rate": 1.37,
+                   "delay_s": 1.3, "hospital": "About 3 days",
                    "what": "Days away from the base in a small cabin. Every walk outside is a surface EVA."},
     "mars_rover": {"name": "Mars rover", "sub": "Pressurized rover traverse", "gravity_key": "gp", "gravity": "3/8 g",
-                   "delay_s": 840, "reply": "28 minutes", "hospital": "About 500 days", "dose_rate": 0.67,
+                   "delay_s": 840, "hospital": "About 500 days",
                    "what": "Far from the habitat's gym and medical bay. Canary guides first; the base is hours away."},
 }
+# `delay_s` is the nominal one-way delay of the place (the middle of the real range), kept for places that have no date to
+# compute from. The delay of the mission clock is computed from the Earth-Mars geometry (domain/spacetime.py) and replaces
+# it in `mission.state()`. `reply` is the round trip, derived from the delay.
+
+
+def reply_text(one_way_s: float) -> str:
+    rt = 2 * one_way_s
+    return "Live" if rt < 1 else f"{round(rt)} seconds" if rt < 60 else f"{round(rt / 60)} minutes"
+
+
 # The body a place belongs to (a rover counts sols and uses the protocols of its planet) and the kind of EVA done there,
 # which sets the aerobic-capacity limit of NASA-STD-3001 (V1 4001 microgravity, V1 4002 surface).
 for _k, _body, _eva in (("earth", "earth", "none"), ("rocket", "space", "none"), ("iss", "space", "microgravity"),
                         ("transit", "space", "microgravity"), ("moon", "moon", "surface"), ("mars", "mars", "surface"),
                         ("moon_rover", "moon", "surface"), ("mars_rover", "mars", "surface")):
-    LOCATIONS[_k].update(body=_body, eva=_eva)
-DOSE_SOURCE = ("Typical daily dose by place from published ISS, Apollo, MSL cruise and Curiosity RAD figures; to be verified. "
-               "A pressurized rover is given the dose of its planet's surface (prototype assumption: no rover shielding figure used).")
+    LOCATIONS[_k].update(body=_body, eva=_eva, dose_rate=A.value("dose.quiet_rate_msv_day")[_k])
+    LOCATIONS[_k]["reply"] = reply_text(LOCATIONS[_k]["delay_s"])
+LOCATIONS["moon"]["delay_s"] = LOCATIONS["moon_rover"]["delay_s"] = A.value("comms.moon_one_way_s")
+LOCATIONS["moon"]["reply"] = LOCATIONS["moon_rover"]["reply"] = reply_text(A.value("comms.moon_one_way_s"))
+DOSE_SOURCE = A.ASSUMPTIONS["dose.quiet_rate_msv_day"]["source"]
 # NASA-STD-3001 Volume 1 Rev. C (2023), checked against the document on 2026-11-14:
 # [V1 4030] career effective dose below 600 mSv, the same for all ages and sexes; [V1 4031] the design solar particle
 # event below 250 mSv effective dose. https://www.nasa.gov/wp-content/uploads/2023/11/nasa-std-3001-vol-1-rev-c-with-signature.pdf
-CAREER_LIMIT_MSV = 600
-SPE_LIMIT_MSV = 250
+CAREER_LIMIT_MSV = A.value("nasa.career_effective_dose_msv")  # [V1 4030], 4.2.10
+SPE_LIMIT_MSV = A.value("nasa.spe_design_effective_dose_msv")  # [V1 4031], design reference for a solar particle event
 
 
 def day_label(day: int, location: str, leg_start: int = 0) -> str:
-    """L-30 before launch, Sol N on Mars (counted from landing, rover traverses included), Day N otherwise."""
+    """L-30 before launch, Sol N on Mars (counted from landing with the real 88,775.244 s sol, rover traverses included; the day is read at noon UTC), Day N otherwise."""
     if day < 0:
         return f"L{day}"
     if LOCATIONS.get(location, {}).get("body") == "mars":
-        return f"Sol {day - leg_start}"
+        from . import spacetime
+        return f"Sol {spacetime.sol_after((day - leg_start) + 0.5)}"  # noon UTC of the mission day, real sol length
     return f"Day {day}"
 
 
@@ -66,7 +81,10 @@ RECORDS: Dict[str, dict] = {}  # each person's registered record, by id (private
 MAX_CREW = 6
 
 # ---------------------------------------------------------------- indicators
-# dir: which way is bad. sd: personal day-to-day spread used for the z-score.
+# dir: which way is bad. sd: floor of the personal day-to-day spread used for the z-score (value in domain/assumptions.py).
+# adapts_in_flight: the indicator moves with the first days of microgravity (fluid shift), so it raises no level-1 alert in
+# the adaptation window and is re-baselined on flight days 8 to 14. scan: measured only before and after the flight (not on board).
+# context: what a reading may say about how it was taken (heart rate: rest or exercise; pressure: seated, supine or standing).
 INDICATORS: Dict[str, dict] = {
     "sleep": {"name": "Sleep", "unit": "h", "area": "mental", "facet": "Rest", "dir": "low", "sd": 0.5, "dp": 1},
     "react": {"name": "Reaction time", "unit": "ms", "area": "mental", "facet": "Focus", "dir": "high", "sd": 18, "dp": 0},
@@ -77,26 +95,33 @@ INDICATORS: Dict[str, dict] = {
     "span": {"name": "Working memory", "unit": "digits", "area": "mental", "facet": "Memory", "dir": "low", "sd": 0.5, "dp": 1},
     "kss": {"name": "Sleepiness", "unit": "/9", "area": "mental", "facet": "Alertness", "dir": "high", "sd": 0.5, "dp": 1},
     "tlx": {"name": "Workload", "unit": "/100", "area": "mental", "facet": "Workload", "dir": "high", "sd": 6, "dp": 0},
-    "hr": {"name": "Resting pulse", "unit": "bpm", "area": "physical", "dir": "both", "sd": 3, "dp": 0},
-    "bp": {"name": "Blood pressure", "unit": "mmHg", "area": "physical", "dir": "both", "sd": 5, "dp": 0},
+    "hr": {"name": "Resting pulse", "unit": "bpm", "area": "physical", "dir": "both", "sd": 3, "dp": 0, "adapts_in_flight": True,
+           "context": {"field": "activity", "options": ["rest", "exercise"], "counts": ["rest"]}},
+    "sbp": {"name": "Systolic pressure", "unit": "mmHg", "area": "physical", "dir": "both", "sd": 5, "dp": 0, "adapts_in_flight": True,
+            "context": {"field": "position", "options": ["seated", "supine", "standing"], "counts": ["seated"]}},
+    "dbp": {"name": "Diastolic pressure", "unit": "mmHg", "area": "physical", "dir": "both", "sd": 4, "dp": 0, "adapts_in_flight": True,
+            "context": {"field": "position", "options": ["seated", "supine", "standing"], "counts": ["seated"]}},
     "spo2": {"name": "Blood oxygen", "unit": "%", "area": "physical", "dir": "low", "sd": 0.7, "dp": 0},
     "temp": {"name": "Temperature", "unit": "°C", "area": "physical", "dir": "high", "sd": 0.15, "dp": 1},
     "gluc": {"name": "Fasting glucose", "unit": "mg/dL", "area": "physical", "dir": "both", "sd": 6, "dp": 0},
     "water": {"name": "Water", "unit": "L", "area": "physical", "dir": "low", "sd": 0.25, "dp": 1},
     "exer": {"name": "Exercise", "unit": "min", "area": "physical", "dir": "low", "sd": 12, "dp": 0},
     "grip": {"name": "Grip strength", "unit": "kg", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
-    "bone": {"name": "Bone density (est.)", "unit": "%", "area": "physical", "dir": "low", "sd": 1.5, "dp": 1},
+    "bone": {"name": "Bone density (DXA)", "unit": "g/cm²", "area": "physical", "dir": "low", "sd": 0.03, "dp": 2, "scan": True, "min_baseline": 1},
     "vo2": {"name": "Aerobic capacity (VO2max)", "unit": "mL/kg/min", "area": "physical", "dir": "low", "sd": 3.0, "dp": 1},
 }
+
+for _ind, _I in INDICATORS.items():
+    _I["sd"] = A.value("indicator.sd")[_ind]
 
 # How long a reading stays current, in days (`max_age`). Derived from how often the indicator is measured (the
 # `frequency.every` of its recipe in data/recipes.json): measured every day -> 3 days; every 2 to 7 days -> 10 days; a
 # monthly blood panel -> 45 days; any other interval -> 1.5 times the interval, rounded up. Exception to the 10 days: a
-# weekly measurement gets 21 (three intervals), because the mock data skips weekly tests for up to 20 days on purpose
-# (h's VO2max, days -28 to -7) and a carried-forward test inside that window is still current.
+# weekly measurement gets 21 (three intervals), because the simulated data skips weekly tests for up to 20 days on purpose
+# (a VO2max series of the demo, days -28 to -7) and a carried-forward test inside that window is still current.
 # A reading older than that is stale: it is shown as the last measurement, but never counted as today's value.
-MEASURED_EVERY = {"sleep": 1, "react": 1, "mood": 1, "stress": 1, "social": 1, "hr": 1, "bp": 1, "spo2": 1, "temp": 1, "gluc": 3,
-                  "water": 1, "exer": 1, "grip": 1, "vo2": 7, "bone": 1, "dsst": 3, "span": 3, "kss": 1, "tlx": 7}
+MEASURED_EVERY = {"sleep": 1, "react": 1, "mood": 1, "stress": 1, "social": 1, "hr": 1, "sbp": 1, "dbp": 1, "spo2": 1, "temp": 1, "gluc": 3,
+                  "water": 1, "exer": 1, "grip": 1, "vo2": 7, "bone": 365, "dsst": 3, "span": 3, "kss": 1, "tlx": 7}
 
 
 def max_age_for(every: int) -> int:
@@ -112,6 +137,7 @@ def max_age_for(every: int) -> int:
 
 for _ind, _every in MEASURED_EVERY.items():
     INDICATORS[_ind]["max_age"] = max_age_for(_every)
+INDICATORS["bone"]["max_age"] = 900  # a DXA scan is read until the next one (before launch, then after landing): longer than any plan
 OTHER_MEASURED_EVERY = {"weight": 3, "hrv": 1}  # measured and stored, but not in INDICATORS
 
 
@@ -142,7 +168,7 @@ SYSTEMS: Dict[str, dict] = {
     "eyes": {"name": "Eyes & vision", "area": "physical", "indicators": [],
              "space": "Fluids shift toward the head in 0 g. After months, some astronauts develop swelling at the back of the eye (SANS). A weekly Amsler grid is a quick screen.",
              "hazard": "Altered gravity"},
-    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "bp", "vo2"],
+    "heart": {"name": "Heart & circulation", "area": "physical", "indicators": ["hr", "sbp", "dbp", "vo2"],
               "space": "Without gravity the heart works less and blood volume drops. Back under gravity, standing up can make you faint.",
               "hazard": "Altered gravity"},
     "lungs": {"name": "Lungs & breathing", "area": "physical", "indicators": ["spo2"],
@@ -265,9 +291,9 @@ _link(["stress", "cortisol"], "I", "confinement", f"{_P} (BMed)")
 _link(["stress", "cortisol"], "D", "distance from home", f"{_P} (BMed)")
 _link(["stress", "cortisol"], "E", "noise, confinement", f"{_P} (BMed)")
 _link("social", "I", "isolation", f"{_P} (BMed)")
-_link(["hr", "bp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}")
+_link(["hr", "sbp", "dbp"], "R", "long-term cardiovascular disease", f"{_P}; {_H}")
 _link("hr", "G", "deconditioning, readaptation", f"{_P}; {_H}")
-_link("bp", "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}")
+_link(["sbp", "dbp"], "G", "fluid shift, dizziness back under gravity", f"{_P}; {_H}")
 _link("spo2", "E", "recirculated air, CO2, dust", _H)
 _link("temp", "E", "microbes in a closed environment", _H)
 _link("gluc", "D", "limited diet", f"{_P} (nutrition); {_H}")
@@ -325,14 +351,16 @@ ACCEPT: Dict[str, dict] = {
     "kss": {"units": ("/9",), "range": (0, 9)},
     "tlx": {"units": ("/100",), "range": (0, 100)},
     "hr": {"units": ("bpm",), "range": (25, 250)},
-    "bp": {"units": ("mmHg",), "range": (60, 260)},
+    "sbp": {"units": ("mmHg",), "range": (60, 260)},
+    "dbp": {"units": ("mmHg",), "range": (30, 180)},
+    "bp": {"units": ("mmHg",), "range": (60, 260)},  # legacy name of the systolic pressure: stored as `sbp`
     "spo2": {"units": ("%",), "range": (50, 100)},
     "temp": {"units": ("°C",), "range": (30, 45)},
     "gluc": {"units": ("mg/dL",), "range": (20, 800)},
     "water": {"units": ("L",), "range": (0, 20)},
     "exer": {"units": ("min",), "range": (0, 1440)},
     "grip": {"units": ("kg",), "range": (0, 120)},
-    "bone": {"units": ("%",), "range": (-100, 200)},
+    "bone": {"units": ("g/cm²", "g/cm2"), "range": (0.2, 2.5)},
     "vo2": {"units": ("mL/kg/min",), "range": (5, 100)},
     "hrv": {"units": ("ms",), "range": (0, 400)},
     "weight": {"units": ("kg",), "range": (20, 300)},
@@ -356,8 +384,9 @@ ACCEPT: Dict[str, dict] = {
     # cabin air
     "co2": {"units": ("ppm",), "range": (200, 100000)},
     # the dosimeter: accepted as a measurement (crew badge or cabin), but NOT an INDICATOR (no baseline, no alert of its
-    # own): the dose model reads it. Absorbed-dose-equivalent rate in mSv per day.
-    "dose_rate": {"units": ("mSv/day",), "range": (0, 100)},
+    # own): the dose model reads it. `dose_rate`: absorbed dose in mGy per day; `dose_eq_rate`: dose equivalent in mSv per day.
+    "dose_rate": {"units": ("mGy/day", "mSv/day"), "range": (0, 100)},  # absorbed dose rate; mSv/day is read as the dose equivalent (legacy)
+    "dose_eq_rate": {"units": ("mSv/day",), "range": (0, 100)},         # dose-equivalent rate
 }
 ACCEPT_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
 CABIN_ID = "cabin"  # the crew id of cabin sensors (air, dosimeter)

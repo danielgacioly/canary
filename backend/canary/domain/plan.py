@@ -19,6 +19,8 @@ PRESETS = {
         {"location": "mars", "start": 210, "end": 299, "label": "Surface stay, Gale crater"},
         {"location": "mars_rover", "start": 300, "end": 313, "label": "Pressurized rover traverse to Mount Sharp"},
         {"location": "mars", "start": 314, "end": 720, "label": "Surface stay, Gale crater"},
+        {"location": "transit", "start": 721, "end": 930, "label": "Return cruise to Earth"},
+        {"location": "earth", "start": 931, "end": 1000, "label": "Landing, recovery and rehabilitation"},
     ]},
     "iss": {"name": "Six months on the ISS", "legs": [
         {"location": "earth", "start": -60, "end": -1, "label": "Pre-flight training and baseline"},
@@ -132,8 +134,15 @@ def leg_at(day: int) -> dict:
     i = leg_index(day)
     l = legs[i]
     nxt = legs[i + 1] if i + 1 < len(legs) else None
-    return {**l, "index": i, "day_in_leg": day - l["start"] + 1, "length": l["end"] - l["start"] + 1,
+    extra = {"direction": transit_direction(i)} if l["location"] == "transit" else {}
+    return {**l, **extra, "index": i, "day_in_leg": day - l["start"] + 1, "length": l["end"] - l["start"] + 1,
             "next": nxt, "days_to_next": (nxt["start"] - day) if nxt else None}
+
+
+def transit_direction(index: int) -> str:
+    """"out" for a transit leg before the crew reached Mars, "back" for one after (the return cruise)."""
+    legs = get()["legs"]
+    return "back" if any(LOCATIONS[l["location"]].get("body") == "mars" for l in legs[:index]) else "out"
 
 
 def landing_day(day: int, body: Optional[str]) -> int:
