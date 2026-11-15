@@ -234,7 +234,7 @@ EXTRA_RANGES = {
 RULES = {  # thresholds of the evidence functions (all prototype assumptions)
     "radiation": {"watch_pct_of_limit": 50, "lym_points": 1.0},
     "nutrition": {"loss_pct": {1: 5.0, 2: 10.0}},         # weight below the person's pre-flight mean
-    "renal": {"bone_loss_pct_30d": 1.0, "points": 1.0},   # the catalog says bone loses about 1% a month without countermeasures
+    "renal": {"bone_loss_pct_30d": 1.0, "points": 1.0},   # NASA: weight-bearing bone loses on average 1% to 1.5% a month in flight; the cut sits at the low edge
     "immune": {"blood_point": 0.5, "blood_cap": 1.5, "storm_follow_days": 13, "follow_kinds": ["sep"], "storm_points": 1.0,
                "crp_rise_pct": 50.0, "crp_points": 0.5},  # CRP has no range in its panel: read against the person's own pre-flight
     "cardio": {"regravity_points": 0.5},
@@ -418,7 +418,7 @@ def _g_renal(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     if rate is not None and rate >= R["bone_loss_pct_30d"]:
         d = inds["bone"]
         ev.append({"key": "bone", "indicator": "bone", "value": round(rate, 2), "baseline": None, "z": None, "origin": d["origin"], "source": d["source"],
-                   "points": R["points"], "text": f"Bone density fell {rate:.1f}% in the last 30 days (the model's rate, about 1% a month without countermeasures)"})
+                   "points": R["points"], "text": f"Bone density fell {rate:.1f}% in the last 30 days (NASA reports 1% to 1.5% a month on average in flight)"})
     sex = CREW_BY_ID[crew_id]["sex"]
     ev += [e for e in (_panel_ev(crew_id, i, day, sex) for i in ("creatinine", "calcium", "urine_volume")) if e]
     return ev

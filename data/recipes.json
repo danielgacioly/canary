@@ -67,7 +67,7 @@
         "gp": 0.4,
         "g1": -0.25
       },
-      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "source": "NASA: weight-bearing bones lose on average 1% to 1.5% of mineral density per month in spaceflight (nasa.gov, The Human Body in Space), https://www.nasa.gov/humans-in-space/the-human-body-in-space/",
       "verified": false,
       "assumption": "0.35% a month with full exercise (110 min a day) up to 1% a month without; full rate in 0 g, 40% in partial gravity, slow recovery (-25%) on Earth. Order of magnitude only, to verify before quoting."
     }
@@ -446,7 +446,7 @@
         "label": "daily"
       },
       "gaps": 0.05,
-      "source": "NASA HRP order of magnitude (about 1% a month without countermeasures); verify",
+      "source": "NASA: weight-bearing bones lose on average 1% to 1.5% of mineral density per month in spaceflight (nasa.gov, The Human Body in Space), https://www.nasa.gov/humans-in-space/the-human-body-in-space/",
       "verified": false,
       "assumption": "Estimated % change of weight-bearing bone density since launch from the bone_loss state, plus 0.3 % of measurement noise (0.4 % before launch). The catalog's sd of 1.5 is the alert scale, not this noise. Daily because it is a model estimate, not a scan."
     },

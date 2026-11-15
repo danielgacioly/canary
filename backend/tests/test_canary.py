@@ -1492,7 +1492,7 @@ def test_helenas_fatigue_risk_on_day_147_lists_isolation_as_a_possible_factor():
     ms = at(2)
     r = _risk("h", "fatigue", ms=ms)
     assert "I" in r["hazards"] and r["hazard_note"].startswith("Possible factors here:") and "Isolation" in r["hazard_note"]
-    assert all(l["source"] and l["verified"] is False and l["why"] for l in r["hazard_links"])
+    assert all(l["source"] and l["why"] and (l["verified"] is False or l["checked"]) for l in r["hazard_links"])
     assert "caused" not in r["hazard_note"].lower()
     b = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "behaviour")
     assert b["risk"] == "fatigue" and "I" in b["hazards"] and b["hazard_note"] == r["hazard_note"]
@@ -1516,7 +1516,12 @@ def test_the_hazard_matrix_is_the_teams_with_a_source_on_every_link():
     from canary.domain.catalog import HAZARDS_BY_INDICATOR as M
     assert {l["hazard"] for l in M["sleep"]} == {"I", "E"} and {l["hazard"] for l in M["dose"]} == {"R"}
     assert {l["hazard"] for l in M["mood"]} == {"I", "D", "E"} and {l["hazard"] for l in M["bone"]} == {"D", "G"}
-    assert all(l["source"] and l["verified"] is False and l["why"] for links in M.values() for l in links)
+    links = [l for ls in M.values() for l in ls]
+    assert all(l["source"] and l["why"] for l in links)
+    # a link is verified only with the finding it was checked against; HRP-only links stay unverified until read
+    assert all(l["checked"].startswith("Patel 2020 (") for l in links if l["verified"])
+    assert not any(l["verified"] for l in links if "Patel" not in l["source"] and l["source"] != "real data RadLab, DONKI")
+    assert {l["verified"] for l in M["amsler"]} == {True} and {l["verified"] for l in M["cortisol"]} == {False}
     assert all(l["source"].startswith("prototype assumption") for k in ("dsst", "span", "kss", "tlx", "urine_volume") for l in M[k])
 
 
