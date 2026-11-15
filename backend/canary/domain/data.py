@@ -623,10 +623,7 @@ def _write(c, p: dict) -> int:
         legs = p["plan"]["legs"] if p["plan"] else plan.get()["legs"]
         rover = any(plan.is_rover(l["location"]) for l in legs)
         _set(c, "registry", {"crew": p["crew"], "mission": {k: m[k] for k in ("callsign", "name", "launch_date", "preset")} | {"rover": rover}})
-        # A PIN that equals the configured default needs no stored hash (it is the same check, and PBKDF2 is slow on purpose).
-        changed = {s: pin for s, pin in p["pins"].items() if pin != settings.crew_pins.get(s)}
-        if changed:
-            _set(c, "pins", auth.hashed_pins(changed))
+        _set(c, "pins", auth.hashed_pins(p["pins"], keep=False))  # every registered PIN is stored hashed, replacing the earlier crew's
     n = 0
     if p["observations"]:
         n = _insert_observations(c, p["observations"])
