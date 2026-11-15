@@ -48090,14 +48090,93 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "context": {
+   "in_force": [
+    "rad",
+    "eva",
+    "dose",
+    "regravity",
+    "air",
+    "delay"
+   ],
+   "place": "Mars"
+  },
   "day": 222,
   "items": [
    {
     "accepted": false,
     "area": "physical",
+    "because_inside": "Your career dose is 403.5 mSv, 67.2% of NASA's 600 mSv",
+    "because_outside": "A solar particle storm is hitting and EVA is suspended for everyone",
+    "goal": "Write down your dosimeter reading today",
+    "id": "storm",
+    "priority": 97,
+    "protocol": "rad",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 97,
+     "score": 117.0
+    },
+    "sources": [],
+    "steps": [
+     "Go to the shelter and stay until the alert ends",
+     "Write down your dosimeter reading",
+     "Bring water, food and the medical kit in with you"
+    ],
+    "title": "Follow the radiation storm protocol",
+    "verify": null,
+    "why": "A particle storm is hitting: the shelter and your dosimeter come first."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Your pressure or pulse is off your normal",
+    "because_outside": "Day 13 in 3/8 g after months in 0 g",
+    "goal": "500 mL of salted water on waking",
+    "id": "readapt",
+    "priority": 84,
+    "protocol": "regravity",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 84,
+     "score": 104.0
+    },
+    "sources": [
+     "telemetry:a:bp:day222",
+     "telemetry:a:hr:day222"
+    ],
+    "steps": [
+     "Stand up in two steps: sit, wait, then stand",
+     "500 mL of salted water on waking",
+     "No solo suited walks this week"
+    ],
+    "title": "Stand up slowly while your body relearns weight",
+    "verify": null,
+    "why": "Lower pressure and a faster pulse than your normal when you stand are expected in the first weeks after 0 g."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Estimated bone density is 97.5% of pre-flight; NASA asks for 95%",
+    "because_outside": "In 3/8 g bones lose load every day without exercise",
     "goal": "Resistance session with squats and deadlifts",
     "id": "bone",
     "priority": 74,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 74,
+     "score": 94.0
+    },
     "sources": [
      "telemetry:a:bone:day222"
     ],
@@ -48112,36 +48191,99 @@
      "indicator": "bone"
     },
     "why": "Your estimated bone density is 97.5% of its pre-flight value; NASA asks for 95% or more."
-   },
-   {
-    "accepted": false,
-    "area": "mental",
-    "goal": null,
-    "id": "keep",
-    "priority": 10,
-    "sources": [],
-    "steps": [
-     "Keep your streak",
-     "Try one new test on the Tests page",
-     "Ask a crewmate how they are"
-    ],
-    "title": "Keep doing what works",
-    "verify": null,
-    "why": "Everything is close to your own normal this week."
    }
   ],
   "mode": "rules",
   "provider": "none"
  },
  "/api/suggestions/h [as h]": {
+  "context": {
+   "in_force": [
+    "rad",
+    "eva",
+    "dose",
+    "regravity",
+    "air",
+    "delay"
+   ],
+   "place": "Mars"
+  },
   "day": 222,
   "items": [
    {
     "accepted": false,
     "area": "physical",
+    "because_inside": "Your career dose is 510.5 mSv, 85.1% of NASA's 600 mSv",
+    "because_outside": "A solar particle storm is hitting and EVA is suspended for everyone",
+    "goal": "Write down your dosimeter reading today",
+    "id": "storm",
+    "priority": 97,
+    "protocol": "rad",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 97,
+     "score": 117.0
+    },
+    "sources": [],
+    "steps": [
+     "Go to the shelter and stay until the alert ends",
+     "Write down your dosimeter reading",
+     "Bring water, food and the medical kit in with you"
+    ],
+    "title": "Follow the radiation storm protocol",
+    "verify": null,
+    "why": "A particle storm is hitting: the shelter and your dosimeter come first."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Your pressure or pulse is off your normal",
+    "because_outside": "Day 13 in 3/8 g after months in 0 g",
+    "goal": "500 mL of salted water on waking",
+    "id": "readapt",
+    "priority": 84,
+    "protocol": "regravity",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 84,
+     "score": 104.0
+    },
+    "sources": [
+     "telemetry:h:bp:day222",
+     "telemetry:h:hr:day222"
+    ],
+    "steps": [
+     "Stand up in two steps: sit, wait, then stand",
+     "500 mL of salted water on waking",
+     "No solo suited walks this week"
+    ],
+    "title": "Stand up slowly while your body relearns weight",
+    "verify": null,
+    "why": "Lower pressure and a faster pulse than your normal when you stand are expected in the first weeks after 0 g."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Estimated bone density is 96.8% of pre-flight; NASA asks for 95%",
+    "because_outside": "In 3/8 g bones lose load every day without exercise",
     "goal": "Resistance session with squats and deadlifts",
     "id": "bone",
     "priority": 74,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 74,
+     "score": 94.0
+    },
     "sources": [
      "telemetry:h:bone:day222"
     ],
@@ -48156,36 +48298,99 @@
      "indicator": "bone"
     },
     "why": "Your estimated bone density is 96.8% of its pre-flight value; NASA asks for 95% or more."
-   },
-   {
-    "accepted": false,
-    "area": "mental",
-    "goal": null,
-    "id": "keep",
-    "priority": 10,
-    "sources": [],
-    "steps": [
-     "Keep your streak",
-     "Try one new test on the Tests page",
-     "Ask a crewmate how they are"
-    ],
-    "title": "Keep doing what works",
-    "verify": null,
-    "why": "Everything is close to your own normal this week."
    }
   ],
   "mode": "rules",
   "provider": "none"
  },
  "/api/suggestions/k [as k]": {
+  "context": {
+   "in_force": [
+    "rad",
+    "eva",
+    "dose",
+    "regravity",
+    "air",
+    "delay"
+   ],
+   "place": "Mars"
+  },
   "day": 222,
   "items": [
    {
     "accepted": false,
     "area": "physical",
+    "because_inside": "Your career dose is 494.0 mSv, 82.3% of NASA's 600 mSv",
+    "because_outside": "A solar particle storm is hitting and EVA is suspended for everyone",
+    "goal": "Write down your dosimeter reading today",
+    "id": "storm",
+    "priority": 97,
+    "protocol": "rad",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 97,
+     "score": 117.0
+    },
+    "sources": [],
+    "steps": [
+     "Go to the shelter and stay until the alert ends",
+     "Write down your dosimeter reading",
+     "Bring water, food and the medical kit in with you"
+    ],
+    "title": "Follow the radiation storm protocol",
+    "verify": null,
+    "why": "A particle storm is hitting: the shelter and your dosimeter come first."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Your pressure or pulse is off your normal",
+    "because_outside": "Day 13 in 3/8 g after months in 0 g",
+    "goal": "500 mL of salted water on waking",
+    "id": "readapt",
+    "priority": 84,
+    "protocol": "regravity",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 84,
+     "score": 104.0
+    },
+    "sources": [
+     "telemetry:k:bp:day222",
+     "telemetry:k:hr:day222"
+    ],
+    "steps": [
+     "Stand up in two steps: sit, wait, then stand",
+     "500 mL of salted water on waking",
+     "No solo suited walks this week"
+    ],
+    "title": "Stand up slowly while your body relearns weight",
+    "verify": null,
+    "why": "Lower pressure and a faster pulse than your normal when you stand are expected in the first weeks after 0 g."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Estimated bone density is 96.7% of pre-flight; NASA asks for 95%",
+    "because_outside": "In 3/8 g bones lose load every day without exercise",
     "goal": "Resistance session with squats and deadlifts",
     "id": "bone",
     "priority": 74,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 74,
+     "score": 94.0
+    },
     "sources": [
      "telemetry:k:bone:day222"
     ],
@@ -48200,36 +48405,99 @@
      "indicator": "bone"
     },
     "why": "Your estimated bone density is 96.7% of its pre-flight value; NASA asks for 95% or more."
-   },
-   {
-    "accepted": false,
-    "area": "mental",
-    "goal": null,
-    "id": "keep",
-    "priority": 10,
-    "sources": [],
-    "steps": [
-     "Keep your streak",
-     "Try one new test on the Tests page",
-     "Ask a crewmate how they are"
-    ],
-    "title": "Keep doing what works",
-    "verify": null,
-    "why": "Everything is close to your own normal this week."
    }
   ],
   "mode": "rules",
   "provider": "none"
  },
  "/api/suggestions/t [as t]": {
+  "context": {
+   "in_force": [
+    "rad",
+    "eva",
+    "dose",
+    "regravity",
+    "air",
+    "delay"
+   ],
+   "place": "Mars"
+  },
   "day": 222,
   "items": [
    {
     "accepted": false,
     "area": "physical",
+    "because_inside": "Your career dose is 409.5 mSv, 68.2% of NASA's 600 mSv",
+    "because_outside": "A solar particle storm is hitting and EVA is suspended for everyone",
+    "goal": "Write down your dosimeter reading today",
+    "id": "storm",
+    "priority": 97,
+    "protocol": "rad",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 97,
+     "score": 117.0
+    },
+    "sources": [],
+    "steps": [
+     "Go to the shelter and stay until the alert ends",
+     "Write down your dosimeter reading",
+     "Bring water, food and the medical kit in with you"
+    ],
+    "title": "Follow the radiation storm protocol",
+    "verify": null,
+    "why": "A particle storm is hitting: the shelter and your dosimeter come first."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Your pressure or pulse is off your normal",
+    "because_outside": "Day 13 in 3/8 g after months in 0 g",
+    "goal": "500 mL of salted water on waking",
+    "id": "readapt",
+    "priority": 84,
+    "protocol": "regravity",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 84,
+     "score": 104.0
+    },
+    "sources": [
+     "telemetry:t:bp:day222",
+     "telemetry:t:hr:day222"
+    ],
+    "steps": [
+     "Stand up in two steps: sit, wait, then stand",
+     "500 mL of salted water on waking",
+     "No solo suited walks this week"
+    ],
+    "title": "Stand up slowly while your body relearns weight",
+    "verify": null,
+    "why": "Lower pressure and a faster pulse than your normal when you stand are expected in the first weeks after 0 g."
+   },
+   {
+    "accepted": false,
+    "area": "physical",
+    "because_inside": "Estimated bone density is 96.5% of pre-flight; NASA asks for 95%",
+    "because_outside": "In 3/8 g bones lose load every day without exercise",
     "goal": "Resistance session with squats and deadlifts",
     "id": "bone",
     "priority": 74,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 74,
+     "score": 94.0
+    },
     "sources": [
      "telemetry:t:bone:day222"
     ],
@@ -48244,22 +48512,6 @@
      "indicator": "bone"
     },
     "why": "Your estimated bone density is 96.5% of its pre-flight value; NASA asks for 95% or more."
-   },
-   {
-    "accepted": false,
-    "area": "mental",
-    "goal": null,
-    "id": "keep",
-    "priority": 10,
-    "sources": [],
-    "steps": [
-     "Keep your streak",
-     "Try one new test on the Tests page",
-     "Ask a crewmate how they are"
-    ],
-    "title": "Keep doing what works",
-    "verify": null,
-    "why": "Everything is close to your own normal this week."
    }
   ],
   "mode": "rules",

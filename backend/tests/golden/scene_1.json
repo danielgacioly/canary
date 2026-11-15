@@ -46019,14 +46019,33 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "context": {
+   "in_force": [
+    "eva",
+    "dose",
+    "sickness"
+   ],
+   "place": "Launch"
+  },
   "day": 2,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the crew-time goal on 3 of the last 7 days",
+    "because_outside": "Isolation is moderate here: four people, no leave",
     "goal": "Share one meal with someone today",
     "id": "social",
     "priority": 80,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 80,
+     "score": 100.0
+    },
     "sources": [
      "telemetry:a:social:day2"
     ],
@@ -46044,10 +46063,51 @@
    },
    {
     "accepted": false,
+    "area": "physical",
+    "because_inside": "",
+    "because_outside": "The first hours in 0 g: space sickness is common",
+    "goal": "A sip of water every 15 minutes until dinner",
+    "id": "firstdays",
+    "priority": 88,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 88,
+     "score": 88.0
+    },
+    "sources": [
+     "telemetry:a:hr:day2",
+     "telemetry:a:water:day2"
+    ],
+    "steps": [
+     "Take a small sip of water every 15 minutes",
+     "Move your head slowly and fix your eyes on one point",
+     "Tell the medical officer if you vomit more than twice"
+    ],
+    "title": "Go easy on the first days in 0 g",
+    "verify": null,
+    "why": "Space sickness is common in the first hours and usually passes in 2 to 3 days."
+   },
+   {
+    "accepted": false,
     "area": "mental",
+    "because_inside": "Everything is close to your own normal this week",
+    "because_outside": "",
     "goal": null,
     "id": "keep",
     "priority": 10,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 10,
+     "score": 10.0
+    },
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46063,14 +46123,33 @@
   "provider": "none"
  },
  "/api/suggestions/h [as h]": {
+  "context": {
+   "in_force": [
+    "eva",
+    "dose",
+    "sickness"
+   ],
+   "place": "Launch"
+  },
   "day": 2,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You sleep 7.1 h against your normal 7.4 h",
+    "because_outside": "",
     "goal": "Lights out at the same time tonight",
     "id": "sleep",
     "priority": 90,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 90,
+     "score": 90.0
+    },
     "sources": [
      "telemetry:h:sleep:day2"
     ],
@@ -46088,10 +46167,51 @@
    },
    {
     "accepted": false,
+    "area": "physical",
+    "because_inside": "",
+    "because_outside": "The first hours in 0 g: space sickness is common",
+    "goal": "A sip of water every 15 minutes until dinner",
+    "id": "firstdays",
+    "priority": 88,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 88,
+     "score": 88.0
+    },
+    "sources": [
+     "telemetry:h:hr:day2",
+     "telemetry:h:water:day2"
+    ],
+    "steps": [
+     "Take a small sip of water every 15 minutes",
+     "Move your head slowly and fix your eyes on one point",
+     "Tell the medical officer if you vomit more than twice"
+    ],
+    "title": "Go easy on the first days in 0 g",
+    "verify": null,
+    "why": "Space sickness is common in the first hours and usually passes in 2 to 3 days."
+   },
+   {
+    "accepted": false,
     "area": "mental",
+    "because_inside": "Everything is close to your own normal this week",
+    "because_outside": "",
     "goal": null,
     "id": "keep",
     "priority": 10,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 10,
+     "score": 10.0
+    },
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46107,14 +46227,63 @@
   "provider": "none"
  },
  "/api/suggestions/k [as k]": {
+  "context": {
+   "in_force": [
+    "eva",
+    "dose",
+    "sickness"
+   ],
+   "place": "Launch"
+  },
   "day": 2,
   "items": [
    {
     "accepted": false,
+    "area": "physical",
+    "because_inside": "",
+    "because_outside": "The first hours in 0 g: space sickness is common",
+    "goal": "A sip of water every 15 minutes until dinner",
+    "id": "firstdays",
+    "priority": 88,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 88,
+     "score": 88.0
+    },
+    "sources": [
+     "telemetry:k:hr:day2",
+     "telemetry:k:water:day2"
+    ],
+    "steps": [
+     "Take a small sip of water every 15 minutes",
+     "Move your head slowly and fix your eyes on one point",
+     "Tell the medical officer if you vomit more than twice"
+    ],
+    "title": "Go easy on the first days in 0 g",
+    "verify": null,
+    "why": "Space sickness is common in the first hours and usually passes in 2 to 3 days."
+   },
+   {
+    "accepted": false,
     "area": "mental",
+    "because_inside": "Everything is close to your own normal this week",
+    "because_outside": "",
     "goal": null,
     "id": "keep",
     "priority": 10,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 10,
+     "score": 10.0
+    },
     "sources": [],
     "steps": [
      "Keep your streak",
@@ -46130,14 +46299,63 @@
   "provider": "none"
  },
  "/api/suggestions/t [as t]": {
+  "context": {
+   "in_force": [
+    "eva",
+    "dose",
+    "sickness"
+   ],
+   "place": "Launch"
+  },
   "day": 2,
   "items": [
    {
     "accepted": false,
+    "area": "physical",
+    "because_inside": "Your pulse is 75 against your normal 66 and you have barely had water",
+    "because_outside": "The first hours in 0 g: space sickness is common",
+    "goal": "A sip of water every 15 minutes until dinner",
+    "id": "firstdays",
+    "priority": 88,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 88,
+     "score": 108.0
+    },
+    "sources": [
+     "telemetry:t:hr:day2",
+     "telemetry:t:water:day2"
+    ],
+    "steps": [
+     "Take a small sip of water every 15 minutes",
+     "Move your head slowly and fix your eyes on one point",
+     "Tell the medical officer if you vomit more than twice"
+    ],
+    "title": "Go easy on the first days in 0 g",
+    "verify": null,
+    "why": "Space sickness is common in the first hours and usually passes in 2 to 3 days."
+   },
+   {
+    "accepted": false,
     "area": "mental",
+    "because_inside": "Stress is 2.4 of 5 against your normal 2.4",
+    "because_outside": "Isolation is moderate here: four people, no leave",
     "goal": "10 minutes of slow breathing after shift",
     "id": "breathe",
     "priority": 70,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 70,
+     "score": 90.0
+    },
     "sources": [
      "telemetry:t:stress:day2",
      "telemetry:t:mood:day2"
@@ -46157,9 +46375,20 @@
    {
     "accepted": false,
     "area": "physical",
+    "because_inside": "You drink 1.5 L a day against your normal 2.3 L",
+    "because_outside": "Thirst fades in 0 g",
     "goal": "Drink 2.5 L today",
     "id": "water",
     "priority": 65,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 65,
+     "score": 85.0
+    },
     "sources": [
      "telemetry:t:water:day2"
     ],
@@ -46178,9 +46407,20 @@
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You made time for something you enjoy on 4 of the last 7 days",
+    "because_outside": "",
     "goal": "Learn ten words of Yoruba a day with Amara",
     "id": "hobby",
     "priority": 50,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 50,
+     "score": 50.0
+    },
     "sources": [],
     "steps": [
      "Learn ten words of Yoruba a day with Amara",

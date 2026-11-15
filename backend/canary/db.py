@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS care_events (
 CREATE TABLE IF NOT EXISTS notices (
   crew_id TEXT NOT NULL, alert_id TEXT NOT NULL, since_day INTEGER NOT NULL, day INTEGER NOT NULL, level INTEGER NOT NULL,
   title TEXT NOT NULL, to_id TEXT NOT NULL, created_at REAL NOT NULL, PRIMARY KEY (crew_id, alert_id, since_day));
+CREATE TABLE IF NOT EXISTS suggestion_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, sid TEXT NOT NULL, action TEXT NOT NULL,
+  day INTEGER NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, question TEXT NOT NULL,
   response TEXT NOT NULL, created_at REAL NOT NULL);
@@ -140,7 +143,7 @@ def set_setting(key: str, value: Any) -> None:
 def reset() -> None:
     with _lock:
         c = connect()
-        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "advice", "care_events", "notices", "observations", "space_events", "scenes"):
+        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_log", "suggestion_feedback", "advice", "care_events", "notices", "observations", "space_events", "scenes"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
         _forget()

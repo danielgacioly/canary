@@ -43728,14 +43728,29 @@
   "window": "2024-05-05 to 2024-05-16"
  },
  "/api/suggestions/a [as a]": {
+  "context": {
+   "in_force": [],
+   "place": "Earth"
+  },
   "day": -30,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the crew-time goal on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Share one meal with someone today",
     "id": "social",
     "priority": 80,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 80,
+     "score": 80.0
+    },
     "sources": [
      "telemetry:a:social:day-30"
     ],
@@ -43753,29 +43768,21 @@
    },
    {
     "accepted": false,
-    "area": "mental",
-    "goal": "Read 20 minutes before lights out",
-    "id": "read",
-    "priority": 60,
-    "sources": [],
-    "steps": [
-     "20 minutes before lights out",
-     "Keep the book where you sleep",
-     "Log it on the Tests page"
-    ],
-    "title": "Read more, for yourself",
-    "verify": {
-     "after_days": 7,
-     "indicator": "mood"
-    },
-    "why": "You met the reading goal on 1 of the last 7 days."
-   },
-   {
-    "accepted": false,
     "area": "physical",
+    "because_inside": "You average 111 min of exercise a day",
+    "because_outside": "Launch and first 72 hours starts in 30 days and gravity changes",
     "goal": "Leg and balance work today",
     "id": "prepare",
     "priority": 55,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 55,
+     "score": 75.0
+    },
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -43792,9 +43799,50 @@
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the reading goal on 1 of the last 7 days",
+    "because_outside": "",
+    "goal": "Read 20 minutes before lights out",
+    "id": "read",
+    "priority": 60,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 60,
+     "score": 60.0
+    },
+    "sources": [],
+    "steps": [
+     "20 minutes before lights out",
+     "Keep the book where you sleep",
+     "Log it on the Tests page"
+    ],
+    "title": "Read more, for yourself",
+    "verify": {
+     "after_days": 7,
+     "indicator": "mood"
+    },
+    "why": "You met the reading goal on 1 of the last 7 days."
+   },
+   {
+    "accepted": false,
+    "area": "mental",
+    "because_inside": "You made time for something you enjoy on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Pick up an instrument for 15 minutes a day",
     "id": "hobby",
     "priority": 50,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 50,
+     "score": 50.0
+    },
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -43813,14 +43861,29 @@
   "provider": "none"
  },
  "/api/suggestions/h [as h]": {
+  "context": {
+   "in_force": [],
+   "place": "Earth"
+  },
   "day": -30,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the crew-time goal on 1 of the last 7 days",
+    "because_outside": "",
     "goal": "Share one meal with someone today",
     "id": "social",
     "priority": 80,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 80,
+     "score": 80.0
+    },
     "sources": [
      "telemetry:h:social:day-30"
     ],
@@ -43838,29 +43901,21 @@
    },
    {
     "accepted": false,
-    "area": "mental",
-    "goal": "Read 20 minutes before lights out",
-    "id": "read",
-    "priority": 60,
-    "sources": [],
-    "steps": [
-     "20 minutes before lights out",
-     "Keep the book where you sleep",
-     "Log it on the Tests page"
-    ],
-    "title": "Read more, for yourself",
-    "verify": {
-     "after_days": 7,
-     "indicator": "mood"
-    },
-    "why": "You met the reading goal on 0 of the last 7 days."
-   },
-   {
-    "accepted": false,
     "area": "physical",
+    "because_inside": "You average 96 min of exercise a day",
+    "because_outside": "Launch and first 72 hours starts in 30 days and gravity changes",
     "goal": "Leg and balance work today",
     "id": "prepare",
     "priority": 55,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 55,
+     "score": 75.0
+    },
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -43877,9 +43932,50 @@
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the reading goal on 0 of the last 7 days",
+    "because_outside": "",
+    "goal": "Read 20 minutes before lights out",
+    "id": "read",
+    "priority": 60,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 60,
+     "score": 60.0
+    },
+    "sources": [],
+    "steps": [
+     "20 minutes before lights out",
+     "Keep the book where you sleep",
+     "Log it on the Tests page"
+    ],
+    "title": "Read more, for yourself",
+    "verify": {
+     "after_days": 7,
+     "indicator": "mood"
+    },
+    "why": "You met the reading goal on 0 of the last 7 days."
+   },
+   {
+    "accepted": false,
+    "area": "mental",
+    "because_inside": "You made time for something you enjoy on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Pick up an instrument for 15 minutes a day",
     "id": "hobby",
     "priority": 50,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 50,
+     "score": 50.0
+    },
     "sources": [],
     "steps": [
      "Pick up an instrument for 15 minutes a day",
@@ -43898,14 +43994,29 @@
   "provider": "none"
  },
  "/api/suggestions/k [as k]": {
+  "context": {
+   "in_force": [],
+   "place": "Earth"
+  },
   "day": -30,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the crew-time goal on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Share one meal with someone today",
     "id": "social",
     "priority": 80,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 80,
+     "score": 80.0
+    },
     "sources": [
      "telemetry:k:social:day-30"
     ],
@@ -43923,29 +44034,21 @@
    },
    {
     "accepted": false,
-    "area": "mental",
-    "goal": "Read 20 minutes before lights out",
-    "id": "read",
-    "priority": 60,
-    "sources": [],
-    "steps": [
-     "20 minutes before lights out",
-     "Keep the book where you sleep",
-     "Log it on the Tests page"
-    ],
-    "title": "Read more, for yourself",
-    "verify": {
-     "after_days": 7,
-     "indicator": "mood"
-    },
-    "why": "You met the reading goal on 1 of the last 7 days."
-   },
-   {
-    "accepted": false,
     "area": "physical",
+    "because_inside": "You average 91 min of exercise a day",
+    "because_outside": "Launch and first 72 hours starts in 30 days and gravity changes",
     "goal": "Leg and balance work today",
     "id": "prepare",
     "priority": 55,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 55,
+     "score": 75.0
+    },
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -43962,9 +44065,50 @@
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the reading goal on 1 of the last 7 days",
+    "because_outside": "",
+    "goal": "Read 20 minutes before lights out",
+    "id": "read",
+    "priority": 60,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 60,
+     "score": 60.0
+    },
+    "sources": [],
+    "steps": [
+     "20 minutes before lights out",
+     "Keep the book where you sleep",
+     "Log it on the Tests page"
+    ],
+    "title": "Read more, for yourself",
+    "verify": {
+     "after_days": 7,
+     "indicator": "mood"
+    },
+    "why": "You met the reading goal on 1 of the last 7 days."
+   },
+   {
+    "accepted": false,
+    "area": "mental",
+    "because_inside": "You made time for something you enjoy on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Walk outside without a phone, 20 minutes",
     "id": "hobby",
     "priority": 50,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 50,
+     "score": 50.0
+    },
     "sources": [],
     "steps": [
      "Walk outside without a phone, 20 minutes",
@@ -43983,14 +44127,29 @@
   "provider": "none"
  },
  "/api/suggestions/t [as t]": {
+  "context": {
+   "in_force": [],
+   "place": "Earth"
+  },
   "day": -30,
   "items": [
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the crew-time goal on 1 of the last 7 days",
+    "because_outside": "",
     "goal": "Share one meal with someone today",
     "id": "social",
     "priority": 80,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 80,
+     "score": 80.0
+    },
     "sources": [
      "telemetry:t:social:day-30"
     ],
@@ -44008,29 +44167,21 @@
    },
    {
     "accepted": false,
-    "area": "mental",
-    "goal": "Read 20 minutes before lights out",
-    "id": "read",
-    "priority": 60,
-    "sources": [],
-    "steps": [
-     "20 minutes before lights out",
-     "Keep the book where you sleep",
-     "Log it on the Tests page"
-    ],
-    "title": "Read more, for yourself",
-    "verify": {
-     "after_days": 7,
-     "indicator": "mood"
-    },
-    "why": "You met the reading goal on 1 of the last 7 days."
-   },
-   {
-    "accepted": false,
     "area": "physical",
+    "because_inside": "You average 85 min of exercise a day",
+    "because_outside": "Launch and first 72 hours starts in 30 days and gravity changes",
     "goal": "Leg and balance work today",
     "id": "prepare",
     "priority": 55,
+    "protocol": "sickness",
+    "rank": {
+     "accepted": 0,
+     "both": 20,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 55,
+     "score": 75.0
+    },
     "sources": [],
     "steps": [
      "Practise moving slowly with head still",
@@ -44047,9 +44198,50 @@
    {
     "accepted": false,
     "area": "mental",
+    "because_inside": "You met the reading goal on 1 of the last 7 days",
+    "because_outside": "",
+    "goal": "Read 20 minutes before lights out",
+    "id": "read",
+    "priority": 60,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 60,
+     "score": 60.0
+    },
+    "sources": [],
+    "steps": [
+     "20 minutes before lights out",
+     "Keep the book where you sleep",
+     "Log it on the Tests page"
+    ],
+    "title": "Read more, for yourself",
+    "verify": {
+     "after_days": 7,
+     "indicator": "mood"
+    },
+    "why": "You met the reading goal on 1 of the last 7 days."
+   },
+   {
+    "accepted": false,
+    "area": "mental",
+    "because_inside": "You made time for something you enjoy on 0 of the last 7 days",
+    "because_outside": "",
     "goal": "Cook a dish from a crewmate's home city",
     "id": "hobby",
     "priority": 50,
+    "protocol": null,
+    "rank": {
+     "accepted": 0,
+     "both": 0,
+     "dismissed": 0,
+     "learned": 0.0,
+     "priority": 50,
+     "score": 50.0
+    },
     "sources": [],
     "steps": [
      "Cook a dish from a crewmate's home city",

@@ -2,7 +2,8 @@
 // Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
 // and Settings (photo, PIN, lock).
 import { useRef, useState, type CSSProperties } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { protocolPath } from './Protocols'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
 import type { Pt } from '../lib/scale'
@@ -97,37 +98,50 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
   )
 }
 
-/* ---------------------------------------------------------------- suggestions: the AI slot, fed by your own data */
+/* ---------------------------------------------------------------- suggestions: the outside and the inside, side by side */
+const TOP = 3
 function SuggestionsTab({ me }: { me: string }) {
   const { bump, toast } = useSession()
   const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
   const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
   const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
+  const skip = (sid: string) => act.run(async () => { setData(await api.dismissSuggestion(me, sid)); toast('Hidden for today. Canary learns from your choices.') })
+  const card = (s: Suggestions['items'][number], i: number) => (
+    <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
+      <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
+      <p className="because">
+        {s.because_outside && <span>{s.because_outside}</span>}
+        {s.because_inside && <span className={s.because_outside ? 'muted' : ''}>{s.because_inside}</span>}
+        {!s.because_outside && !s.because_inside && <span className="muted">{s.why}</span>}
+        {s.protocol && <Link className="link" to={protocolPath(s.protocol)}>Protocol</Link>}
+      </p>
+      <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
+      <div className="suggest-goal">
+        {s.goal && <><span className="small muted">Goal for the next 7 days</span><b>{s.goal}</b></>}
+        <div className="row wrap">
+          {s.goal && (s.accepted
+            ? <span className="status s0"><span className="dot" />In your goals</span>
+            : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>)}
+          {!s.accepted && <button className="btn sm ghost" onClick={() => skip(s.id)}>Not now</button>}
+          {Math.abs(s.rank.learned) >= 1 && <span className="small dim">{s.rank.learned > 0 ? 'Higher' : 'Lower'}, from your past choices</span>}
+        </div>
+      </div>
+    </article>
+  )
   return (
     <div className="suggest">
-      <div className="slot-line rise">
-        <span className="tag">{data.mode === 'ai' ? `AI · ${data.provider}` : 'AI slot · no model connected'}</span>
-        <span className="small muted">Built from your numbers against your own normal, your goals this week, your tests and the next leg of the plan. {data.mode === 'ai' ? 'A model rephrased them; every number was checked.' : 'Until a model is connected, rules write them from the same data.'} Only you see them.</span>
-      </div>
-      <div className="suggest-list">
-        {data.items.map((s, i) => (
-          <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
-            <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
-            <p className="muted">{s.why}</p>
-            <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
-            {s.goal && (
-              <div className="suggest-goal">
-                <span className="small muted">Goal for the next 7 days</span>
-                <b>{s.goal}</b>
-                {s.accepted
-                  ? <span className="status s0"><span className="dot" />In your goals</span>
-                  : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
+      <p className="small muted rise">
+        {data.mode === 'ai' ? `AI · ${data.provider}. ` : ''}Ranked by what is around you at {data.context.place} and by your own numbers; the ones that speak to both come first.
+        {' '}What you add or skip moves similar ones up or down. Only you see them.
+      </p>
+      <div className="suggest-list">{data.items.slice(0, TOP).map(card)}</div>
+      {data.items.length > TOP && (
+        <details className="suggest-more">
+          <summary>{data.items.length - TOP} more</summary>
+          <div className="suggest-list">{data.items.slice(TOP).map((s, i) => card(s, i))}</div>
+        </details>
+      )}
     </div>
   )
 }

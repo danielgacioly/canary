@@ -241,8 +241,11 @@ export interface TestResult { id: number; kind: string; day: number; at: number;
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
 export interface CheckinResult { ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
-export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
-export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }
+export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean
+  /** One short line each, either may be empty: what in the environment fits this today, and what in the person's own state. */
+  because_outside: string; because_inside: string; protocol: string | null
+  rank: { priority: number; both: number; learned: number; score: number; accepted: number; dismissed: number } }
+export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[]; context: { place: string; in_force: string[] } }
 export interface PersonalRecord {
   name: string; role: string; home: string; dob: string; age: number; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; bmi: number

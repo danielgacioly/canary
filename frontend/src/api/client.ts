@@ -121,6 +121,7 @@ export const api = {
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),
   record: (crew_id: string) => req<PersonalRecord>(`/crew/${crew_id}/record`),
   suggestions: (crew_id: string) => req<Suggestions>(`/suggestions/${crew_id}`),
+  dismissSuggestion: (crew_id: string, sid: string) => req<Suggestions>(`/suggestions/${crew_id}/${sid}/dismiss`, { method: 'POST' }),
   acceptSuggestion: (crew_id: string, sid: string) => req<Suggestions>(`/suggestions/${crew_id}/${sid}/accept`, { method: 'POST' }),
 
   protocols: () => req<Protocols>('/protocols'),

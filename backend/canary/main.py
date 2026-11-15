@@ -811,6 +811,18 @@ def suggestion_accept(crew_id: str, sid: str, v: dict = Depends(viewer)):
         raise HTTPException(404, str(e))
 
 
+@app.post("/api/suggestions/{crew_id}/{sid}/dismiss", tags=["assistant"])
+def suggestion_dismiss(crew_id: str, sid: str, v: dict = Depends(viewer)):
+    """Hide a suggestion for today and remember the choice: the ranking learns from it (assistant/suggestions.py)."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "suggestions are for the astronaut only")
+    try:
+        return suggestions.dismiss(crew_id, sid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.post("/api/briefings", tags=["assistant"])
 def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
