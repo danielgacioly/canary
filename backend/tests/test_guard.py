@@ -55,6 +55,17 @@ def obs(statement, *ids):
 covered = set()
 
 
+@pytest.fixture(autouse=True, scope="module")
+def demo_crew():
+    """The other-person rule compares names with the crew that is registered, and nothing is registered until a mission
+    is loaded: this module loads the demo crew (the package reset) so the names below are the ones the rule sees."""
+    from fastapi.testclient import TestClient
+
+    from canary.main import app
+    TestClient(app).post("/api/demo/reset")
+    yield
+
+
 def covers(*ids):
     covered.update(ids)
 
@@ -482,6 +493,31 @@ def test_wellbeing_claim_phrased_as_a_diagnosis_is_dropped():
 def test_wellbeing_diagnosis_in_the_answer_is_a_hard_fail(answer):
     res = run(good(answer=answer))
     assert res.hard_fail and "G-WELL-01" in res.report["rule_ids"]
+
+
+# ---------------------------------------------------------------- 10. the crew is whoever is registered
+
+@pytest.fixture
+def registered_crew():
+    """Mission Control registers two people with names the demo never used; the catalog is refreshed in place by
+    registry.load(), so the other-person rule must see them. The demo crew is restored afterwards."""
+    from fastapi.testclient import TestClient
+
+    from canary.domain import registry
+    from canary.main import app
+    crew = [{"name": "Ines Almeida", "role": "Commander", "seat": "i1", "pin": "2468"},
+            {"name": "Jonas Berg", "role": "Pilot", "seat": "j2", "pin": "1357"}]
+    registry.register(crew, {"callsign": "Test", "name": "Registry test", "launch_date": "2036-03-01", "preset": "mars"})
+    yield
+    TestClient(app).post("/api/demo/reset")
+
+
+def test_other_person_rule_follows_the_registry(registered_crew):
+    covers("G-PRIV-01")
+    assert [cid for cid, _ in guard._other_people("i1")] == ["j2"]
+    res = run(good(answer="Jonas Berg's pulse is 80 bpm."),
+              ctx=ToolContext(crew_id="i1", viewer="i1", medical=False))
+    assert res.hard_fail and "G-PRIV-01" in res.report["rule_ids"]
 
 
 # ---------------------------------------------------------------- every rule has a failing input

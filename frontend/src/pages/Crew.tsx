@@ -1,11 +1,13 @@
 // Crew home: what everyone on board may see. The crew, today's hazards, crew missions.
-// No status, no scores, no averages (with four people an average gives individuals away), no vitals.
-import { useNavigate } from 'react-router-dom'
+// No status, no scores, no averages (with few people an average gives individuals away), no vitals.
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { TeamRow } from '../components/GoalItems'
 import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
-import { Icon, Loading } from '../components/ui'
+import { Loading } from '../components/ui'
+import { protocolPath } from './Protocols'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
 export default function Crew() {
@@ -16,11 +18,7 @@ export default function Crew() {
   if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
-  const storm = data.warnings[0]
-  const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
-  const eva = storm ? { l: 2, t: 'EVA suspended for everyone' }
-    : data.eva_open ? { l: 0, t: 'EVA open, the medical team clears each person' }
-      : { l: 1, t: 'No EVA at this place' }
+  if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
   const ms = data.mission
   const count = ['No one', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][n] ?? String(n)
   const last = plan ? plan.legs[plan.legs.length - 1].end : null
@@ -33,7 +31,7 @@ export default function Crew() {
       <div className="head rise">
         <div>
           <h1>{headline}</h1>
-          <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; tap yourself to open your space with your PIN.</p>
+          <p className="sub">{ms.day_label} · {clockLine(ms.clock)} · {ms.place.name}</p>
         </div>
       </div>
 
@@ -49,7 +47,6 @@ export default function Crew() {
                 <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
                 <span className="small dim num">{p.today.done}/{p.today.total} today</span>
               </span>
-              {p.id === me && <span className="tag">You</span>}
             </button>
           ))}
         </div>
@@ -63,15 +60,11 @@ export default function Crew() {
         {data.warnings.map(w => (
           <div key={w.id} className={`warning s${w.level}`}>
             <span className="dot" />
-            <div className="grow"><b>{w.title}</b><p className="small muted">{w.todo.join(' · ')}</p></div>
+            <div className="grow row"><b>{w.title}</b><Link className="link right" to={protocolPath(w.protocol ?? 'rad')}>Protocol</Link></div>
           </div>
         ))}
         <Hazards items={data.ridge} />
-        <p className="facts-line small">
-          <span><span className={`dot s${eva.l}`} />{eva.t}</span>
-          <span>Mission dose {data.dose.mission_msv} mSv, {data.dose.pct_of_limit}% of the career limit</span>
-          <span className="dim">Simulated, the same for everyone. Each person's career dose is in My space.</span>
-        </p>
+        <p className="small muted" style={{ marginTop: 14 }}>EVA, dose and what is in force today are on the <Link className="link" to="/protocols">Protocols</Link> page.</p>
       </section>
 
       <section className="rise" style={{ ['--d' as string]: 3 }}>
@@ -80,18 +73,8 @@ export default function Crew() {
           <span className="sub">{data.team_done} of {data.team_total} done this week · crew streak {data.crew_streak} {data.crew_streak === 1 ? 'day' : 'days'}</span>
           <button className="link right" onClick={() => nav('/ranking')}>Ranking</button>
         </div>
-        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
+        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} />)}</div>
       </section>
-
-      <details className="contract-box">
-        <summary><Icon name="shield" size={16} />Who sees what<span className="small muted">Agreed by the crew on day 0</span></summary>
-        <div className="scroll"><table className="t contract">
-          <thead><tr><th>Information</th><th>The astronaut</th><th>Medical team</th><th>The crew</th><th>Earth</th></tr></thead>
-          <tbody>{data.contract.map(r => (
-            <tr key={r.info}><td><b>{r.info}</b></td>{[r.self, r.doctor, r.crew, r.earth].map((v, i) => <td key={i} className={v === 'No' ? 'dim' : ''}>{v}</td>)}</tr>
-          ))}</tbody>
-        </table></div>
-      </details>
     </div>
   )
 }

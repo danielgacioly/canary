@@ -29,7 +29,7 @@ def facts(crew_id: str) -> dict:
     ms = mission.state()
     snap = health.snapshot(crew_id, ms)
     prof = goals.profile(crew_id, ms["day"])
-    movers = sorted(snap["indicators"].values(), key=lambda i: -i["bad"])[:4]
+    movers = sorted((i for i in snap["indicators"].values() if i["bad"] is not None and i["value"] is not None), key=lambda i: -i["bad"])[:4]  # no data, no mover
     tried = []
     for r in db.q("SELECT goal_id,day FROM goal_log WHERE crew_id=? AND done=1 AND day>? ORDER BY day", (crew_id, ms["day"] - 7)):
         if r["goal_id"].startswith(("al_", "med_")):
@@ -54,8 +54,12 @@ def template(f: dict) -> str:
     lines.append("1 WHAT WORRIES")
     lines += [f"- [{['ok', 'WATCH', 'ACT'][a['level']]}] {a['title']}" for a in f["alerts"][:3]] or ["- Nothing outside personal normal."]
     lines.append("2 WHAT CHANGED (vs own baseline)")
-    lines += [f"- {m['name']}: {m['value']} {m['unit']} (normal {m['baseline']}, z {m['z']})" for m in f["movers"]]
-    lines.append(f"- Readiness: physical {f['physical']['score']}, mental {f['mental']['score']}. Mission dose {f['dose_msv']} mSv (simulated).")
+    # a mover still learning its normal says so: no "normal None" and no z score that was never computed
+    lines += [f"- {m['name']}: {m['value']} {m['unit']} "
+              + (f"(normal {m['baseline']}, z {m['z']})" if m["baseline"] is not None and m["z"] is not None else "(still learning your normal)")
+              for m in f["movers"]]
+    sc = lambda area: "no data yet" if f[area]["score"] is None else f[area]["score"]  # noqa: E731
+    lines.append(f"- Readiness: physical {sc('physical')}, mental {sc('mental')}. Mission dose {f['dose_msv']} mSv (simulated).")
     lines.append("3 WHAT WAS TRIED")
     lines += [f"- {t}" for t in f["tried"][:6]]
     lines.append(f"- Goals done last 7 days: {f['completion_7d']}%, streak {f['streak']} days.")

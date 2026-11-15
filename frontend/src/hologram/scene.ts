@@ -1,17 +1,19 @@
 // The hologram scene: body shell + inner anatomy + platform + particles, with bloom.
 // Systems can be hovered, selected, tinted by status and seen through two lenses (physical, mental).
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { buildAnatomy, type Joints, type Part, type SystemId } from './anatomy'
-import { bodyMaterial, STATUS_COLOR } from './materials'
+import { buildAnatomy, muscleLayer, type Joints, type Part, type SystemId } from './anatomy'
+import { bodyMaterial, NO_DATA_COLOR, STATUS_COLOR } from './materials'
 
 export type Lens = 'physical' | 'mental'
-export type StatusMap = Partial<Record<SystemId, 0 | 1 | 2>>
+/** 0 to 2 are the status levels; -1 is a system with no data yet (painted neutral grey). */
+export type StatusMap = Partial<Record<SystemId, -1 | 0 | 1 | 2>>
 const REGIONS = ['head', 'torso', 'arm', 'hand', 'leg', 'foot']
 const REGION_SYSTEM: Record<string, SystemId> = { head: 'brain', torso: 'skin', arm: 'muscles', hand: 'muscles', leg: 'muscles', foot: 'muscles' }
 const MENTAL: SystemId[] = ['brain']
@@ -23,16 +25,18 @@ export interface HoloOptions {
   onSelect?: (sys: SystemId | null) => void
 }
 
-let assets: Promise<{ geometry: THREE.BufferGeometry; joints: Joints }> | null = null
+let assets: Promise<{ geometry: THREE.BufferGeometry; joints: Joints; anatomy: GLTF | null }> | null = null
 function loadAssets() {
   assets ??= Promise.all([
     new GLTFLoader().loadAsync('/models/body.glb'),
     fetch('/models/joints.json').then(r => r.json()),
-  ]).then(([gltf, j]) => {
+    // the real bones and organs; if this fails for any reason the procedural ones are built instead
+    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/models/anatomy.glb').catch(() => null),
+  ]).then(([gltf, j, anatomy]) => {
     let geometry: THREE.BufferGeometry | null = null
     gltf.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) geometry = (o as THREE.Mesh).geometry })
     if (!geometry) throw new Error('body mesh missing')
-    return { geometry, joints: j.joints as Joints }
+    return { geometry, joints: j.joints as Joints, anatomy }
   })
   return assets
 }
@@ -80,9 +84,13 @@ export class HologramScene {
     this.controls.target.copy(this.homeTarget)
     this.controls.addEventListener('start', () => { this.controls.autoRotate = false; this.zoomUntil = Infinity })
 
-    this.composer = new EffectComposer(this.renderer)
+    // The composer renders into its own target, so the renderer's antialias does nothing: the target itself must be
+    // multisampled, or the thin bones and vessels shimmer and look soft.
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 })
+    this.composer = new EffectComposer(this.renderer, target)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.2, 0.14)
+    // A light bloom that only catches the brightest edges; a low threshold fogs the dense real meshes.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.1, 0.38)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
 
@@ -103,14 +111,19 @@ export class HologramScene {
   }
 
   async load() {
-    const { geometry, joints } = await loadAssets()
+    const { geometry, joints, anatomy } = await loadAssets()
     if (this.disposed) return
     const mat = bodyMaterial()
     this.body = new THREE.Mesh(geometry, mat)
     this.body.userData = { kind: 'body' }
     this.scene.add(this.body)
     this.animated.push(mat)
-    const { group, parts, centers } = buildAnatomy(joints)
+    let built
+    try { built = buildAnatomy(joints, anatomy) } catch { built = buildAnatomy(joints) }
+    const { group, parts, centers } = built
+    const muscles = muscleLayer(geometry, joints)
+    group.add(muscles.mesh)
+    parts.push(muscles)
     this.scene.add(group)
     this.parts = parts
     this.centers = centers
@@ -149,7 +162,9 @@ export class HologramScene {
     this.selected = sys
     this.zoomUntil = 0
     const c = sys ? this.centers[sys] : null
-    this.focus = c ? { target: c.clone(), dist: sys === 'muscles' || sys === 'skeleton' || sys === 'skin' ? 3.2 : 1.9 } : { target: this.homeTarget.clone(), dist: 4.4 }
+    // Radiation exposure is the whole body: the camera steps back to show all of it
+    this.focus = sys === 'skin' ? { target: this.homeTarget.clone(), dist: 4.8 }
+      : c ? { target: c.clone(), dist: sys === 'muscles' || sys === 'skeleton' ? 3.2 : sys === 'eyes' ? 1.0 : 1.9 } : { target: this.homeTarget.clone(), dist: 4.4 }
     this.applyStatus()
   }
 
@@ -159,14 +174,15 @@ export class HologramScene {
     REGIONS.forEach((r, i) => {
       const sys = REGION_SYSTEM[r]
       const lvl = this.status[sys] ?? 0
-      const c = STATUS_COLOR[lvl]
-      ;(u.uTint.value[i] as THREE.Vector4).set(c.r, c.g, c.b, lvl ? 0.55 : 0)
-      u.uBoost.value[i] = sys === this.hovered ? 0.6 : sys === this.selected ? 0.9 : 0
+      const c = lvl < 0 ? NO_DATA_COLOR : STATUS_COLOR[lvl]
+      ;(u.uTint.value[i] as THREE.Vector4).set(c.r, c.g, c.b, lvl ? (lvl < 0 ? 0.45 : 0.55) : 0)
+      // muscles and radiation draw their own layer when selected; lighting the shell too would only blur it
+      u.uBoost.value[i] = sys === this.selected && (sys === 'muscles' || sys === 'skin') ? 0 : sys === this.hovered ? 0.6 : sys === this.selected ? 0.9 : 0
     })
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
       const lvl = this.status[p.system] ?? 0
-      m.uniforms.uColor.value.copy(lvl ? STATUS_COLOR[lvl] : m.uniforms.uBase.value)
+      m.uniforms.uColor.value.copy(lvl < 0 ? NO_DATA_COLOR : lvl ? STATUS_COLOR[lvl] : m.uniforms.uBase.value)
       m.uniforms.uPulse.value = lvl === 2 ? 1 : lvl === 1 ? 0.4 : 0
       m.uniforms.uBoost.value = p.system === this.hovered ? 0.7 : p.system === this.selected ? 1 : 0
     }
@@ -174,7 +190,7 @@ export class HologramScene {
 
   private pick(): SystemId | null {
     this.ray.setFromCamera(this.pointer, this.camera)
-    const targets = [...this.parts.filter(p => p.kind !== 'nerve' || this.lens > 0.5).map(p => p.mesh), ...(this.body ? [this.body] : [])]
+    const targets = [...this.parts.filter(p => (p.kind !== 'nerve' || this.lens > 0.5) && (p.kind !== 'muscle' || this.selected === 'muscles')).map(p => p.mesh), ...(this.body ? [this.body] : [])]
     const hits = this.ray.intersectObjects(targets, false)
     if (!hits.length) return null
     const organ = hits.find(h => h.object.userData.kind === 'organ')
@@ -228,13 +244,28 @@ export class HologramScene {
       if (m.uniforms.uTime) m.uniforms.uTime.value = t
       if (m.uniforms.uReveal) m.uniforms.uReveal.value = this.reveal
     }
-    if (this.body) this.body.material.uniforms.uLens.value = this.lens
+    // Focus: with a system selected everything else fades out, so the selected one reads on its own.
+    const ease = Math.min(1, dt * 5), sel = this.selected
+    if (this.body) {
+      const u = this.body.material.uniforms
+      u.uLens.value = this.lens
+      u.uDim.value += ((sel && sel !== 'skin' ? (sel === 'muscles' ? 0.12 : 0.22) : 1) - u.uDim.value) * ease
+      u.uRad.value += ((sel === 'skin' ? 1 : 0) - u.uRad.value) * ease
+    }
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
       const mental = p.kind === 'nerve' || p.system === 'brain'
       const base = p.kind === 'nerve' ? 0.25 + 1.0 * this.lens : mental ? 0.9 + 0.4 * this.lens : 0.9 - 0.68 * this.lens
-      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1)
-      if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.setScalar(1).multiply(new THREE.Vector3(0.042, 0.05, 0.04)).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
+      // `glow` keeps dense meshes from summing to white when everything is on; a selected system is alone, so it
+      // gets close to full brightness.
+      const g = p.mesh.userData.glow ?? 1
+      const want = p.kind === 'muscle' ? (sel === 'muscles' ? 1 : 0)
+        // overview: organs bright in their own colour, the white skeleton held back so it does not veil them
+        : !sel ? (p.kind === 'bone' ? 0.5 * g ** 0.6 : g ** 0.45) : p.system === sel ? g ** 0.4 : 0.06 * g ** 0.6
+      const k = p.mesh.userData.k = (p.mesh.userData.k ?? want) + (want - (p.mesh.userData.k ?? want)) * ease
+      if (p.kind === 'muscle') p.mesh.visible = k > 0.01
+      m.uniforms.uOpacity.value = base * (p.kind === 'bone' ? 0.8 : 1) * k
+      if (p.system === 'heart' && p.kind === 'organ') p.mesh.scale.copy(p.mesh.userData.base).multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(t * 7.2)) ** 6)
     }
     if (this.particles) {
       const p = this.particles.geometry.getAttribute('position') as THREE.BufferAttribute

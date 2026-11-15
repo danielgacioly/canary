@@ -1,7 +1,7 @@
 // Dashboard charts: the axis follows the data, the legend sits above the plot (not on the line), and the
 // drawing is made at the real pixel width so the labels keep one size on a phone and on a desktop.
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { domain, movingAvg, niceTicks, tickDp } from '../lib/scale'
+import { domain, gapPath, known, movingAvg, niceTicks, tickDp, type Pt } from '../lib/scale'
 
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null)
@@ -49,13 +49,15 @@ export function Plot({ x, y, xTicks, h = 150, label, children }:
   )
 }
 
-/** One indicator over the last days: its line, the person's normal (dashed) and, in flight, the NASA limit. */
+/** One indicator over the last days: its line, the person's normal (dashed) and, in flight, the NASA limit.
+ *  Days with no measurement (null) are gaps: the line stops and starts again, it never crosses them. */
 export default function Trend({ pts, color, baseline, limit, minSpan = 0, avg, label }:
-  { pts: [number, number][]; color: string; baseline?: number; limit?: number; minSpan?: number; avg?: number; label: string }) {
-  if (pts.length < 2) return <p className="small dim">Not enough days yet.</p>
-  const dom = domain(pts.map(p => p[1]).concat(baseline ?? [], limit ?? []), minSpan)
+  { pts: Pt[]; color: string; baseline?: number; limit?: number; minSpan?: number; avg?: number; label: string }) {
+  const have = known(pts)
+  if (pts.length < 2 || have.length === 0) return <p className="small dim">{have.length === 0 && pts.length ? 'No data yet.' : 'Not enough days yet.'}</p>
+  const dom = domain(have.map(p => p[1]).concat(baseline ?? [], limit ?? []), minSpan)
   const x0 = pts[0][0], x1 = pts[pts.length - 1][0]
-  const line = (a: [number, number][], X: Scale, Y: Scale) => a.map((p, j) => `${j ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('')
+  const last = have[have.length - 1]
   const xTicks: Tick[] = [x0, Math.round((x0 + x1) / 2), x1].map(d => ({ x: d, label: `day ${d}` }))
   return (
     <Plot x={[x0, x1]} y={dom} xTicks={xTicks} label={label}>
@@ -65,13 +67,14 @@ export default function Trend({ pts, color, baseline, limit, minSpan = 0, avg, l
           {limit !== undefined && <line x1={X(x0)} x2={X(x1)} y1={Y(limit)} y2={Y(limit)} stroke="var(--act)" strokeWidth="1.4" />}
           {avg ? (
             <>
-              {pts.map(p => <circle key={p[0]} cx={X(p[0])} cy={Y(p[1])} r="2.2" fill={color} opacity=".35" />)}
-              <path d={line(movingAvg(pts, avg), X, Y)} fill="none" stroke={color} strokeWidth="2" />
+              {have.map(p => <circle key={p[0]} cx={X(p[0])} cy={Y(p[1])} r="2.2" fill={color} opacity=".35" />)}
+              <path d={gapPath(movingAvg(pts, avg), X, Y)} fill="none" stroke={color} strokeWidth="2" />
             </>
           ) : (
             <>
-              <path d={line(pts, X, Y)} fill="none" stroke={color} strokeWidth="1.8" />
-              <circle cx={X(x1)} cy={Y(pts[pts.length - 1][1])} r="2.8" fill={color} />
+              <path d={gapPath(pts, X, Y)} fill="none" stroke={color} strokeWidth="1.8" />
+              {have.length < 3 && have.map(p => <circle key={p[0]} cx={X(p[0])} cy={Y(p[1])} r="2.4" fill={color} />)}
+              <circle cx={X(last[0])} cy={Y(last[1])} r="2.8" fill={color} />
             </>
           )}
         </>

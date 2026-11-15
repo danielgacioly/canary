@@ -7,6 +7,7 @@ sent to the Gemini API, Anthropic tool_result errors, and the medical audit rout
 """
 import json
 import os
+import re
 import tempfile
 import time
 
@@ -453,7 +454,7 @@ def test_http_request_shape(monkeypatch):
 
 def test_status_lists_entries():
     s = client.get("/api/assistant/status").json()
-    assert s["entries"] == ["chat", "briefing", "suggestions"] and s["limits"]["max_steps"] == settings.llm_max_steps
+    assert s["entries"] == ["chat", "briefing", "suggestions", "protocol_match"] and s["limits"]["max_steps"] == settings.llm_max_steps
 
 
 # ---------------------------------------------------------------- medical audit route (W1-4)
@@ -585,3 +586,99 @@ def test_get_risks_sources_pass_the_guard_in_ai_mode(monkeypatch):
     _, out = ask(monkeypatch, [tool_use(("get_risks", {})), final(ans)], question="Why is my fatigue risk up?")
     assert out["mode"] == "ai" and out["guard"]["reason"] is None, out["guard"]
     assert out["observations"][0]["source_ids"] == [ev["source"]] and out["explanations"]
+
+
+# ---------------------------------------------------------------- protocol matching: a model may only choose known ids
+
+def _match(monkeypatch, provider):
+    from canary.assistant import protocol_match as pm
+    monkeypatch.setattr(pm, "get_provider", lambda: provider)
+    return pm.match("he is not breathing and has no pulse")
+
+
+def test_protocol_match_valid_ids_are_used(monkeypatch):
+    from canary.domain import protocol_match as rules
+    p = ScriptedProvider(messages=[final({"ids": ["rad", "cpr"]})])
+    out = _match(monkeypatch, p)
+    assert out["mode"] == "ai" and out["provider"] == "scripted"
+    assert [m["id"] for m in out["matches"]] == ["rad", "cpr"]
+    assert len(rules.match("he is not breathing and has no pulse")["matches"]) >= 0  # the rules still run
+    kw = p.api_calls[0]
+    assert "tools" not in kw and kw["generationConfig"]["responseJsonSchema"]["required"] == ["ids"]
+
+
+@pytest.mark.parametrize("turn", [lambda: final({"ids": ["made_up_protocol"]}), lambda: final({"ids": ["triage"]}),
+                                  fakes.api_timeout, refusal])
+def test_protocol_match_unknown_id_or_provider_error_keeps_rules(monkeypatch, turn):
+    out = _match(monkeypatch, ScriptedProvider(messages=[turn()]))
+    assert out["mode"] == "rules"
+
+
+def test_protocol_match_without_a_provider_is_rules_and_never_calls_out(monkeypatch):
+    import httpx
+    from canary.assistant import providers as prov
+
+    def no_http(*a, **k):
+        raise AssertionError("no HTTP call without a key")
+
+    monkeypatch.setattr(httpx, "Client", no_http)
+    monkeypatch.setattr(settings, "llm_provider", "none")
+    from canary.assistant import protocol_match as pm
+    assert pm.match("he is not breathing")["mode"] == "rules"
+    # a key-less Gemini or Anthropic adapter (auto mode without keys) also stays offline
+    for cls in (prov.GeminiProvider, prov.AnthropicProvider):
+        monkeypatch.delenv(cls.key_env, raising=False)
+        out = cls().complete(prov.ProviderRequest(task="protocol_match", system="", question="x"))
+        assert not out.ok and out.guard_exit == "api:error"
+
+
+# ---------------------------------------------------------------- missing data: no crash, no invented number
+
+def _register_a_person_with_no_data():
+    """A person Mission Control registered who has no measurement at all: every indicator is without data."""
+    from canary.domain import registry
+    registry.register([{"name": "Ines Almeida", "role": "Commander", "seat": "i1", "pin": "2468"}],
+                      {"callsign": "Test", "name": "No data", "launch_date": "2036-03-01", "preset": "mars"})
+    r = client.post("/api/crew/i1/session", json={"pin": "2468"})
+    assert r.status_code == 200, r.text
+    return {"X-Canary-Viewer": r.json()["token"]}
+
+
+def _no_data_ctx():
+    return ToolContext(crew_id="i1", viewer="i1", medical=False, mission=mission.state())
+
+
+def test_indicator_without_data_is_grounded_without_an_invented_number():
+    headers = _register_a_person_with_no_data()
+    r = client.post("/api/assistant/ask", json={"crew_id": "i1", "question": "How is my sleep?"}, headers=headers)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["provider"] == "none" and out["mode"] == "grounded"
+    text = " ".join(o["statement"] for o in out["observations"]) + " " + out["answer"]
+    assert "no current reading" in text.lower() or "no data" in text.lower() or "still learning" in text.lower(), text
+    assert not re.search(r"\d", " ".join(o["statement"] for o in out["observations"] if "sleep" in o["statement"].lower())), text
+    assert "None" not in text
+
+
+def test_whole_person_without_data_has_no_invented_numbers_in_eva_suggestions_or_briefing():
+    headers = _register_a_person_with_no_data()
+    r = client.post("/api/assistant/ask", json={"crew_id": "i1", "question": "Am I ready for EVA?"}, headers=headers)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    text = " ".join(o["statement"] for o in out["observations"]) + " " + out["answer"]
+    assert "None" not in text and "nan" not in text.split()
+    eva = tools.run_tool(_no_data_ctx(), "get_dose_and_eva", {}).data["eva"]
+    assert eva["checked"] is False and eva["verdict"] is None
+    assert all(row["now"] is None for row in eva["rows"])
+    s = client.get("/api/suggestions/i1", headers=headers)
+    assert s.status_code == 200, s.text
+    for item in s.json()["items"]:
+        assert "None" not in item["why"] and "None" not in item["because_inside"]
+    b = briefing.template(briefing.facts("i1"))
+    assert "None" not in b
+
+
+def test_briefing_template_never_prints_none():
+    f = briefing.facts("h")
+    f["movers"] = [{"name": "Sleep", "value": 6.1, "baseline": None, "unit": "h", "z": None}]
+    assert "still learning your normal" in briefing.template(f) and "None" not in briefing.template(f)

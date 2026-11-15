@@ -75,6 +75,8 @@ def _pick(v: Sexed, sex: str) -> Num:
 def check(ind: str, sex: str, value: float) -> dict:
     """{"low","high","status","source","verified"}. status: "in", "out" or "critical". No entry: always "in"."""
     P = POPULATION.get(ind)
+    if value is None:  # no reading: no verdict
+        return {"low": None, "high": None, "status": "no_data", "source": None, "verified": False}
     if P is None:
         return {"low": None, "high": None, "status": "in", "source": NO_RANGE_SOURCE, "verified": False}
     v = round(value, INDICATORS[ind]["dp"])

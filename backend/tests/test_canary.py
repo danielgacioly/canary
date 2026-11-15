@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from canary import auth, db  # noqa: E402
 from canary.assistant import guard  # noqa: E402
-from canary.domain import catalog, goals, health, mission  # noqa: E402
+from canary.domain import catalog, goals, health, mission, plan as plan_mod  # noqa: E402
 from canary.main import app  # noqa: E402
 
 client = TestClient(app)
@@ -107,9 +107,13 @@ def test_ranking_and_crew_missions_never_reveal_alert_doctor_goals_or_health_num
     at(3)
     lb = client.get("/api/leaderboard").json()
     for r in lb["rows"]:
-        assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "rank", "name", "initials", "role"}
+        assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "patches", "rank", "name", "initials", "role"}
+        assert all(set(x) == {"id", "name"} for x in r["patches"]) and len(r["patches"]) == r["badges_earned"]
     ex = next(t for t in lb["team"] if t["id"] == "team_exercise")
-    assert ex["unit"] == "sessions" and all(isinstance(v, int) and v <= 7 for v in ex["contrib"].values())
+    # Each mission names the personal goal that counts toward it (catalog data) and carries no per-person numbers.
+    assert ex["unit"] == "sessions" and ex["personal_ids"] == ["exercise"] and "contrib" not in ex
+    assert {t["id"]: t["personal_ids"] for t in lb["team"]}["team_books"] == ["read"]
+    assert all(set(g) == set(ex) for g in lb["team"]) and all(len(g["personal_ids"]) == 1 for g in lb["team"])
 
     def public():
         ov = client.get("/api/crew/overview").json()
@@ -201,7 +205,8 @@ def test_bone_loss_depends_on_gravity_in_the_plan():
     at(2)
     mars = health.indicator("t", "bone", mission.state())["value"]
     client.post("/api/plan/preset", json={"preset": "moon"})
-    moon = health.indicator("t", "bone", mission.state())["value"]  # day 147 is back on Earth after a short trip
+    # the moon package ends on day 120 (back on Earth after a short trip): the last day with a current reading
+    moon = health.indicator("t", "bone", {**mission.state(), "day": 120, "location": plan_mod.location_at(120), "learning": False})["value"]
     assert mars < moon
 
 
@@ -577,7 +582,8 @@ def test_osd569_rows_are_real_and_keep_the_original_label():
     rows = [r for r in real if r["source"] == "nasa:osd569"]
     assert len(rows) == 4 * 7 * 7
     h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
-    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == nasa.blood("C002", "F")["lymphocytes"]
+    shown = nasa.blood("h", "F")  # built from h's own real observations in the loaded package, not from a subject id
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == shown["lymphocytes"] and shown["subject"] == "C002"
     assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
     # pre-flight collections set the baseline of the simulated rows
     pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
@@ -603,7 +609,8 @@ def test_a_custom_plan_gets_its_own_table_and_value_never_breaks():
     assert client.put("/api/plan", json=good).status_code == 200
     assert telemetry.last_observation("h", "co2", 10) is None  # co2 belongs to "cabin"
     assert telemetry.last_observation("cabin", "co2", 10)["value"] > 1000
-    for d in (-500, 0, 20, 40, 41, 3000):
+    assert telemetry.SOURCE.value("t", "hr", -500) is None  # before the first measurement: no value, and never an exception
+    for d in (0, 20, 40, 41, 3000):
         assert isinstance(telemetry.SOURCE.value("t", "hr", d), float)
 
 
@@ -751,22 +758,28 @@ def test_inside_the_population_range_the_personal_baseline_still_raises_level_tw
 
 
 def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the_seed():
+    from canary.domain import simdata
+    seeds = {c["id"]: c for c in simdata.load_demo_crew()["crew"]}  # the generator's seeds: the engine has none
     for c in catalog.CREW:
+        assert "base" not in c
         for ind, B in health.baselines(c["id"]).items():
             sd = catalog.INDICATORS[ind]["sd"]
             assert B["from"] == "preflight" and B["n"] >= health.MIN_PREFLIGHT, (c["id"], ind)
-            assert abs(B["mean"] - c["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
+            assert abs(B["mean"] - seeds[c["id"]]["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
             assert B["sd"] >= sd  # the floor
     _day(100)
     d = client.get("/api/crew/h", headers=as_("h")).json()["indicators"]["sleep"]
     assert d["baseline_from"] == "preflight" and d["baseline"] == health.baselines("h")["sleep"]["mean"] and d["spread"] >= 0.5
 
 
-def test_a_plan_without_preflight_falls_back_to_the_catalog_seed():
+def test_a_plan_without_preflight_learns_from_the_first_flight_days_never_from_the_catalog_seed():
     plan_no_pre = {"name": "No pre-flight", "legs": [{"location": "rocket", "start": 0, "end": 3}, {"location": "transit", "start": 4, "end": 100}]}
     assert client.put("/api/plan", json=plan_no_pre).status_code == 200
     b = health.baselines("h")
-    assert all(x["from"] == "catalog" and x["mean"] == catalog.CREW_BY_ID["h"]["base"][i] for i, x in b.items())
+    assert not any(x["from"] == "catalog" for x in b.values())
+    assert b["sleep"]["from"] == "early_flight" and b["sleep"]["n"] >= health.MIN_PREFLIGHT  # daily readings: five in the first days
+    for x in b.values():  # a baseline either has a number from the person's own data or is still learning
+        assert (x["mean"] is None) == (x["from"] == "learning")
 
 
 def test_a_preflight_checkin_moves_the_baseline():
@@ -816,7 +829,7 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
 
 def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
     from canary.domain import nasa
-    b = nasa.blood("C001", "M")
+    b = nasa.blood("k", "M")  # k's own real blood observations in the demo package
     assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
                                                             "creatinine", "potassium", "calcium", "crp"}
     for k, a in b["analytes"].items():
@@ -1292,9 +1305,9 @@ def test_there_are_eight_risks_and_four_are_nasas_red_ones():
 
 
 def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_passes_it():
-    from canary.domain import risk, telemetry
-    curve = risk.dose_curve()
-    assert all(abs(curve[d] - telemetry.cumulative_dose(d, catalog.LOCATIONS and mission.plan.location_at(d), None)) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))
+    from canary.domain import dose, risk
+    curve = dose.curve(None, -1)  # the projection: the plan's rates and the storm events
+    assert all(abs(curve[d] - dose.mission(None, d)["msv"]) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))  # the cabin dosimeter says the same
     assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
     _day(100)
     assert _risk("a", "radiation")["level"] == 0
@@ -1515,7 +1528,7 @@ def test_the_blood_files_are_corrected_and_each_seat_reads_a_subject_of_its_own_
     assert snap["cbc"]["an"]["hgb"]["unit"] == "grams_per_deciliter"
     assert snap["cbc"]["an"]["hgb"]["F"] == {"min": 11.7, "max": 15.5} and snap["cbc"]["an"]["hgb"]["M"] == {"min": 13.2, "max": 17.1}
     i4_sex = {"C001": "M", "C002": "F", "C003": "F", "C004": "M"}  # OSD-569 sample metadata
-    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in catalog.CREW)
+    assert all(i4_sex[c["cbc_subject"]] == c["sex"] for c in simdata.load_demo_crew()["crew"])  # the generator's seeds
     assert simdata.lab_range(snap, "creatinine", "F") == (0.5, 1.05) and simdata.lab_range(snap, "crp", "F") is None
     assert "glucose" not in snap["cmp"]["an"]  # left out on purpose (R+45 samples processed late)
 
@@ -1713,7 +1726,7 @@ def test_control_registration_names_every_wrong_seat_field_and_keeps_the_crew():
     assert "crew.1.name" in bad(1, name="K")
     assert "crew.0.role" in bad(0, role="")
     assert "crew.2.pin" in bad(2, pin="12a4")
-    assert "already used by seat 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
+    assert "already used by person 1" in bad(3, pin=good["crew"][0]["pin"])["crew.3.pin"]
     assert "crew.0.dob" in bad(0, dob="2030-01-01") and "crew.0.dob" in bad(0, dob="1900-01-01") and "crew.0.dob" in bad(0, dob="1990-02-31")
     assert "at least 140" in bad(1, height_cm=100)["crew.1.height_cm"]
     assert "crew.1.weight_kg" in bad(1, weight_kg=200)

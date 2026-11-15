@@ -17,7 +17,9 @@ from canary.domain import catalog, mission, selftests  # noqa: E402
 from canary.main import app  # noqa: E402
 
 client = TestClient(app)
-CREW_IDS = [c["id"] for c in catalog.CREW]
+# The demo crew of the bundled package (the fixture below loads it). Read at import time, the registered crew is still
+# empty and every parametrised privacy test would be skipped.
+CREW_IDS = ["h", "k", "a", "t"]
 
 VALID_ARGS = {
     "get_status": {},

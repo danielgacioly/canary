@@ -5,6 +5,7 @@ import { useAction } from '../lib/useAction'
 import { ActionError } from './Field'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 import { WaitingForControl } from '../pages/MissionInfo'
 import { CrewDots, Dot } from './People'
@@ -12,7 +13,7 @@ import { CanaryMark, Icon } from './ui'
 
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your health".
 const NAV: { group: string; items: [string, string, string][] }[] = [
-  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/tests', 'test', 'Tests'], ['/plan', 'plan', 'Mission plan'], ['/ranking', 'rank', 'Ranking']] },
+  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/tests', 'test', 'Tests'], ['/plan', 'plan', 'Mission plan'], ['/protocols', 'shield', 'Protocols'], ['/ranking', 'rank', 'Ranking']] },
   { group: 'Your health', items: [['/me', 'today', 'My space']] },
 ]
 
@@ -53,7 +54,7 @@ export default function Shell() {
               <button className="fact" onClick={() => setWhere(true)} title="Change where you are">
                 <span>Where you are</span><b>{mission.place.name} ▾</b>
               </button>
-              <div className="fact"><span>Mission time</span><b className="num">{mission.day_label}</b></div>
+              <div className="fact"><span>Mission time</span><b className="num">{mission.day_label}</b>{mission.clock && <span className="clock-line">{clockLine(mission.clock)}</span>}</div>
               <div className="fact opt"><span>Earth replies</span><b>{mission.place.reply}</b></div>
               {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
             </>
@@ -87,18 +88,18 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
 }
 
 function StoryBar() {
-  const { mission, setStep, catalog, me } = useSession()
+  const { mission, setStep, catalog, me, scenes } = useSession()
   const nav = useNavigate()
   const move = useAction('toast')
   const busy = move.busy
-  if (!mission || !catalog) return null
+  if (!mission || !catalog || scenes.length === 0 || !mission.story) return null
   const go = (i: number) => { move.run(() => setStep(i)) }
   return (
     <div className="story">
       <span className="small story-step">Demo {mission.step + 1}/{mission.steps}</span>
-      <div className="dots">{catalog.story.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
+      <div className="dots">{scenes.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b className="ink">Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b className="ink">{mission.story.when}.</b> {mission.story.text}</>}</p>
-      {!mission.custom_day && me !== mission.suggested_user && (
+      {!mission.custom_day && me !== mission.suggested_user && catalog.crew.some(c => c.id === mission.suggested_user) && (
         <button className="btn sm ghost" onClick={() => nav(`/me?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
           Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
         </button>

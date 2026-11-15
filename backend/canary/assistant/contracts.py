@@ -21,7 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Every way the backend calls a model, as `ProviderRequest.task`. Only "chat" gets tools; "briefing" rewrites
 # computed facts (BriefingDraft) and "suggestions" rephrases each suggestion's "why" as a JSON list
 # [{id, why}], checked with guard.unknown_numbers. Suggestions are astronaut-only, never for the medical team.
-AI_ENTRIES = ("chat", "briefing", "suggestions")
+# "protocol_match" returns only protocol ids (a JSON list) from the bank; it never writes text.
+AI_ENTRIES = ("chat", "briefing", "suggestions", "protocol_match")
 ENTRIES_WITH_TOOLS = ("chat",)
 
 # `settings` keys the AI layer may read through domain code but no tool ever returns (schema.md §4).

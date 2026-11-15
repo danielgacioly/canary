@@ -45,7 +45,7 @@ def sync(ms: dict, crew_ids: Optional[List[str]] = None) -> int:
         new = _new(c["id"], ms)
         if not new:
             continue
-        to = privacy.SUBSTITUTE if c["id"] == privacy.MEDICAL_OFFICER else privacy.MEDICAL_OFFICER
+        to = privacy.alerts_to(c["id"])
         now = time.time()
         titles = " ".join(a["title"] for a in new)
         for a in new:

@@ -2,10 +2,13 @@
 // what the body faces there and what Canary changes. Editing the plan belongs to the admin flow.
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import type { PlanConditions } from '../api/types'
+import { Link } from 'react-router-dom'
+import type { Place, PlanConditions, ProtocolLibrary } from '../api/types'
+import { protocolPath } from './Protocols'
 import Hazards from '../components/Hazards'
 import Timeline from '../components/Timeline'
 import { LineChart, Loading } from '../components/ui'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
 const BODY: Record<string, string[]> = {
@@ -13,15 +16,34 @@ const BODY: Record<string, string[]> = {
   gp: ['Re-adaptation to weight in the first 30 days after 0 g: dizziness when standing', 'Bone loss slows to about 40% of the 0 g rate', 'Fine, sharp dust outside'],
   g1: ['Bone slowly recovers', 'Baseline training: Canary learns each person\'s normal'],
 }
-const CANARY: Record<string, string[]> = {
-  g0: ['Exercise goal: 2 hours a day, resistance plus treadmill or bike', 'Space-sickness rule active in the first 72 hours of a launch leg', 'Guided Response uses 0 g steps: restraints, tethers, floating fluids'],
-  gp: ['Exercise goal: 1 hour of resistance and suited walks', 'Re-adaptation alert in the first 30 days', 'Outside activity follows space weather; partial-gravity steps in Guided Response'],
-  g1: ['Training and recovery goals', 'No alerts before launch, only baselines', 'Guided Response uses Earth steps'],
+const EXERCISE: Record<string, string> = {
+  g0: '2 hours a day, resistance plus treadmill or bike',
+  gp: '1 hour of resistance and suited walks',
+  g1: 'Training and recovery goals; no alerts before launch, only baselines',
+}
+const EVA: Record<string, string> = {
+  none: 'No EVA here',
+  microgravity: 'Spacewalks in 0 g, each person cleared by the medical team',
+  surface: 'Surface walks, each person cleared by the medical team; space weather decides the day',
+}
+
+/** The Protocols pages that apply to a leg, from the same rules the Protocols page uses for today (no personal data). */
+function legProtocols(c: PlanConditions, i: number, place: Omit<Place, 'id'>): string[] {
+  const leg = c.legs[i], prev = c.legs[i - 1]
+  const out: string[] = []
+  if (leg.location !== 'earth') out.push('rad', 'dose')
+  if (leg.location !== 'earth' && place.eva && place.eva !== 'none') out.push('eva')
+  if (leg.location === 'rocket') out.push('sickness')
+  if (prev && prev.gravity_key === 'g0' && leg.gravity_key === 'gp') out.push('regravity')
+  if (leg.ridge.find(h => h.id === 'E' && h.level >= 2)) out.push('air')
+  if (place.delay_s > 60) out.push('delay')
+  return out
 }
 
 export default function MissionPlan() {
   const { mission, catalog } = useSession()
   const { data: c } = useApi<PlanConditions>(() => api.conditions(), [])
+  const { data: lib } = useApi<ProtocolLibrary>(() => api.protocolLibrary(), [])
   const [sel, setSel] = useState<number | null>(null)
   // The leg the crew is on now is always the one open by default, also after the clock moves.
   const nowLeg = c ? Math.max(0, c.leg_index) : null
@@ -33,6 +55,7 @@ export default function MissionPlan() {
   const last = c.legs[c.legs.length - 1].end
   const when = c.today > leg.end ? 'done' : c.today >= leg.start ? `now, day ${c.today - leg.start + 1} of ${leg.days}` : `starts in ${leg.start - c.today} days`
   const d = c.dose
+  const upcoming = c.legs.map((_, i) => i).filter(i => i > sel && c.legs[i].start > c.today).slice(0, 3)
   const crosses = d.series.find(([, v]) => v >= d.limit_msv)
 
   return (
@@ -40,7 +63,7 @@ export default function MissionPlan() {
       <div className="head rise">
         <div>
           <h1>{c.name}</h1>
-          <p className="sub">{mission.day_label} · {mission.place.name}. Registered by mission control; Canary adapts the crew's health care to every leg.</p>
+          <p className="sub">{mission.day_label} · {clockLine(mission.clock)} · {mission.place.name}. Registered by mission control; Canary adapts the crew's health care to every leg.</p>
         </div>
       </div>
 
@@ -54,27 +77,58 @@ export default function MissionPlan() {
           <h2>{leg.label || place.name}</h2>
           <span className="sub">{place.name} · day {leg.start} to {leg.end} · {when}</span>
         </div>
-        <div className="stats">
-          <div className="stat"><div className="k">Gravity</div><b>{place.gravity}</b></div>
-          <div className="stat"><div className="k">Radiation</div><b className="num">{place.dose_rate}<small>mSv/day</small></b></div>
-          <div className="stat"><div className="k">Earth replies</div><b>{place.reply}</b></div>
-          <div className="stat"><div className="k">Nearest hospital</div><b>{place.hospital}</b></div>
-        </div>
+        <p className="leg-facts">
+          <span>{place.gravity}</span>
+          <span>{place.dose_rate} mSv a day</span>
+          <span>Earth replies {place.reply === 'Live' ? 'live' : `in ${place.reply}`}</span>
+          <span>Hospital: {place.hospital.toLowerCase()}</span>
+        </p>
+        <ul className="bul" style={{ marginTop: 14 }}>{BODY[leg.gravity_key].map(t => <li key={t}>{t}</li>)}</ul>
+
         <h3 className="sub-h">Hazards on this leg</h3>
         <Hazards items={leg.ridge} compact />
-        <div className="two-lists">
-          <div>
-            <h3 className="sub-h">What the body faces</h3>
-            <ul className="plain">{BODY[leg.gravity_key].map(t => <li key={t}>{t}</li>)}</ul>
-          </div>
-          <div>
-            <h3 className="sub-h">What Canary changes</h3>
-            <ul className="plain">
-              {CANARY[leg.gravity_key].map(t => <li key={t}>{t}</li>)}
-              <li>{place.reply === 'Live' ? 'Messages and reports reach Earth live' : `Messages, briefings and reports wait ${place.reply} each way`}</li>
+
+        <h3 className="sub-h">What the crew does here</h3>
+        <dl className="adapt">
+          <dt>Exercise</dt><dd>{EXERCISE[leg.gravity_key]}</dd>
+          {leg.location !== 'earth' && <><dt>EVA</dt><dd>{EVA[place.eva ?? 'none']}</dd></>}
+          <dt>Messages</dt><dd>{place.reply === 'Live' ? 'Reach Earth live' : `Wait ${place.reply} each way`}</dd>
+          <dt>Guided Response</dt><dd>Steps for {place.gravity}</dd>
+        </dl>
+        {lib && legProtocols(c, sel, place).length > 0 && (
+          <ul className="plist" style={{ marginTop: 22 }}>
+            {legProtocols(c, sel, place).map(id => {
+              const p = [...lib.emergency, ...lib.operational].find(x => x.id === id)
+              const f = sel === c.leg_index ? lib.in_force.find(x => x.id === id) : undefined
+              return p && (
+                <li key={id} className={f ? `s${f.level}` : ''}>
+                  <Link to={protocolPath(id)} className="prow">{f && <span className="dot" />}<span className="grow"><b>{p.name}</b><span className="muted">{f ? f.reason : p.when[0]}</span></span></Link>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        {upcoming.length > 0 && (
+          <>
+            <h3 className="sub-h">Upcoming legs</h3>
+            <ul className="plist">
+              {upcoming.map(i => {
+                const l = c.legs[i], pl = catalog.locations[l.location]
+                const before = catalog.locations[c.legs[i - 1].location]
+                const dg = pl.gravity !== before.gravity ? `${before.gravity} to ${pl.gravity}` : null
+                return (
+                  <li key={i}>
+                    <button className="prow" onClick={() => setSel(i)}>
+                      <span className="grow"><b>{l.label || pl.name}</b>
+                        <span className="muted">{l.start > c.today ? `in ${l.start - c.today} days` : 'next'} · {l.days} d{dg ? ` · gravity ${dg}` : ''} · {pl.dose_rate} mSv a day</span></span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
-          </div>
-        </div>
+          </>
+        )}
       </section>
 
       <section className="rise" style={{ ['--d' as string]: 3 }}>

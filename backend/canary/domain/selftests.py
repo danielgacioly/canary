@@ -174,8 +174,9 @@ def conclusion(kind: str, payload: dict, crew_id: str) -> Optional[dict]:
             continue
         v = float(payload[field])
         pop = reference.check(ind, CREW_BY_ID[crew_id]["sex"], v)
-        z = (v - base[ind]["mean"]) / base[ind]["sd"]
-        picks.append((_RANK[pop["status"]], abs(z), ind, v, pop, z))
+        mean_i = base[ind]["mean"]  # None while Canary has no normal of the person's own yet
+        z = None if mean_i is None else (v - mean_i) / base[ind]["sd"]
+        picks.append((_RANK[pop["status"]], 0.0 if z is None else abs(z), ind, v, pop, z))
     if not picks:
         return None
     _, _, ind, v, pop, z = max(picks, key=lambda t: (t[0], t[1]))
@@ -183,7 +184,9 @@ def conclusion(kind: str, payload: dict, crew_id: str) -> Optional[dict]:
     population = _POP_TEXT[pop["status"]] if has_range else "No population range for this scale"
     mean = base[ind]["mean"]
     pct = round(abs(100 * (v - mean) / mean)) if mean else 0
-    if pct < 3:
+    if mean is None:
+        personal = "Canary is still learning your own average"
+    elif pct < 3:
         personal = "in line with your own average"
     else:
         if ind in _DIRECTION:

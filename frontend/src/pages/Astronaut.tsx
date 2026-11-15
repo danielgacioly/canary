@@ -8,6 +8,7 @@ import EvaReadiness from '../components/EvaReadiness'
 import RadiationBar from '../components/RadiationBar'
 import { Dot } from '../components/People'
 import { Icon, Loading, Patch, Spark } from '../components/ui'
+import { fmtValue, missingNote, num } from '../lib/health'
 import { ActionError } from '../components/Field'
 import { useAction } from '../lib/useAction'
 import { useApi, useSession } from '../state/session'
@@ -52,9 +53,9 @@ function Other({ id }: { id: string }) {
           <tbody>{Object.values(d.indicators).map(i => (
             <tr key={i.id}>
               <td><b>{i.name}</b><div className="small dim">{i.area}</div></td>
-              <td className="num">{i.value.toFixed(i.dp)} <span className="dim">{i.unit}</span></td>
-              <td className="num muted">{i.baseline.toFixed(i.dp)}</td>
-              <td><Spark data={d.trends[i.id]} base={i.baseline} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
+              <td className="num">{fmtValue(i)} {i.value !== null && <span className="dim">{i.unit}</span>}{missingNote(i) && <div className="small dim">{missingNote(i)}</div>}</td>
+              <td className="num muted">{num(i.baseline, i.dp)}</td>
+              <td><Spark data={d.trends[i.id]} base={i.baseline ?? undefined} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
             </tr>))}</tbody>
         </table></div>
       </section>

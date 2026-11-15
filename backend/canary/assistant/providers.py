@@ -8,6 +8,8 @@ Three AI entries share `complete(ProviderRequest)` (contracts.AI_ENTRIES, docs/a
 - "briefing": no tools, structured output in the BriefingDraft shape.
 - "suggestions": no tools, structured output {items: [{id, why}]}, returned as the JSON list text
   suggestions.py already parses.
+- "protocol_match": no tools, structured output {ids: [id]}, returned as the JSON list text
+  protocol_match.py already parses (ids only: no text, steps or advice).
 
 The provider never decides what is shown: chat.py runs guard.postcheck on the answer, briefing.py and
 suggestions.py check numbers and sources. A failure of any kind (API error, timeout, refusal, a loop guard)
@@ -29,7 +31,7 @@ log = logging.getLogger("canary.assistant")
 
 @dataclass
 class ProviderRequest:
-    task: str                      # "chat" | "briefing" | "suggestions" (contracts.AI_ENTRIES)
+    task: str                      # "chat" | "briefing" | "suggestions" | "protocol_match" (contracts.AI_ENTRIES)
     system: str                    # stable rules for the model (prompts/*.md), sent as systemInstruction
     question: str                  # the user message: question plus who asks, or the briefing/suggestions input
     context: List[dict] = field(default_factory=list)  # chat: unused (tools fetch data); others: computed facts
@@ -102,6 +104,13 @@ SUGGESTIONS_SCHEMA: Dict[str, Any] = {
 }
 
 
+PROTOCOL_MATCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {"ids": {"type": "array", "items": {"type": "string"}}},
+    "required": ["ids"], "additionalProperties": False,
+}
+
+
 def default_schema(task: str) -> Optional[Dict[str, Any]]:
     if task == "chat":
         return contracts.json_schema(contracts.AssistantResponse)
@@ -109,6 +118,8 @@ def default_schema(task: str) -> Optional[Dict[str, Any]]:
         return contracts.json_schema(contracts.BriefingDraft)
     if task == "suggestions":
         return SUGGESTIONS_SCHEMA
+    if task == "protocol_match":
+        return PROTOCOL_MATCH_SCHEMA
     return None
 
 
@@ -236,6 +247,10 @@ class ToolCallingProvider:
             if not isinstance(data, dict) or not isinstance(data.get("items"), list):
                 return self._fail(out, "model:bad_output")
             out.answer = json.dumps(data["items"], ensure_ascii=False)
+        if task == "protocol_match":  # the id list text protocol_match.py parses
+            if not isinstance(data, dict) or not isinstance(data.get("ids"), list):
+                return self._fail(out, "model:bad_output")
+            out.answer = json.dumps(data["ids"], ensure_ascii=False)
         return out
 
     def _single(self, req: ProviderRequest, deadline: float, out: ProviderResult) -> ProviderResult:

@@ -2,19 +2,21 @@
 // Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
 // and Settings (photo, PIN, lock).
 import { useRef, useState, type CSSProperties } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { protocolPath } from './Protocols'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
+import type { Pt } from '../lib/scale'
 import BloodChart from '../components/BloodChart'
 import BodyView, { Guide } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import Trend from '../components/Trend'
-import { Icon, Loading, Patch, Tabs } from '../components/ui'
+import { Icon, Loading, Patch, Tabs, WaitingForData } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
-import { bonePctOfPreflight, nasaLine, ORIGIN } from '../lib/health'
+import { bonePctOfPreflight, learningNote, missingNote, nasaLine, num, ORIGIN } from '../lib/health'
 import { squareJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
@@ -66,7 +68,6 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
   const { data } = useApi<GoalsResponse>(() => api.goals(me), [me])
   if (!data || !catalog) return <Loading what="goals" />
   const p = data.profile
-  const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const done = data.personal.filter(g => g.done).length
   return (
     <div className="goals-page">
@@ -90,8 +91,8 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
         )
       })}
       <section className="rise" style={{ ['--d' as string]: 3 }}>
-        <div className="section-head"><h2>Crew missions this week</h2><span className="sub">Shared goals for the whole crew</span></div>
-        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
+        <div className="section-head"><h2>Crew missions this week</h2></div>
+        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} mine={data.personal} />)}</div>
       </section>
     </div>
   )
@@ -131,37 +132,51 @@ function suggestionSlot(d: Suggestions): { tag: string; note: string } {
   return { tag: 'No model connected', note: 'Until a model is connected, rules write them from the same data.' }
 }
 
+/* ---------------------------------------------------------------- suggestions: the outside and the inside, side by side */
+const TOP = 3
 function SuggestionsTab({ me }: { me: string }) {
   const { bump, toast } = useSession()
   const { data, setData } = useApi<Suggestions>(() => api.suggestions(me), [me])
   const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
   const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
+  const skip = (sid: string) => act.run(async () => { setData(await api.dismissSuggestion(me, sid)); toast('Hidden for today. Canary learns from your choices.') })
+  const card = (s: Suggestions['items'][number], i: number) => (
+    <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
+      <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
+      <p className="because">
+        {s.because_outside && <span>{s.because_outside}</span>}
+        {s.because_inside && <span className={s.because_outside ? 'muted' : ''}>{s.because_inside}</span>}
+        {!s.because_outside && !s.because_inside && <span className="muted">{s.why}</span>}
+        {s.protocol && <Link className="link" to={protocolPath(s.protocol)}>Protocol</Link>}
+      </p>
+      <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
+      <div className="suggest-goal">
+        {s.goal && <><span className="small muted">Goal for the next 7 days</span><b>{s.goal}</b></>}
+        <div className="row wrap">
+          {s.goal && (s.accepted
+            ? <span className="status s0"><span className="dot" />In your goals</span>
+            : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>)}
+          {!s.accepted && <button className="btn sm ghost" onClick={() => skip(s.id)}>Not now</button>}
+          {Math.abs(s.rank.learned) >= 1 && <span className="small dim">{s.rank.learned > 0 ? 'Higher' : 'Lower'}, from your past choices</span>}
+        </div>
+      </div>
+    </article>
+  )
   const slot = suggestionSlot(data)
   return (
     <div className="suggest">
       <div className="slot-line rise">
         <span className="tag">{slot.tag}</span>
-        <span className="small muted">Built from your numbers against your own normal, your goals this week, your tests and the next leg of the plan. {slot.note} Only you see them.</span>
+        <span className="small muted">Ranked by what is around you at {data.context.place} and by your own numbers; the ones that speak to both come first. {slot.note} What you add or skip moves similar ones up or down. Only you see them.</span>
       </div>
-      <div className="suggest-list">
-        {data.items.map((s, i) => (
-          <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
-            <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
-            <p className="muted">{s.why}</p>
-            <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
-            {s.goal && (
-              <div className="suggest-goal">
-                <span className="small muted">Goal for the next 7 days</span>
-                <b>{s.goal}</b>
-                {s.accepted
-                  ? <span className="status s0"><span className="dot" />In your goals</span>
-                  : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
+      <div className="suggest-list">{data.items.slice(0, TOP).map(card)}</div>
+      {data.items.length > TOP && (
+        <details className="suggest-more">
+          <summary>{data.items.length - TOP} more</summary>
+          <div className="suggest-list">{data.items.slice(TOP).map((s, i) => card(s, i))}</div>
+        </details>
+      )}
     </div>
   )
 }
@@ -195,6 +210,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
   const { catalog } = useSession()
   const guide = catalog?.guide ?? {}
+  if (d.no_data) return <WaitingForData self name={d.crew.name.split(' ')[0]} />
   return (
     <>
       <p className="muted rise">Last 30 days against your own normal. Readings are simulated in this prototype; the blood values are real NASA data.</p>
@@ -205,22 +221,23 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
             {ids.filter(k => d.indicators[k]).map(k => {
               const i = d.indicators[k]
               const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
-              const pts: [number, number][] = bone ? d.trends[k].map(([x, y]) => [x, 100 + y]) : d.trends[k]
+              const pts: Pt[] = bone ? d.trends[k].map(([x, y]): Pt => [x, y === null ? null : 100 + y]) : d.trends[k]
               const lim = nasaLine(k, i)
               const normal = bone ? 100 : i.baseline
               return (
-                <figure key={k} className={`chart-card s${i.level}`}>
+                <figure key={k} className={`chart-card ${i.value === null ? 'nodata' : `s${i.level}`}`}>
                   <figcaption>
                     <span className="dot" /><b>{i.name}</b>
                     <span className="tag">{ORIGIN[i.origin]}</span>
-                    <span className="num">{bone ? `${bonePctOfPreflight(i).toFixed(1)} % of pre-flight` : `${i.value.toFixed(i.dp)} ${i.unit}`}</span>
+                    <span className="num">{i.value === null ? '—' : bone ? `${num(bonePctOfPreflight(i), 1)} % of pre-flight` : `${num(i.value, i.dp)} ${i.unit}`}</span>
                   </figcaption>
                   <p className="small muted legend">
-                    <span><i className="key normal" />Your normal {bone ? '100 %' : `${i.baseline.toFixed(i.dp)} ${i.unit}`}</span>
+                    {normal === null ? <span>{learningNote(i) ?? 'No normal of your own yet'}</span> : <span><i className="key normal" />Your normal {bone ? '100 %' : `${num(i.baseline, i.dp)} ${i.unit}`}</span>}
+                    {i.value !== null ? null : <span>{missingNote(i)}</span>}
                     {lim && <span><i className="key limit" />NASA limit {lim.text} · <a className="item" href={lim.url} target="_blank" rel="noreferrer">{lim.item}</a></span>}
                     {bone && <span>7-day average over daily values</span>}
                   </p>
-                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal} limit={lim?.y}
+                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal ?? undefined} limit={lim?.y}
                     minSpan={bone ? 4 : i.spread * 4} avg={bone ? 7 : undefined} label={`${i.name}, last ${pts.length} days`} />
                   {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text}</p>}
                   {guide[k] && <Guide g={guide[k]} />}

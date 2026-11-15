@@ -115,7 +115,7 @@ def test_tool_context_binds_viewer():
 
 
 def test_ai_entries():
-    assert C.AI_ENTRIES == ("chat", "briefing", "suggestions")
+    assert C.AI_ENTRIES == ("chat", "briefing", "suggestions", "protocol_match")
     assert C.ENTRIES_WITH_TOOLS == ("chat",)
     assert set(C.SETTINGS_NEVER_RETURNED) == {"suggested_goals", "pins", "photos"}
 

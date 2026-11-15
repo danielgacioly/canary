@@ -16,17 +16,19 @@ import { CanaryMark, Icon, Loading, Tabs } from '../components/ui'
 import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
+import ControlData from './ControlData'
 
-type Tab = 'dashboard' | 'register' | 'messages'
-const SEATS = ['h', 'k', 'a', 't']
+type Tab = 'dashboard' | 'register' | 'data' | 'messages'
+const MAX_PEOPLE = 6
 const BLOOD = ['O−', 'O+', 'A−', 'A+', 'B−', 'B+', 'AB−', 'AB+']
 const SKIN = ['I', 'II', 'III', 'IV', 'V', 'VI']
 const SEX = ['Female', 'Male', 'Other']
 const HAND = ['Right', 'Left']
 const EVA: [string, string][] = [['surface', 'Surface EVAs'], ['microgravity', 'Microgravity EVAs'], ['none', 'No EVA']]
 
-const emptySeat = (seat: string): SeatForm => ({
+const emptySeat = (seat = ''): SeatForm => ({
   seat, name: '', role: '', home: '', pin: '', dob: '1990-01-01', sex: '', nationality: '', languages: [], agency: '', flights: 0,
   days_in_space: 0, height_cm: 170, weight_kg: 70, blood_type: '', skin_type: 'III', handedness: 'Right', vision: '', allergies: [],
   medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null,
@@ -48,7 +50,7 @@ function ControlGate({ onOk }: { onOk: () => void }) {
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
       <div className="control-gate-body">
         <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
-        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="Demo PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
       </div>
     </div>
   )
@@ -66,16 +68,17 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
     <div className="control">
       <header className="control-top">
         <span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
-        <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${ov.mission.place.name}` : 'No mission registered'}</span>
+        <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${clockLine(ov.mission.clock)} · ${ov.mission.place.name}` : 'No mission registered'}</span>
         <div className="right row" style={{ gap: 8 }}>
           <button className="btn sm" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button>
           <button className="btn sm ghost" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
       <div className="control-page">
-        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['messages', 'Messages']]} />
+        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
         {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }} onRegister={() => setTab('register')} />}
         {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} />}
+        {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
     </div>
@@ -90,7 +93,7 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
     return (
       <div className="empty-ctl rise">
         <h2>Nothing registered</h2>
-        <p className="muted">The crew terminals are waiting. Register the four astronauts and the mission to bring Canary to life.</p>
+        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission to bring Canary to life.</p>
         <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
       </div>
     )
@@ -136,7 +139,7 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
       </section>
 
       <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
-        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Every crew terminal shows "Waiting for Mission Control" until you register again. A demo reset brings the demo back.</p></div>
+        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again.</p></div>
         {confirm
           ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
           : <button className="btn" onClick={() => setConfirm(true)}>Clear crew and mission</button>}
@@ -163,14 +166,26 @@ function seatToValues(c: SeatForm, i: number): Values {
   for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : val ?? ''
   return o
 }
+/** The form's values without person `j`: the people after it move up one place. */
+function withoutPerson(f: Values, j: number, n: number): Values {
+  const out: Values = {}
+  for (const [k, val] of Object.entries(f)) {
+    const m = /^crew\.(\d+)\.(.+)$/.exec(k)
+    if (!m) { out[k] = val; continue }
+    const i = Number(m[1])
+    if (i < j) out[k] = val
+    else if (i > j && i < n) out[`crew.${i - 1}.${m[2]}`] = val
+  }
+  return out
+}
 const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes' })
 
 /** Every rule of the registration form, by field. The server repeats them (SeatIn, MissionRegIn, _check_registration). */
-function validateRegister(f: Values, presets: string[], roverPresets: string[]): Errors {
+function validateRegister(f: Values, n: number, presets: string[], roverPresets: string[]): Errors {
   const e: Errors = {}
   const launch = str(f['mission.launch_date'])
   const pins = new Map<string, number>()
-  SEATS.forEach((_, i) => {
+  Array.from({ length: n }, (_, i) => i).forEach(i => {
     const g = (k: string) => str(f[`crew.${i}.${k}`])
     const put = (k: string, m: string | null) => { e[`crew.${i}.${k}`] = m }
     put('name', v.length('Name', { min: 2, max: 60 })(g('name')))
@@ -184,7 +199,7 @@ function validateRegister(f: Values, presets: string[], roverPresets: string[]):
     put('days_in_space', v.number('Days in space', { min: 0, max: 1000, unit: 'days', integer: true })(g('days_in_space')))
     const pin = v.pin4()(g('pin'))
     const first = pins.get(g('pin'))
-    put('pin', pin ?? (first !== undefined ? `PIN is already used by seat ${first + 1}; each seat needs its own` : null))
+    put('pin', pin ?? (first !== undefined ? `PIN is already used by person ${first + 1}; each person needs their own` : null))
     if (!pin) pins.set(g('pin'), pins.get(g('pin')) ?? i)
     put('height_cm', v.number('Height', { min: 140, max: 210, unit: 'cm' })(g('height_cm')))
     put('weight_kg', v.number('Weight', { min: 40, max: 150, unit: 'kg' })(g('weight_kg')))
@@ -204,17 +219,18 @@ function validateRegister(f: Values, presets: string[], roverPresets: string[]):
 
 function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: ControlOverview) => void }) {
   const [step, setStep] = useState(0)
-  const [open, setOpen] = useState('h')
+  const [count, setCount] = useState(1)
+  const [open, setOpen] = useState(0)
   const { data: demo } = useApi(() => api.controlDemo(), [])
   const presets = demo?.presets ?? { mars: 'Mars reference mission', iss: 'Six months on the ISS', moon: 'Lunar surface mission' }
   const roverPresets = demo?.rover_presets ?? ['mars', 'moon']
   const form = useForm<Values>({
-    initial: toValues(SEATS.map(emptySeat), emptyMission),
-    validate: f => validateRegister(f, Object.keys(presets), roverPresets),
+    initial: toValues([emptySeat()], emptyMission),
+    validate: f => validateRegister(f, count, Object.keys(presets), roverPresets),
     submit: async f => {
       const g = (i: number, k: string) => str(f[`crew.${i}.${k}`]).trim()
-      const crew = SEATS.map((seat, i): SeatForm => ({
-        seat, name: g(i, 'name'), role: g(i, 'role'), home: g(i, 'home'), pin: g(i, 'pin'), dob: g(i, 'dob'), sex: g(i, 'sex'), nationality: g(i, 'nationality'),
+      const crew = Array.from({ length: count }, (_, i): SeatForm => ({
+        seat: g(i, 'seat') || undefined, name: g(i, 'name'), role: g(i, 'role'), home: g(i, 'home'), pin: g(i, 'pin'), dob: g(i, 'dob'), sex: g(i, 'sex'), nationality: g(i, 'nationality'),
         languages: items(g(i, 'languages')), agency: g(i, 'agency'), flights: Number(g(i, 'flights')), days_in_space: Number(g(i, 'days_in_space')),
         height_cm: v.parseNumber(g(i, 'height_cm')) ?? 0, weight_kg: v.parseNumber(g(i, 'weight_kg')) ?? 0, blood_type: g(i, 'blood_type'), skin_type: g(i, 'skin_type'),
         handedness: g(i, 'handedness'), vision: g(i, 'vision'), allergies: items(g(i, 'allergies')), medications: items(g(i, 'medications')), conditions: items(g(i, 'conditions')),
@@ -227,18 +243,28 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
     },
     // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
     reveal: key => {
-      const m = /^crew\.(\d)\./.exec(key)
-      if (m) { setStep(0); setOpen(SEATS[Number(m[1])]) } else if (key.startsWith('mission.')) setStep(1)
+      const m = /^crew\.(\d+)\./.exec(key)
+      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) setStep(1)
     },
   })
-  const fill = () => { if (demo) { form.reset(toValues(demo.crew, demo.mission)) } }
-  const seatNo = (key: string) => { const m = /^crew\.(\d)\./.exec(key); return m ? `Seat ${Number(m[1]) + 1}` : 'Mission' }
+  const addPerson = () => {
+    if (count >= MAX_PEOPLE) return
+    form.setValues(f => ({ ...f, ...seatToValues(emptySeat(), count) }))
+    setCount(count + 1); setOpen(count)
+  }
+  const removePerson = (j: number) => {
+    if (count <= 1) return
+    form.setValues(f => withoutPerson(f, j, count))
+    setCount(count - 1); setOpen(o => (o === j ? -1 : o > j ? o - 1 : o))
+  }
+  const seatNo = (key: string) => { const m = /^crew\.(\d+)\./.exec(key); return m ? `Person ${Number(m[1]) + 1}` : 'Mission' }
+  const people = Array.from({ length: count }, (_, i) => i)
   const val = (k: string) => str(form.values[k])
   const next = (prefix: string, to: number) => { if (!form.check(k => k.startsWith(prefix)).length) setStep(to) }
   const { catalog } = useSession()
   const withRover = roverPresets.includes(val('mission.preset')) && val('mission.rover') !== 'no'
   const itinerary = demo && catalog ? demo.itineraries[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] : undefined
-  const allErrs = validateRegister(form.values, Object.keys(presets), roverPresets)
+  const allErrs = validateRegister(form.values, count, Object.keys(presets), roverPresets)
   const seatBad = (i: number) => Object.keys(allErrs).filter(k => k.startsWith(`crew.${i}.`) && allErrs[k]).length
   const seatShown = (i: number) => form.visible.filter(x => x.key.startsWith(`crew.${i}.`)).length
   return (
@@ -247,25 +273,28 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
         <div className="stepper">{['Crew', 'Mission', 'Review and save'].map((t, i) => (
           <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
-        <button type="button" className="btn right" onClick={fill} disabled={!demo}><Icon name="plus" />Fill with the demo crew and mission</button>
       </div>
       {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
       {step < 2 && <FormSummary form={form} describe={seatNo} />}
 
       {step === 0 && (
         <div className="seats rise">
-          {SEATS.map((seat, i) => (
-            <div key={seat} className={`seat ${open === seat ? 'open' : ''}`}>
-              <button type="button" className="seat-head" aria-expanded={open === seat} onClick={() => setOpen(o => (o === seat ? '' : seat))}>
+          {people.map(i => (
+            <div key={i} className={`seat ${open === i ? 'open' : ''}`}>
+              <button type="button" className="seat-head" aria-expanded={open === i} onClick={() => setOpen(o => (o === i ? -1 : i))}>
                 <span className="pdot sm neutral"><span className="ini">{val(`crew.${i}.name`) ? val(`crew.${i}.name`).split(' ').map(x => x[0]).slice(0, 2).join('') : i + 1}</span></span>
-                <span className="grow"><b>{val(`crew.${i}.name`) || `Seat ${i + 1}`}</b><span className="small muted">{val(`crew.${i}.role`) || 'Not filled in'}</span></span>
+                <span className="grow"><b>{val(`crew.${i}.name`) || `Person ${i + 1}`}</b><span className="small muted">{val(`crew.${i}.role`) || 'Not filled in'}</span></span>
                 {seatShown(i) ? <span className="small err">{seatShown(i)} to fix</span>
                   : <span className={`small ${seatBad(i) ? 'dim' : 'ok-text'}`}>{seatBad(i) ? 'Not complete' : 'Ready'}</span>}
               </button>
-              {open === seat && <SeatFields form={form} i={i} issRate={demo?.iss_dose_msv_per_day ?? 0.5} />}
+              {open === i && <SeatFields form={form} i={i} issRate={demo?.iss_dose_msv_per_day ?? 0.5} onRemove={count > 1 ? () => removePerson(i) : undefined} />}
             </div>
           ))}
-          <div className="row"><span className="grow" /><button type="button" className="btn pri" onClick={() => next('crew.', 1)}>Next: the mission<Icon name="chev" /></button></div>
+          <div className="row wrap">
+            <button type="button" className="btn" disabled={count >= MAX_PEOPLE} onClick={addPerson}><Icon name="plus" />Add a person</button>
+            <span className="small dim">{count} of {MAX_PEOPLE} · a crew is one to six people</span>
+            <span className="grow" />
+            <button type="button" className="btn pri" onClick={() => next('crew.', 1)}>Next: the mission<Icon name="chev" /></button></div>
         </div>
       )}
 
@@ -288,8 +317,8 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
         <div className="review rise">
           <h2>{val('mission.callsign') || 'Unnamed'} · {val('mission.name')}</h2>
           <p className="muted">{presets[val('mission.preset')]} · launch {val('mission.launch_date')}</p>
-          <div className="scroll"><table className="t"><thead><tr><th>Seat</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
-            <tbody>{SEATS.map((c, i) => <tr key={c}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
+          <div className="scroll"><table className="t"><thead><tr><th>#</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
+            <tbody>{people.map(i => <tr key={i}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
           {itinerary && <Timeline legs={itinerary} places={catalog?.locations ?? {}} />}
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
           <FormSummary form={form} describe={seatNo} />
@@ -310,7 +339,7 @@ function priorHint(days: string, typed: string, rate: number): string {
   return d === null ? 'Estimated from days in space' : `Estimated from days in space: ${(Math.round(d * rate * 10) / 10).toLocaleString('en-US')} mSv (${d} days at ${rate} mSv/day)`
 }
 
-function SeatFields({ form, i, issRate }: { form: ReturnType<typeof useForm<Values>>; i: number; issRate: number }) {
+function SeatFields({ form, i, issRate, onRemove }: { form: ReturnType<typeof useForm<Values>>; i: number; issRate: number; onRemove?: () => void }) {
   const n = (k: string) => `crew.${i}.${k}`
   const txt = (k: string, label: string, o: { ph?: string; hint?: string; max?: number } = {}) => <Field form={form} name={n(k)} label={label} placeholder={o.ph} hint={o.hint} maxLength={o.max} />
   const num = (k: string, label: string, hint: string) => <Field form={form} name={n(k)} label={label} hint={hint} inputMode="decimal" autoComplete="off" />
@@ -324,7 +353,7 @@ function SeatFields({ form, i, issRate }: { form: ReturnType<typeof useForm<Valu
         <Field form={form} name={n('dob')} label="Date of birth" type="date" hint={`Age ${SEAT_AGE[0]}–${SEAT_AGE[1]} at launch`} />
         {sel('sex', 'Sex', SEX)}{txt('nationality', nationality[1], { max: nationality[2] })}{list('languages', 'Languages')}{txt('agency', agency[1], { max: agency[2] })}
         {num('flights', 'Previous flights', v.range(0, 20))}{num('days_in_space', 'Days in space before', v.range(0, 1000, 'days'))}
-        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each seat" inputMode="numeric" maxLength={4} autoComplete="off" /></div>
+        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each person" inputMode="numeric" maxLength={4} autoComplete="off" /></div>
       <h3>Body</h3>
       <div className="form-grid">{num('height_cm', 'Height (cm)', v.range(140, 210, 'cm'))}{num('weight_kg', 'Weight (kg)', v.range(40, 150, 'kg'))}{sel('blood_type', 'Blood type', BLOOD)}{sel('skin_type', 'Skin type (Fitzpatrick)', SKIN, true)}
         {sel('handedness', 'Dominant hand', HAND, true)}{txt('vision', vision[1], { ph: 'e.g. No correction', max: vision[2] })}</div>
@@ -334,6 +363,7 @@ function SeatFields({ form, i, issRate }: { form: ReturnType<typeof useForm<Valu
       <h3>Medical</h3>
       <div className="form-grid">{list('allergies', 'Allergies')}{list('medications', 'Medications')}{list('conditions', 'Conditions')}
         {txt('diet', diet[1], { max: diet[2] })}{txt('vaccinations', vaccinations[1], { max: vaccinations[2] })}{txt('emergency_contact', emergency[1], { ph: 'name, relation, through family support', max: emergency[2] })}</div>
+      {onRemove && <div className="row"><button type="button" className="link-btn" onClick={onRemove}>Remove this person</button></div>}
     </div>
   )
 }
@@ -354,7 +384,7 @@ function ControlMessages({ delay }: { delay: string }) {
     <div className="grid g2 rise">
       <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
         <h2>Message the ship's medical team</h2>
-        <p className="small muted">It reaches the medical console after the signal delay ({delay === 'Live' ? 'live right now' : `${delay} each way`}, 20× faster in the demo).</p>
+        <p className="small muted">It reaches the medical console after the signal delay ({delay === 'Live' ? 'live right now' : `${delay} each way`}).</p>
         <Field form={form} name="text" label="Message" as="textarea" rows={5} placeholder="e.g. Please confirm the crew is in the storm shelter." hint={`${form.values.text.length} of 1000 characters`} />
         <FormError form={form} />
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>

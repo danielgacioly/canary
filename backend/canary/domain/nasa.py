@@ -13,6 +13,7 @@ also asks DONKI for the last 30 days and falls back to the snapshot on any error
 import datetime as dt
 import json
 import pathlib
+import re
 import time
 from typing import Optional
 
@@ -44,7 +45,9 @@ def snapshot() -> dict:
     return _SNAPSHOT
 
 
-def space_weather(storm: Optional[str]) -> dict:
+def space_weather(event: Optional[dict] = None) -> dict:
+    """The space-weather snapshot. `event` is the space event active on the mission day at the crew's place (a row of
+    data.events(), found with data.storm_event(day, location)), or None."""
     d = _SNAPSHOT["donki"]
     kp_max = max(k[1] for k in d["kp"]) if d["kp"] else None
     out = {
@@ -57,10 +60,13 @@ def space_weather(storm: Optional[str]) -> dict:
         "kp": d["kp"],
         "sep": d["sep"],
         "cme": d["cme"],
-        "active": storm is not None,
-        "headline": "Solar particle storm in progress" if storm == "sep" else "Radiation storm at Gale crater" if storm == "mars" else "Calm",
+        "active": event is not None,
+        "headline": "Calm" if event is None else "Radiation storm at Gale crater" if event["source"] == "nasa:rad" else "Solar particle storm in progress",
         "source": "nasa:donki",
     }
+    if event is not None:  # replayed from a record, or live from DONKI
+        out["event"] = {"id": event["id"], "kind": event["kind"], "origin": event["origin"], "source": event["source"],
+                        "live": event["origin"] == "donki"}
     if settings.live_space_weather:
         live = _live()
         if live:
@@ -94,26 +100,53 @@ def rad() -> dict:
     return {**r, "peak": peak, "ratio": round(peak / r["quietMean"]), "source": "nasa:rad"}
 
 
-def blood(subject: str, sex: str) -> dict:
-    """Inspiration4 lab results for one crew member: the lymphocyte curve (kept for the chart) and every analyte of
-    the blood count (OSD-569) and of the metabolic panel (OSD-575) with the laboratory's range for this sex and an
-    in/out status per collection. Real data. C-reactive protein has no range in its panel (status None)."""
+_COLLECTION = re.compile(r"^((?:L-|R\+)\d+)\b")  # a collection label at the start of a note: "L-92 Inspiration4 C002"
+_SUBJECT = re.compile(r"Inspiration4 (\w+)")
+
+
+def blood(crew_id: str, sex: Optional[str]) -> dict:
+    """The laboratory results registered for one crew member: the lymphocyte curve (kept for the chart) and every analyte of
+    the blood count (OSD-569) and of the metabolic panel (OSD-575) with the laboratory's range for this person's sex and an
+    in/out status per collection. Built from the person's own real blood observations (`origin` real, `method` blood):
+    nothing is borrowed from anyone else, so a person with no laboratory results gets empty lists. C-reactive protein
+    has no range in its panel (status None). The collection label and the subject come from each reading's note."""
+    from . import data, simdata  # late: data imports this package's registry
+    snap = _SNAPSHOT
+    tbl = data.table()
+    panels = {ind: sec for sec in ("cbc", "cmp") for ind in snap[sec]["an"]}
+    series: dict = {}
+    for ind, sec in panels.items():
+        for (day, v, origin, method, source, note) in tbl.obs.get((crew_id, ind), []):
+            if origin == "real" and method == "blood":
+                series.setdefault(ind, {})[day] = (v, source, note)
+    days = sorted({d for s in series.values() for d in s})
+    label = {}
+    subject = None
+    for d in days:
+        note = next((s[d][2] for s in series.values() if d in s and s[d][2]), "")
+        m = _COLLECTION.match(note or "")
+        label[d] = m.group(1) if m else (f"L{d}" if d < 0 else f"Day {d}")
+        subject = subject or (_SUBJECT.search(note or "") or [None, None])[1]
     analytes = {}
-    for section in ("cbc", "cmp"):
-        lab = _SNAPSHOT.get(section)
-        if not lab or subject not in lab["crew"]:
-            continue
-        for ind, series in lab["crew"][subject].items():
-            an = lab["an"][ind]
-            rng = an.get(sex)
-            analytes[ind] = {"unit": an["unit"], "range": rng, "values": series, "panel": section,
-                             "source": "nasa:osd569" if section == "cbc" else "nasa:osd575",
-                             "status": [None if v is None or rng is None else "in" if rng["min"] <= v <= rng["max"] else "out"
-                                        for v in series]}
-    lym = _SNAPSHOT["cbc"]["an"]["lym"][sex]
-    return {"subject": subject, "timepoints": _SNAPSHOT["cbc"]["tp"], "lymphocytes": _SNAPSHOT["cbc"]["crew"][subject]["lym"],
-            "range": {"min": lym["min"], "max": lym["max"]}, "unit": "cells/µL",
-            "analytes": analytes, "origin": "real",
-            "note": "Real Inspiration4 crew data (OSD-569 blood count, OSD-575 metabolic panel), from the subject of the same sex, "
-                    "shown as a reference for this crew member. Ranges are the laboratory's, by sex.",
-            "source": "nasa:osd569"}
+    for ind, by_day in series.items():
+        an = snap[panels[ind]]["an"][ind]
+        rng = simdata.lab_range(snap, ind, sex)
+        rng = {"min": rng[0], "max": rng[1]} if rng else None
+        vals = [by_day[d][0] if d in by_day else None for d in days]
+        analytes[ind] = {"unit": an["unit"], "range": rng, "values": vals, "panel": panels[ind],
+                         "source": next(iter(by_day.values()))[1],
+                         "status": [None if v is None or rng is None else "in" if rng["min"] <= v <= rng["max"] else "out" for v in vals]}
+    lym = simdata.lab_range(snap, "lym", sex)
+    if not analytes:
+        note = "No laboratory results registered for this crew member yet."
+    elif subject:
+        note = ("Real Inspiration4 crew data (OSD-569 blood count, OSD-575 metabolic panel), from the subject of the same sex, "
+                "shown as a reference for this crew member. Ranges are the laboratory's, by sex.")
+    else:
+        note = "Laboratory results registered for this crew member. Ranges are the laboratory's, by sex."
+    main = analytes.get("lym") or next(iter(analytes.values()), None)
+    return {"subject": subject, "timepoints": [label[d] for d in days],
+            "lymphocytes": analytes["lym"]["values"] if "lym" in analytes else [],
+            "range": {"min": lym[0], "max": lym[1]} if lym else None, "unit": "cells/µL",
+            "analytes": analytes, "origin": "real" if analytes else None, "note": note,
+            "source": main["source"] if main else None}

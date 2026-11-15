@@ -47,6 +47,12 @@ def _prepare_env(dry: bool) -> str:
     if dry:
         os.environ["CANARY_LLM_PROVIDER"] = DRY_PROVIDER
     os.environ.setdefault("CANARY_LIVE_SPACE_WEATHER", "0")
+    # The eval resets the demo for every scenario: no background day-sync thread may write behind its back, the PIN
+    # hashes use a low PBKDF2 round count (this process only, a throw-away database), and the bundled mission package
+    # is named explicitly so the demo crew and PINs are the ones the cases were written for.
+    os.environ["CANARY_DAY_SYNC"] = "0"
+    os.environ["CANARY_PBKDF2_ITERATIONS"] = "1000"
+    os.environ.setdefault("CANARY_MISSION_PACKAGE", "odyssey1-mars")
     for k, v in (("CANARY_CREW_PINS", ",".join(f"{c}:{p}" for c, p in DEMO_PINS.items())),
                  ("CANARY_MEDICAL_PIN", "1961")):
         os.environ.setdefault(k, v)

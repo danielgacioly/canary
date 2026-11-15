@@ -2,23 +2,24 @@
 // Physical shows the physical systems, Mental the mental facets (charts live on the Dashboard tab). Click any part of the body or any tile and the
 // verdict area becomes that system.
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { protocolPath } from '../pages/Protocols'
 import type { CrewDetail, GuideEntry, HazardId, Indicator, Risk } from '../api/types'
 import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
 import BodyHologram from '../hologram/BodyHologram'
 import type { Lens } from '../hologram/scene'
-import { amslerResult, attention, bonePctOfPreflight, nasaRaises } from '../lib/health'
+import { amslerResult, attention, bonePctOfPreflight, doseOrigin, fmtValue, missingNote, nasaRaises, num } from '../lib/health'
 import { useSession } from '../state/session'
 import EvaReadiness from './EvaReadiness'
 import RadiationBar from './RadiationBar'
-import { CountUp, Icon, Status } from './ui'
+import { CountUp, Icon, Status, WaitingForData } from './ui'
 
-const fmt = (i: Indicator) => i.value.toFixed(i.dp)
 const PHYSICAL: SystemId[] = ['heart', 'lungs', 'skeleton', 'muscles', 'eyes', 'kidneys', 'gut', 'immune', 'skin']
 const FACETS = ['sleep', 'react', 'mood', 'stress', 'social']
 const HAZARD_NAME: Record<HazardId, string> = { R: 'Radiation', I: 'Isolation', D: 'Distance', G: 'Gravity', E: 'Environment' }
 const TREND = { rising: 'Rising', stable: 'Stable', falling: 'Falling' } as const
-const DATA = { real: 'Measured data', partial: 'Part measured, part simulated', simulated: 'Simulated data' } as const
+const DATA = { real: 'Measured data', partial: 'Part measured, part simulated', simulated: 'Simulated data', none: 'No data yet' } as const
 
 /** Letters of the RIDGE hazards that may be factors; a possible factor, never a cause. */
 function Letters({ ids }: { ids: HazardId[] }) {
@@ -29,7 +30,8 @@ function Letters({ ids }: { ids: HazardId[] }) {
 export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; onCheck?: (k: CheckKind) => void; self?: boolean }) {
   const [lens, setLens] = useState<Lens>(d.areas.mental.level > d.areas.physical.level ? 'mental' : 'physical')
   const [sel, setSel] = useState<SystemId | null>(null)
-  const status = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.level])) as Record<SystemId, 0 | 1 | 2>, [d.systems])
+  // a system with nothing measured is painted neutral grey (-1), never a status colour
+  const status = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.no_data && v.level === 0 ? -1 : v.level])) as Record<SystemId, -1 | 0 | 1 | 2>, [d.systems])
   const names = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.name])), [d.systems])
   const hero = useRef<HTMLElement>(null)
   const apply = (s: SystemId | null) => {
@@ -50,6 +52,7 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
   const physical = [...PHYSICAL].sort((a, b) => d.systems[b].level - d.systems[a].level)
   const mental = [...FACETS].sort((a, b) => d.indicators[b].level - d.indicators[a].level)
 
+  if (d.no_data) return <WaitingForData self={self} name={d.crew.name.split(' ')[0]} />
   return (
     <>
       <section className="hero" ref={hero}>
@@ -65,8 +68,8 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
             {(['physical', 'mental'] as const).map(a => (
               <button key={a} className={`area ${lens === a ? 'on' : ''}`} onClick={() => { setLens(a); setSel(null) }} aria-pressed={lens === a}>
                 <div className="k">{a === 'physical' ? 'Physical' : 'Mental'}</div>
-                <b className="num"><CountUp value={d.areas[a].score} /></b>
-                <Status level={d.areas[a].level} />
+                <b className="num">{d.areas[a].score === null ? '—' : <CountUp value={d.areas[a].score as number} />}</b>
+                {d.areas[a].score === null ? <span className="small dim">No data yet</span> : <Status level={d.areas[a].level} />}
               </button>
             ))}
           </div>
@@ -75,19 +78,19 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
 
       {lens === 'physical' ? (
         <section id="sec-physical" key="physical">
-          <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score} · sorted by what needs attention</span></div>
+          <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score !== null && `${d.areas.physical.score} · `}sorted by what needs attention</span></div>
           <Tiles count={physical.length}>
             {physical.map((s, i) => <PhysicalTile key={s} d={d} s={s} i={i} on={sel === s} onPick={() => choose(s, true)} />)}
           </Tiles>
         </section>
       ) : (
         <section id="sec-mental" key="mental">
-          <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score} · rest, focus, mood, stress, connection</span></div>
+          <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score !== null && `${d.areas.mental.score} · `}rest, focus, mood, stress, connection</span></div>
           <Tiles count={mental.length}>
             {mental.map((k, i) => {
               const ind = d.indicators[k]
               return (
-                <button key={k} className={`tile rise s${ind.level} ${sel === 'brain' ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => choose('brain', true)}>
+                <button key={k} className={`tile rise ${ind.value === null ? 'nodata' : `s${ind.level}`} ${sel === 'brain' ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={() => choose('brain', true)}>
                   <div className="top"><span className="dot" />{ind.facet}<span className="small dim right">{ind.name}</span></div>
                   <Reading ind={ind} />
                 </button>
@@ -110,11 +113,12 @@ function Tiles({ count, children }: { count: number; children: React.ReactNode }
 /** The number of one indicator, with the population range only when the value is outside it. */
 function Reading({ ind }: { ind: Indicator }) {
   const p = ind.population
+  const note = missingNote(ind)
   return (
     <div className="tile-body">
-      <div className="tv">{fmt(ind)}<small>{ind.unit}</small></div>
-      <div className="small dim">normal {ind.baseline.toFixed(ind.dp)}</div>
-      {p.status !== 'in' && p.low !== null && p.high !== null && <div className="small tile-out">usual range {p.low}–{p.high}</div>}
+      <div className="tv">{fmtValue(ind)}{ind.value !== null && <small>{ind.unit}</small>}</div>
+      {note ? <div className="small dim">{note}</div> : ind.baseline !== null && <div className="small dim">normal {ind.baseline.toFixed(ind.dp)}</div>}
+      {p.status !== 'in' && p.status !== 'no_data' && p.low !== null && p.high !== null && <div className="small tile-out">usual range {p.low}–{p.high}</div>}
     </div>
   )
 }
@@ -126,7 +130,8 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
   let body
   if (s === 'skeleton' && ind && d.indicators.bone) {
     const bone = d.indicators.bone
-    body = <div className="tile-body"><div className="tv">{bonePctOfPreflight(bone).toFixed(1)}<small>% of pre-flight</small></div><div className="small dim">estimated from days in flight</div></div>
+    const pct = bonePctOfPreflight(bone)
+    body = <div className="tile-body"><div className="tv">{num(pct, 1)}{pct !== null && <small>% of pre-flight</small>}</div><div className="small dim">{missingNote(bone) ?? 'estimated from days in flight'}</div></div>
   } else if (s === 'eyes') {
     const a = amslerResult(d)
     body = <div className="tile-body"><div className="tv">{a.label}</div><div className="small dim">{a.day === null ? 'Amsler grid, not done yet' : `Amsler grid, day ${a.day}`}</div></div>
@@ -136,13 +141,13 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
       <div className="tile-body">
         <div className="tv">{x.career_msv ?? x.mission_msv}<small>mSv {x.career_msv === undefined ? 'this mission' : 'career'}</small></div>
         {x.career_msv !== undefined ? <RadiationBar d={d} compact /> : null}
-        <div className="small dim">{x.career_pct_of_limit ?? x.pct_of_limit}% of NASA's 600 mSv</div>
+        <div className="small dim">{x.career_pct_of_limit ?? x.pct_of_limit}% of NASA's 600 mSv{doseOrigin(x) && ` · ${doseOrigin(x)}`}</div>
       </div>
     )
   } else if (ind) body = <Reading ind={ind} />
-  else body = <div className="tile-body"><div className="tv">{st.status}</div></div>
+  else body = <div className="tile-body"><div className="tv">{st.no_data ? '—' : st.status}</div>{st.no_data && <div className="small dim">No data yet</div>}</div>
   return (
-    <button className={`tile rise s${st.level} ${on ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={onPick}>
+    <button className={`tile rise ${st.no_data && st.level === 0 ? 'nodata' : `s${st.level}`} ${on ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={onPick}>
       <div className="top"><span className="dot" />{st.name}{nasa && <span className="nasa-mark" title="A NASA-STD-3001 limit raises this level">NASA</span>}</div>
       {body}
     </button>
@@ -150,7 +155,8 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
 }
 
 function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; onCheck?: (k: CheckKind) => void; onPick: (s: SystemId) => void }) {
-  const { setEmergency, setAskOpen } = useSession()
+  const { setAskOpen } = useSession()
+  const nav = useNavigate()
   const top = d.alerts[0]
   const first = d.crew.name.split(' ')[0]
   const learning = d.mission.learning
@@ -171,7 +177,7 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
           <ol className="steps">{top.todo.map(t => <li key={t}>{t}</li>)}</ol>
           <div className="row wrap">
             {top.test && onCheck && self && <button className="btn pri" onClick={() => onCheck(top.test as CheckKind)}>Take the reaction test</button>}
-            {top.protocol && <button className="btn pri" onClick={() => setEmergency(true)}>Open the radiation protocol</button>}
+            {top.protocol && <button className="btn pri" onClick={() => nav(protocolPath(top.protocol as string))}>Open the radiation protocol</button>}
             {top.sys && <button className="btn" onClick={() => onPick(top.sys as SystemId)}>Show on the body</button>}
             {self && <button className="btn ghost" onClick={() => setAskOpen(true)}><Icon name="ask" />Ask why</button>}
           </div>
@@ -192,7 +198,7 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
             ))}
           </ul>
         )}
-        {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}.</p>}
+        {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}. <Link className="link" to={protocolPath(care.protocol)}>Protocol</Link></p>}
       </div>
       {self && <div className="rise" style={{ ['--d' as string]: 3 }}><EvaReadiness d={d} compact /></div>}
     </div>
@@ -213,7 +219,7 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
       <div className="rise" style={{ ['--d' as string]: 1 }}>
         <h1>{st.name}</h1>
         <p className="meta cap">{st.area} · {info.hazard}</p>
-        <div style={{ marginTop: 10 }}><Status level={st.level} /></div>
+        <div style={{ marginTop: 10 }}>{st.no_data && st.level === 0 ? <span className="small dim">No data yet</span> : <Status level={st.level} />}</div>
         {st.note && <p className="why">{st.note}</p>}
       </div>
       {sys === 'skin' && d.dose.career_msv !== undefined && <div className="rise" style={{ ['--d' as string]: 2 }}><RadiationBar d={d} /></div>}

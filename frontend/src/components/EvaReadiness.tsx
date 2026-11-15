@@ -2,13 +2,12 @@
 // Personal: My space and the medical team's view only, never the crew pages. The data refetches when "Where you are"
 // changes, so the colour follows the place.
 import type { CrewDetail, Indicator, Level } from '../api/types'
-import { bonePctOfPreflight, gripPctOfPreflight } from '../lib/health'
+import { bonePctOfPreflight, DASH, gripPctOfPreflight, num } from '../lib/health'
 import { useSession } from '../state/session'
 
 interface Row { id: string; name: string; now: string; limit: string; ind: Indicator | null; note?: string }
 
 const VERDICT = ['Ready', 'Close to a limit', 'Below a limit'] as const
-const f1 = (n: number) => n.toFixed(1)
 
 export default function EvaReadiness({ d, self = true, compact = false }: { d: CrewDetail; self?: boolean; compact?: boolean }) {
   const { catalog } = useSession()
@@ -24,10 +23,10 @@ export default function EvaReadiness({ d, self = true, compact = false }: { d: C
   const need = place.eva === 'surface' ? lim.surface : place.eva === 'microgravity' ? lim.microgravity : undefined
   const vo2 = d.indicators.vo2, grip = d.indicators.grip, bone = d.indicators.bone
   const rows: Row[] = []
-  if (vo2.standard && need) rows.push({ id: 'vo2', name: 'VO2max', now: f1(vo2.value), limit: `${need} mL/kg/min`, ind: vo2 })
-  else rows.push({ id: 'vo2', name: 'VO2max', now: f1(vo2.value), limit: '', ind: null, note: `No EVA at ${place.name}, so NASA sets no minimum here.` })
-  if (grip.standard) rows.push({ id: 'grip', name: 'Grip strength', now: `${gripPctOfPreflight(grip).toFixed(0)}%`, limit: '80% of pre-flight', ind: grip })
-  if (bone.standard) rows.push({ id: 'bone', name: 'Bone density', now: `${f1(bonePctOfPreflight(bone))}%`, limit: '95% of pre-flight', ind: bone })
+  if (vo2.standard && need) rows.push({ id: 'vo2', name: 'VO2max', now: num(vo2.value, 1), limit: `${need} mL/kg/min`, ind: vo2 })
+  else rows.push({ id: 'vo2', name: 'VO2max', now: num(vo2.value, 1), limit: '', ind: null, note: `No EVA at ${place.name}, so NASA sets no minimum here.` })
+  if (grip.standard) rows.push({ id: 'grip', name: 'Grip strength', now: grip.value === null ? DASH : `${num(gripPctOfPreflight(grip))}%`, limit: '80% of pre-flight', ind: grip })
+  if (bone.standard) rows.push({ id: 'bone', name: 'Bone density', now: bone.value === null ? DASH : `${num(bonePctOfPreflight(bone), 1)}%`, limit: '95% of pre-flight', ind: bone })
   const level = Math.max(0, ...rows.map(r => r.ind?.standard?.level ?? 0)) as Level
   return (
     <section className={`eva s${level}`}>

@@ -1,70 +1,38 @@
 """Where sensor readings come from.
 
-`TelemetrySource` is the seam for real devices. Today the only implementation is
-`DatasetSource`, which reads the observation table (`data/observations.csv`, one row
-per measurement with its origin, built from `data/recipes.json` by
-`data/generate_dataset.py`). Real rows dropped into `data/real/` replace simulated ones.
-A self check-in stored in the database overrides the file value for that day.
+`TelemetrySource` is the seam for real devices. Today the only implementation is `DatasetSource`, which reads the
+`observations` table of the database through domain/data.py (one row per measurement with its origin). The table is
+filled only through the entry points: POST /api/observations, a mission package import, scripts/load_mission.py.
+A self check-in stored in the database overrides the stored value for that day.
 """
 import json
 from typing import Dict, Optional, Protocol
 
 from .. import db
-from . import plan, simdata
-from .catalog import LOCATIONS
+from . import data, plan
+from .catalog import max_age
 from .simdata import h01  # noqa: F401  (re-exported: goals and suggestions use it)
 
 
 class TelemetrySource(Protocol):
-    def value(self, crew_id: str, ind: str, day: int) -> float: ...
+    def value(self, crew_id: str, ind: str, day: int) -> Optional[float]: ...
 
 
 class DatasetSource:
-    """Reads the observation table (backend/canary/data/observations.csv, built by data/generate_dataset.py).
-
-    With the default mission plan it reads the file. With any other plan it generates the same table in
-    memory with the same generator, once per plan (cached). On a day without a measurement it returns the
-    last observation; `last_observation` also says how old it is. A self check-in still wins on top of it
-    (see `overrides`).
-    """
-
-    def __init__(self, path=simdata.OBS_FILE):
-        self.path = path
-        self._tables: Dict[tuple, simdata.Table] = {}
-        self._ver: Optional[tuple] = None  # (plan version, plan signature)
-
-    def _table(self) -> simdata.Table:
-        v = plan.version()
-        if self._ver is None or self._ver[0] != v:
-            self._ver = (v, simdata.signature(plan.get()["legs"]))
-        sig = self._ver[1]
-        t = self._tables.get(sig)
-        if t is None:
-            default = sig == simdata.signature(plan.PRESETS[plan.DEFAULT]["legs"])
-            if default and self.path.exists():
-                rows = [(r["crew_id"], r["day"], r["indicator"], r["value"], r["unit"], r["origin"], r["method"], r["source"], r["note"])
-                        for r in simdata.read_csv(self.path)]
-            else:
-                rows = simdata.Generator(plan.get()["legs"]).observations()
-            t = self._tables[sig] = simdata.Table(rows)
-        return t
+    """Reads the stored observations (see data.py). On a day without a measurement it returns the last observation;
+    `last_observation` also says how old it is. A self check-in still wins on top of it (see `overrides`)."""
 
     def last_observation(self, crew_id: str, ind: str, day: int) -> Optional[dict]:
-        return self._table().last(crew_id, ind, day)
+        return data.last(crew_id, ind, day)
 
     def rows_between(self, crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, float]:
-        """Rows of the file (simulated or real) on days d0..d1, by day."""
-        return {d: v for (d, v, *_rest) in self._table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
+        """Stored rows on days d0..d1, by day."""
+        return data.rows_between(crew_id, ind, d0, d1)
 
-    def value(self, crew_id: str, ind: str, day: int) -> float:
-        t = self._table()
-        o = t.last(crew_id, ind, day)
-        if o is not None:
-            return o["value"]
-        first = t.first(crew_id, ind)  # before the first measurement: the first one is the best guess
-        if first is None:
-            raise KeyError(f"no observations for {crew_id}/{ind}")
-        return first
+    def value(self, crew_id: str, ind: str, day: int) -> Optional[float]:
+        """The last stored value up to `day`, or None when there is no row at all (never an exception)."""
+        o = data.last(crew_id, ind, day)
+        return None if o is None else o["value"]
 
 
 SOURCE: TelemetrySource = DatasetSource()
@@ -115,7 +83,7 @@ def last_user_day(crew_id: str, day: int) -> Dict[str, int]:
 def preflight_values(crew_id: str, ind: str) -> Dict[int, float]:
     """Every measurement of `ind` on the plan's pre-flight days (Earth legs that end before launch), by day.
 
-    The file's rows, with the person's own check-ins of those days on top. Never the carried-forward value.
+    The stored rows, with the person's own check-ins of those days on top. Never the carried-forward value.
     """
     days = [(l["start"], min(l["end"], -1)) for l in plan.get()["legs"] if l["location"] == "earth" and l["start"] < 0]
     out: Dict[int, float] = {}
@@ -127,9 +95,24 @@ def preflight_values(crew_id: str, ind: str) -> Dict[int, float]:
     return out
 
 
+def early_flight_values(crew_id: str, ind: str, window: int = 14) -> Dict[int, float]:
+    """The measurements of `ind` in the person's first `window` days of flight data (from their first measurement on or after
+    launch), by day: stored rows with the person's own check-ins on top. What a person who starts in flight learns their
+    normal from. Empty when there is none."""
+    vals: Dict[int, float] = dict(SOURCE.rows_between(crew_id, ind, 0, 10 ** 6))  # type: ignore[attr-defined]
+    for d, inds in user_values(crew_id, 0, 10 ** 6).items():
+        if ind in inds:
+            vals[d] = inds[ind]["value"]
+    if not vals:
+        return {}
+    first = min(vals)
+    return {d: v for d, v in vals.items() if d < first + window}
+
+
 def preflight_checkins(crew_id: str) -> int:
-    """How many check-ins exist before launch: part of the baseline cache key."""
-    return db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id=? AND day<0", (crew_id,))[0]["n"]
+    """How many check-ins the person has made: part of the baseline cache key (pre-flight ones and the early flight days
+    both feed the baseline)."""
+    return db.q("SELECT COUNT(*) n FROM checkins WHERE crew_id=?", (crew_id,))[0]["n"]
 
 
 def overrides(crew_id: str, day: int) -> Dict[str, float]:
@@ -138,43 +121,63 @@ def overrides(crew_id: str, day: int) -> Dict[str, float]:
 
 
 def observation(crew_id: str, ind: str, day: int, uv: Optional[Dict[int, Dict[str, dict]]] = None) -> dict:
-    """The one way to read a value: {"value", "origin", "source", "day"}.
+    """The one way to read a value: {"value", "origin", "source", "day", "age_days", "stale"}.
 
-    A self check-in of that day wins (origin "user"); otherwise the last row of the observation file up to
-    that day, with the origin and source of the row; before the first row, the first row.
+    A self check-in of that day wins (origin "user"); otherwise the last stored row up to that day, with the origin and
+    source of the row, how many days old it is and whether that is past the indicator's `max_age` (stale). With no row at
+    all: value None, origin "none". A day before the first measurement has no value either.
     """
     u = (uv if uv is not None else user_values(crew_id, day, day)).get(day, {}).get(ind)
     if u is not None:
-        return {"value": u["value"], "origin": "user", "source": f"checkin:{crew_id}:{u['kind']}:day{day}", "day": day}
+        return {"value": u["value"], "origin": "user", "source": f"checkin:{crew_id}:{u['kind']}:day{day}", "day": day, "age_days": 0, "stale": False}
     o = last_observation(crew_id, ind, day)
     if o is not None:
-        return {"value": o["value"], "origin": o["origin"], "source": o["source"], "day": o["day"]}
-    return {"value": SOURCE.value(crew_id, ind, day), "origin": "simulated", "source": f"recipe:{ind}", "day": day}
+        age = day - o["day"]
+        limit = max_age(ind)
+        return {"value": o["value"], "origin": o["origin"], "source": o["source"], "day": o["day"], "age_days": age,
+                "stale": limit is not None and age > limit}
+    return {"value": None, "origin": "none", "source": None, "day": None, "age_days": None, "stale": False}
 
 
-def reading(crew_id: str, ind: str, day: int, ov: Optional[Dict[str, float]] = None) -> float:
+def is_current(o: dict) -> bool:
+    """True when the observation has a value that is not stale."""
+    return o["value"] is not None and not o["stale"]
+
+
+def reading(crew_id: str, ind: str, day: int, ov: Optional[Dict[str, float]] = None) -> Optional[float]:
+    """The value of the day when it is current, else None (a stale or missing reading is not today's value)."""
     if ov is not None and ind in ov:
         return ov[ind]
-    return observation(crew_id, ind, day)["value"]
+    o = observation(crew_id, ind, day)
+    return o["value"] if is_current(o) else None
 
 
-def current(crew_id: str, ind: str, day: int) -> float:
-    """Weighted recent value: 60% today, 25% yesterday, 15% the day before. Check-ins count on all three days."""
+def current(crew_id: str, ind: str, day: int) -> Optional[float]:
+    """Weighted recent value: 60% today, 25% yesterday, 15% the day before, over the days whose observation is current
+    (not stale, not missing); the weights are renormalised over those days. None when none of the three is current.
+    Check-ins count on all three days."""
     uv = user_values(crew_id, day - 2, day)
-    return sum(w * observation(crew_id, ind, day - k, uv)["value"] for k, w in enumerate((0.6, 0.25, 0.15)))
+    num = den = 0.0
+    n = 0
+    for k, w in enumerate((0.6, 0.25, 0.15)):
+        o = observation(crew_id, ind, day - k, uv)
+        if is_current(o):
+            num += w * o["value"]
+            den += w
+            n += 1
+    return None if n == 0 else num if n == 3 else num / den
 
 
 def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
+    """[day, value] for the last `n` days; a day whose observation is stale or missing is [day, None] (null in JSON).
+    One exception, kept so the demo charts stay identical: on the days before the person's first stored measurement the
+    chart still draws that first value (the line starts flat). It is a chart nicety only: `observation()` and `current()`
+    never use it. A person with no measurement at all has no line."""
     uv = user_values(crew_id, day - n + 1, day)
-    return [[d, round(observation(crew_id, ind, d, uv)["value"], 2)] for d in range(day - n + 1, day + 1)]
-
-
-def cumulative_dose(day: int, location_now: str, storm: Optional[str]) -> float:
-    """Mission dose in mSv up to `day`, following the reference timeline. Simulated."""
-    if day < 0:
-        return 0.0
-    total = sum(LOCATIONS[plan.location_at(d)]["dose_rate"] for d in range(0, day))
-    total += LOCATIONS[location_now]["dose_rate"]
-    if day >= 152 and plan.location_at(152) in ("transit", "moon"):
-        total += 22.0  # simulated extra dose behind the storm shelter during the replayed May 2024 storm
-    return round(total, 1)
+    first = data.first(crew_id, ind)
+    out = []
+    for d in range(day - n + 1, day + 1):
+        o = observation(crew_id, ind, d, uv)
+        v = o["value"] if is_current(o) else (first if o["origin"] == "none" else None)
+        out.append([d, None if v is None else round(v, 2)])
+    return out

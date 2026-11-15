@@ -1,0 +1,7 @@
+start_day,end_day,location,label
+-60,-1,earth,Pre-flight training and baseline
+0,3,rocket,Launch and first 72 hours
+4,209,transit,Cruise to Mars
+210,299,mars,"Surface stay, Gale crater"
+300,313,mars_rover,Pressurized rover traverse to Mount Sharp
+314,720,mars,"Surface stay, Gale crater"

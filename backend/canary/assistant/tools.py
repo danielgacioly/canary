@@ -208,8 +208,15 @@ def _eva(ctx: ToolContext, ms: dict, snap: dict) -> tuple:
     lim = standards.LIMITS
     need = lim["vo2"].get(place.get("eva", "none"))
     inds, rows, srcs = snap["indicators"], [], []
+    unit = lambda iid, d: d["unit"] if iid == "vo2" else "% of pre-flight"  # noqa: E731
     for iid, name in EVA_ROWS:
         d, std = inds[iid], inds[iid].get("standard")
+        # No reading (or, for grip and bone, no normal to compare with yet): the row says so, with no number and no level.
+        if d["value"] is None or (iid == "grip" and d["baseline"] is None):
+            text = "No current reading yet." if d["value"] is None else "Still learning your normal, so this cannot be compared with pre-flight yet."
+            rows.append({"id": iid, "name": name, "now": None, "unit": unit(iid, d), "limit": None, "level": None, "status": None,
+                         "text": text, "item": None, "verified": False})
+            continue
         if iid == "vo2" and not (std and need):
             rows.append({"id": iid, "name": name, "now": round(d["value"], 1), "unit": d["unit"], "limit": None, "level": None,
                          "text": f"No EVA at {place['name']}, so NASA sets no minimum here."})
@@ -219,14 +226,17 @@ def _eva(ctx: ToolContext, ms: dict, snap: dict) -> tuple:
         if iid == "vo2":
             now, limit = round(d["value"], 1), f"{need} {lim['vo2']['unit']}"
         elif iid == "grip":
-            now, limit = round(100 * d["value"] / d["baseline"], 0) if d["baseline"] else 100.0, f"{lim['grip']['limit_pct']}% of pre-flight"
+            now, limit = round(100 * d["value"] / d["baseline"], 0), f"{lim['grip']['limit_pct']}% of pre-flight"
         else:
             now, limit = round(100 + d["value"], 1), f"{100 - lim['bone']['limit_loss_pct']:g}% of pre-flight"
-        rows.append({"id": iid, "name": name, "now": now, "unit": d["unit"] if iid == "vo2" else "% of pre-flight",
+        rows.append({"id": iid, "name": name, "now": now, "unit": unit(iid, d),
                      "limit": limit, "level": std["level"], "status": std["status"], "text": std["text"], "item": std["item"],
                      "verified": std["verified"]})
         srcs += [d["source"], _std_source(std["item"])]
-    level = max([r["level"] for r in rows if r["level"] is not None] or [0])
+    scored = [r["level"] for r in rows if r["level"] is not None]
+    if not scored:  # nothing to check against NASA's limits: no verdict, not "Ready"
+        return {**out, "note": "No current readings to check against NASA's limits yet.", "rows": rows}, srcs
+    level = max(scored)
     return {**out, "checked": True, "level": level, "verdict": EVA_VERDICT[level], "rows": rows}, srcs
 
 
