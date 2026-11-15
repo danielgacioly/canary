@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import { TeamRow } from '../components/GoalItems'
 import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
-import { Icon, Loading } from '../components/ui'
+import { Loading } from '../components/ui'
 import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
@@ -84,16 +84,6 @@ export default function Crew() {
         </div>
         <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
       </section>
-
-      <details className="contract-box">
-        <summary><Icon name="shield" size={16} />Who sees what<span className="small muted">Agreed by the crew on day 0</span></summary>
-        <div className="scroll"><table className="t contract">
-          <thead><tr><th>Information</th><th>The astronaut</th><th>Medical team</th><th>The crew</th><th>Earth</th></tr></thead>
-          <tbody>{data.contract.map(r => (
-            <tr key={r.info}><td><b>{r.info}</b></td>{[r.self, r.doctor, r.crew, r.earth].map((v, i) => <td key={i} className={v === 'No' ? 'dim' : ''}>{v}</td>)}</tr>
-          ))}</tbody>
-        </table></div>
-      </details>
     </div>
   )
 }
