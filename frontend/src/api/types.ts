@@ -305,7 +305,7 @@ export interface RegisterOptions {
   /** Mission dose of each itinerary (mSv) and the career limit, for the projected career dose and the waiver. */
   mission_dose_msv: Record<string, { rover: number; plain: number }>; career_limit_msv: number
 }
-export interface ControlDemo extends RegisterOptions { crew: SeatForm[]; ground: GroundForm[]; mission: MissionForm }
+export interface ControlDemo extends RegisterOptions { crew: SeatForm[]; ground: GroundForm[]; mission: MissionForm; counts: { readings: number; goal_entries: number; events: number } }
 
 /** GET /api/control/data-status: counts and dates only, never a value. */
 export interface DataStatus {

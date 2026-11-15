@@ -1361,3 +1361,7 @@ body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
   .topbar .sos { position: fixed; top: 13px; right: 10px; z-index: 65; background: var(--bg); }
   body.has-alarm .topbar .sos { top: 53px; }
 }
+
+/* ---- registration: paired devices under a person */
+.seat-devices { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 12px 56px; }
+@media (max-width: 760px) { .seat-devices { padding-left: 14px; } }

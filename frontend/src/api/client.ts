@@ -116,6 +116,10 @@ export const api = {
   setLocation: (location: string | null) =>
     req<Mission>('/mission', { method: 'PUT', ...body(location ? { location } : { clear_location: true }) }),
   reset: () => req<Mission>('/demo/reset', { method: 'POST' }),
+  /** Demo only, no sign-in: wipe to nothing registered (the tour registers from the start). */
+  demoStartEmpty: () => req<{ registered: boolean }>('/demo/start-empty', { method: 'POST' }),
+  /** Demo only, no sign-in, only while nothing is registered: load the demo mission (skipping the intro). */
+  demoQuickstart: () => req<{ registered: boolean }>('/demo/quickstart', { method: 'POST' }),
   setDay: (day: number | null) => req<Mission>('/mission', { method: 'PUT', ...body(day === null ? { clear_day: true } : { day }) }),
   plan: () => req<Plan>('/plan'),
   conditions: () => req<PlanConditions>('/plan/conditions'),

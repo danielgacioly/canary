@@ -2,10 +2,10 @@
 // It registers the crew and the mission (no accounts on board), follows each person the way
 // Earth may (operational status as the ship's medical team reports it, participation, hazards),
 // and exchanges delayed messages with the ship's medical console.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { AlertEvent, ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
+import type { AlertEvent, ControlDemo, ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
 import Timeline from '../components/Timeline'
 import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
@@ -18,6 +18,7 @@ import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { clockLine } from '../lib/clock'
+import { tourStage, setTourStage } from '../lib/tour'
 import { useApi, useSession } from '../state/session'
 import ControlData from './ControlData'
 
@@ -86,9 +87,20 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   const [tab, setTab] = useState<Tab | null>(null)
   useEffect(() => { api.controlOverview().then(o => { setOv(o); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
   if (!ov || !tab) return <div className="control"><Loading what="Canary Control" /></div>
-    // The first-access sign-in closes the moment an MCC account exists: after registering, sign in again with an MCC account.
-  const registered = () => { bump(); toast('Registered. Sign in with an MCC account.'); onSignOut() }
-  const loadDemoData = async () => { await api.controlDemoData(); registered() }
+  // The first-access sign-in closes the moment an MCC account exists. The registration form knows the MCC PIN it just sent, so sign
+  // in again with it; if that does not work, ask for the PIN.
+  const registered = async (mcc?: { name: string; pin: string }) => {
+    try {
+      const acc = await api.accountsPublic()
+      const m = acc.ground.find(g => g.role === 'mcc' && g.name === mcc?.name)
+      if (!mcc || !m) throw new Error('no account')
+      await api.controlSignIn(mcc.pin, m.id)
+      setTab('dashboard'); bump(); toast('Sent to Canary. Signed in to Canary Control.')
+      if (tourStage() === 'connect') setTourStage('dashboard')
+    } catch {
+      bump(); toast('Registered. Sign in with an MCC account.'); onSignOut()
+    }
+  }
   return (
     <div className="control">
       <EmergencyBanner />
@@ -102,8 +114,8 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
       </header>
       <div className="control-page">
         <Tabs value={tab} onChange={setTab} options={ov.registered ? [['dashboard', 'Dashboard'], ['data', 'Data'], ['messages', 'Messages']] : [['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
-        {tab === 'dashboard' && <Dashboard ov={ov} demoMode={catalog?.mode === 'demo'} onDemo={loadDemoData} onRegister={() => setTab('register')} />}
-        {tab === 'register' && !ov.registered && <Register demoMode={catalog?.mode === 'demo'} onSaved={registered} onDemo={loadDemoData} />}
+        {tab === 'dashboard' && <Dashboard ov={ov} onRegister={() => setTab('register')} />}
+        {tab === 'register' && !ov.registered && <Register demoMode={catalog?.mode === 'demo'} onSaved={registered} />}
         {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
@@ -141,18 +153,15 @@ function OpenAlerts() {
   )
 }
 
-function Dashboard({ ov, demoMode, onDemo, onRegister }: { ov: ControlOverview; demoMode: boolean; onDemo: () => Promise<void>; onRegister: () => void }) {
-  const demo = useAction()
+function Dashboard({ ov, onRegister }: { ov: ControlOverview; onRegister: () => void }) {
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
         <h2>Nothing registered</h2>
-        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission.{demoMode ? ' Or fill everything with the demo mission.' : ''}</p>
+        <p className="muted">The crew terminals are waiting. Connect the crew (one to six people), bring in the mission data and send it to Canary.</p>
         <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
           <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
-          {demoMode && <button className="btn" disabled={demo.busy} onClick={() => demo.run(onDemo)}>{demo.busy ? 'Loading…' : 'Use demo data'}</button>}
         </div>
-        <ActionError error={demo.error} />
       </div>
     )
   }
@@ -306,12 +315,32 @@ function validateRegister(f: Values, n: number, gn: number, presets: string[], r
   return e
 }
 
-function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: () => void; onDemo: () => Promise<void> }) {
-  const loadDemo = useAction()
+const DEVICES: [string, string][] = [
+  ['Astroskin (CSA Bio-Monitor)', 'ECG, breathing, SpO₂, skin temperature'],
+  ['Actiwatch Spectrum', 'sleep and activity'],
+  ['Crew Active Dosimeter', 'personal radiation dose'],
+]
+const missionToValues = (m: MissionForm): Values => ({ ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
+/** What the form says about the people, the ground team and the mission, to tell whether it still equals the demo data (the waiver is the person's own choice). */
+const formSig = (f: Values) => JSON.stringify(Object.entries(f).filter(([k, x]) => /^(crew|ground|mission)\./.test(k) && k !== 'mission.dose_waiver' && str(x) !== '').map(([k, x]) => [k, str(x)]).sort())
+type Sources = 'idle' | 'scanning' | 'none' | 'loaded'
+
+function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { name: string; pin: string }) => void }) {
   const [step, setStep] = useState(0)
   const [count, setCount] = useState(1)
-  const [open, setOpen] = useState(0)
+  const [open, setOpen] = useState(demoMode ? -1 : 0)
   const [gcount, setGcount] = useState(1)
+  const [scan, setScan] = useState<Sources>('idle')      // "Scan for crew devices"
+  const [crewDemo, setCrewDemo] = useState(false)         // the demo crew is in the form (with its paired devices)
+  const [src, setSrc] = useState<Sources>('idle')         // "Connect mission sources"
+  const demoData = useRef<ControlDemo | null>(null)
+  const demoSig = useRef('')
+  const fetchDemo = useAction()
+  useEffect(() => {
+    if (scan !== 'scanning' && src !== 'scanning') return
+    const t = setTimeout(() => { setScan(x => (x === 'scanning' ? 'none' : x)); setSrc(x => (x === 'scanning' ? 'none' : x)) }, 2000)
+    return () => clearTimeout(t)
+  }, [scan, src])
   const { data: demo } = useApi(() => api.controlOptions(), [])
   const presets = demo?.presets ?? { mars: 'Mars reference mission', iss: 'Six months on the ISS', moon: 'Lunar surface mission' }
   const roverPresets = demo?.rover_presets ?? ['mars', 'moon']
@@ -336,8 +365,11 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
       const ground = Array.from({ length: gcount }, (_, i): GroundForm => ({ name: str(f[`ground.${i}.name`]).trim(), role: str(f[`ground.${i}.role`]) as GroundForm['role'], pin: str(f[`ground.${i}.pin`]).trim() }))
       const mission: MissionForm = { callsign: str(f['mission.callsign']).trim(), name: str(f['mission.name']).trim(), launch_date: str(f['mission.launch_date']), preset: str(f['mission.preset']),
         rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false, dose_waiver: str(f['mission.dose_waiver']) === 'yes' }
-      await api.controlRegister(crew, mission, ground)
-      onSaved()
+      const mcc = ground.find(x => x.role === 'mcc')
+      // Still exactly the demo data: load the whole demo package (readings, goal history, story). Anything else is registered as typed.
+      if (demoMode && crewDemo && src === 'loaded' && formSig(f) === demoSig.current) await api.controlDemoData()
+      else await api.controlRegister(crew, mission, ground)
+      onSaved(mcc && { name: mcc.name, pin: mcc.pin })
     },
     // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
     reveal: key => {
@@ -345,6 +377,22 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
       if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.dose_waiver')) { setStep(2) } else if (key.startsWith('ground') || key.startsWith('mission.')) { setStep(1) }
     },
   })
+  const getDemo = async () => demoData.current ?? (demoData.current = await api.controlDemo())
+  const useDemoCrew = () => fetchDemo.run(async () => {
+    const d = await getDemo()
+    form.setValues(f => ({ ...Object.fromEntries(Object.entries(f).filter(([k]) => !/^(crew|ground)\./.test(k))), ...Object.assign({}, ...d.crew.map(seatToValues)), ...groundToValues(d.ground) }))
+    setCount(d.crew.length); setGcount(d.ground.length); setOpen(-1); setCrewDemo(true)
+    demoSig.current = formSig({ ...Object.assign({}, ...d.crew.map(seatToValues)), ...groundToValues(d.ground), ...missionToValues(d.mission) })
+  })
+  const loadDemoMission = () => fetchDemo.run(async () => {
+    const d = await getDemo()
+    form.setValues(f => ({ ...f, ...missionToValues(d.mission) }))
+    setSrc('loaded')
+  })
+  const clearForm = () => {
+    form.reset(toValues([emptySeat()], emptyMission))
+    setCount(1); setGcount(1); setOpen(demoMode ? -1 : 0); setScan('idle'); setSrc('idle'); setCrewDemo(false); setStep(0)
+  }
   const addPerson = () => {
     if (count >= MAX_PEOPLE) return
     form.setValues(f => ({ ...f, ...seatToValues(emptySeat(), count) }))
@@ -371,21 +419,23 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
   return (
     <form className="register" noValidate onSubmit={form.submit}>
       <div className="row wrap rise">
-        <div className="stepper">{['Crew', 'Mission and ground team', 'Review and save'].map((t, i) => (
+        <div className="stepper">{['Connect the crew', 'Mission data', 'Review and send'].map((t, i) => (
           <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
       </div>
-      {demoMode && step === 0 && (
-        <div className="set-row rise">
-          <div className="grow"><b>Use demo data</b><p className="small muted">Fill everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
-          <button type="button" className="btn" disabled={loadDemo.busy} onClick={() => loadDemo.run(onDemo)}>{loadDemo.busy ? 'Loading…' : 'Use demo data'}</button>
-          <ActionError error={loadDemo.error} />
-        </div>
-      )}
       {step < 2 && <FormSummary form={form} describe={seatNo} />}
 
       {step === 0 && (
         <div className="seats rise">
+          {demoMode && (
+            <div className="set-row" data-tour="scan">
+              <div className="grow"><b>Crew devices</b>
+                <p className="small muted">{crewDemo ? 'The demo crew and the ground team are in the form.' : scan === 'scanning' ? 'Scanning for wristbands and crew devices…' : scan === 'none' ? 'No wristband or crew device found.' : 'Find the wristbands and monitors the crew wears.'}</p></div>
+              {!crewDemo && scan !== 'none' && <button type="button" className="btn" disabled={scan === 'scanning'} onClick={() => setScan('scanning')}>{scan === 'scanning' ? 'Scanning…' : 'Scan for crew devices'}</button>}
+              {!crewDemo && scan === 'none' && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={useDemoCrew}>Use demo crew</button>}
+            </div>
+          )}
+          {demoMode && <ActionError error={fetchDemo.error} />}
           {people.map(i => (
             <div key={i} className={`seat ${open === i ? 'open' : ''}`}>
               <button type="button" className="seat-head" aria-expanded={open === i} onClick={() => setOpen(o => (o === i ? -1 : i))}>
@@ -394,6 +444,12 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
                 {seatShown(i) ? <span className="small err">{seatShown(i)} to fix</span>
                   : <span className={`small ${seatBad(i) ? 'dim' : 'ok-text'}`}>{seatBad(i) ? 'Not complete' : 'Ready'}</span>}
               </button>
+              {crewDemo && (
+                <div className="seat-devices small">
+                  {DEVICES.map(([n, what]) => <div key={n}><b>{n}</b> <span className="muted">· {what}</span> <span className="dim">· Paired (demo)</span></div>)}
+                  <button type="button" className="link-btn" onClick={() => setOpen(o => (o === i ? -1 : i))}>{open === i ? 'Hide details' : 'Edit details'}</button>
+                </div>
+              )}
               {open === i && <SeatFields form={form} i={i} issRate={demo?.iss_dose_msv_per_day ?? 0.5} onRemove={count > 1 ? () => removePerson(i) : undefined} />}
             </div>
           ))}
@@ -407,6 +463,16 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
 
       {step === 1 && (
         <div className="form-grid rise">
+          {demoMode && (
+            <div className="set-row" style={{ gridColumn: '1 / -1' }} data-tour="sources">
+              <div className="grow"><b>Mission sources</b>
+                <p className="small muted">{src === 'loaded' ? `Demo mission loaded: ${(demoData.current?.counts.readings ?? 0).toLocaleString('en-US')} readings, ${(demoData.current?.counts.goal_entries ?? 0).toLocaleString('en-US')} goal entries, ${demoData.current?.counts.events ?? 0} events. The mission fields below are filled.`
+                  : src === 'scanning' ? 'Connecting to the flight plan, cabin sensors, ISS RAD / dosimeters and NASA DONKI…' : src === 'none' ? 'No live source found.' : 'Flight plan, cabin sensors, ISS RAD / dosimeters and NASA DONKI.'}</p></div>
+              {src !== 'loaded' && src !== 'none' && <button type="button" className="btn" disabled={src === 'scanning'} onClick={() => setSrc('scanning')}>{src === 'scanning' ? 'Connecting…' : 'Connect mission sources'}</button>}
+              {src === 'none' && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={loadDemoMission}>Load demo mission data</button>}
+            </div>
+          )}
+          {demoMode && <div style={{ gridColumn: '1 / -1' }}><ActionError error={fetchDemo.error} /></div>}
           <Field form={form} name="mission.callsign" label="Callsign" placeholder="e.g. Odyssey 1" hint="2 to 24 characters" maxLength={24} />
           <Field form={form} name="mission.name" label="Mission name" placeholder="e.g. Mars reference mission" hint="2 to 80 characters" maxLength={80} />
           <Field form={form} name="mission.launch_date" label="Launch date" type="date" hint="Between 2025 and 2100" />
@@ -452,8 +518,9 @@ function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: (
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
           <FormSummary form={form} describe={seatNo} />
           <FormError form={form} />
-          <div className="row"><button type="button" className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission</button><span className="grow" />
-            <SubmitButton form={form}>Save and activate Canary</SubmitButton></div>
+          <div className="row wrap"><button type="button" className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission data</button>
+            <button type="button" className="btn ghost" onClick={clearForm}>Clear form</button><span className="grow" />
+            <span data-tour="save"><SubmitButton form={form} busyLabel="Sending…">Save and send to Canary</SubmitButton></span></div>
         </div>
       )}
     </form>

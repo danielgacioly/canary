@@ -7,6 +7,8 @@ import BodyHologram from '../hologram/BodyHologram'
 import Stars from '../components/Stars'
 import { CanaryMark, Icon } from '../components/ui'
 import { DataChapter, FlightScene, MineScene } from '../intro/Scenes'
+import { api } from '../api/client'
+import { useAction } from '../lib/useAction'
 import { useSession } from '../state/session'
 import { startTour } from '../lib/tour'
 
@@ -26,8 +28,10 @@ const AUTO = [7000, 7500, 7000, 0, 0]  // the data and the last chapter wait for
 export default function Intro() {
   const [i, setI] = useState(0)
   const nav = useNavigate()
-  const { catalog, mission } = useSession()
+  const { catalog, mission, bump, setMe } = useSession()
   const registered = !!mission?.registered
+  const demo = catalog?.mode === 'demo'
+  const go = useAction('toast')
 
   useEffect(() => {
     if (!AUTO[i]) return
@@ -36,8 +40,16 @@ export default function Intro() {
   }, [i])
 
   const seen = () => { try { sessionStorage.setItem('canary.intro', '1') } catch { /* storage blocked */ } }
-  const skip = () => { seen(); nav('/crew') }
-  const start = () => { seen(); startTour(registered ? 'dashboard' : 'control'); nav('/control') }
+  // Skipping with nothing registered loads the demo mission, so the crew view is not empty.
+  const skip = () => go.run(async () => {
+    if (demo && !registered) { await api.demoQuickstart(); bump() }
+    seen(); nav('/crew')
+  })
+  // The demo tour starts from nothing: wipe, forget every sign-in, and register in Canary Control. In flight mode the tour just opens Control.
+  const start = () => go.run(async () => {
+    if (demo) { await api.demoStartEmpty(); api.controlSignOut(); api.medicalSignOut(); setMe(null); bump() }
+    seen(); startTour(demo || !registered ? 'control' : 'dashboard'); nav('/control')
+  })
   const ch = CHAPTERS[i]
 
   return (
@@ -45,7 +57,7 @@ export default function Intro() {
       <Stars />
       <div className="row intro-top">
         <span className="brand"><CanaryMark size={24} />CANARY</span>
-        <button className="btn sm ghost right" onClick={skip}>Skip intro<Icon name="chev" /></button>
+        <button className="btn sm ghost right" disabled={go.busy} onClick={skip}>Skip intro<Icon name="chev" /></button>
       </div>
 
       {i === 3 ? (
@@ -60,7 +72,7 @@ export default function Intro() {
         <div className="intro-stage" key={i}>
           <div className="intro-copy">
             <h1 className="reveal">{ch.h}</h1>
-            {i < LAST ? <p className="lead reveal d1">{ch.p}</p> : <HowItWorks registered={registered} onStart={start} />}
+            {i < LAST ? <p className="lead reveal d1">{ch.p}</p> : <HowItWorks registered={registered && !demo} busy={go.busy} onStart={start} />}
           </div>
           <div className="intro-visual">
             {i === 0 && <MineScene />}
@@ -84,7 +96,7 @@ export default function Intro() {
 }
 
 /** The steps ahead, and the door into Canary Control. */
-function HowItWorks({ registered, onStart }: { registered: boolean; onStart: () => void }) {
+function HowItWorks({ registered, busy, onStart }: { registered: boolean; busy: boolean; onStart: () => void }) {
   const steps = [
     ['Canary Control', 'Mission Control registers the mission, the crew and their accounts, and connects each astronaut\'s devices.'],
     ['On Earth', 'The flight surgeon and Mission Control follow operational status and messages, with the real signal delay. Health details stay on board.'],
@@ -98,7 +110,7 @@ function HowItWorks({ registered, onStart }: { registered: boolean; onStart: () 
         ))}
       </ol>
       <div className="reveal d2">
-        <button className="btn pri lg pulse" onClick={onStart}>{registered ? 'Open Canary Control' : 'Start in Canary Control'}<Icon name="chev" /></button>
+        <button className="btn pri lg pulse" disabled={busy} onClick={onStart}>{registered ? 'Open Canary Control' : 'Start in Canary Control'}<Icon name="chev" /></button>
       </div>
     </>
   )
