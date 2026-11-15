@@ -1,95 +1,105 @@
-// Opening sequence: the canary story in four beats over the assembling body, then the mission
-// as the mission admin configured it (itinerary and crew come from that future admin flow).
-import { useEffect, useMemo, useState } from 'react'
+// Opening story, then the hand-off to the guided tour. Five chapters: the canary in the coal mine, the next frontier,
+// what Canary is, the data it is built on, and how it works (it starts in Canary Control). The last chapter starts the
+// tour (sessionStorage `canary.tour`), which continues in Canary Control and then on board.
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
-import type { Plan } from '../api/types'
 import BodyHologram from '../hologram/BodyHologram'
 import Stars from '../components/Stars'
-import { Dot } from '../components/People'
-import Timeline from '../components/Timeline'
 import { CanaryMark, Icon } from '../components/ui'
+import { DataChapter, FlightScene, MineScene } from '../intro/Scenes'
 import { useSession } from '../state/session'
+import { startTour } from '../lib/tour'
 
-const BEATS = [
-  { k: '1911, coal mines', h: 'For a century, miners carried a canary underground.', p: 'The bird felt bad air before people did. When it went quiet, the miners knew to leave, long before they felt anything themselves.' },
-  { k: '2030s, deep space', h: 'A spacecraft is a sealed mine.', p: 'Radiation, isolation, distance, altered gravity and a closed cabin. On the way to Mars, a question to the doctor takes up to 24 minutes to arrive, and as long to come back.' },
-  { k: 'Canary', h: 'It notices before you do.', p: 'Canary compares every astronaut with their own normal, turns early warnings into goals, and guides the crew step by step when something goes wrong.' },
-  { k: 'NASA open data', h: 'Real storms. Real blood counts. Real distance.', p: 'NASA DONKI space weather, Curiosity radiation on Mars and Inspiration4 blood counts drive the story you are about to see.' },
+const CHAPTERS = [
+  { k: '1911, coal mines', h: 'For a century, miners carried a canary underground.',
+    p: 'The bird felt bad air before people did. When it went quiet, the miners left in time, long before they felt anything themselves.' },
+  { k: 'The next frontier', h: 'A century later, we look up.',
+    p: 'To the next frontier: the Moon, Mars and the deep space between. Radiation, isolation, distance, altered gravity and a sealed cabin. We take the canary with us.' },
+  { k: 'Canary', h: 'It notices before you do.',
+    p: "Canary learns each astronaut's own normal, warns early, turns warnings into daily goals and guides the crew step by step in an emergency, even when Earth is twenty minutes away." },
+  { k: 'The data', h: 'Built on NASA data.', p: '' },
+  { k: 'How it works', h: 'It starts in Canary Control.', p: '' },
 ]
-const COUNT = ['No crew yet', 'One crew member', 'Two crew', 'Three crew', 'Four crew', 'Five crew', 'Six crew']
-const crewWord = (n: number) => COUNT[n] ?? `${n} crew`
-const LAST = BEATS.length  // index of the "mission ready" beat
-const BEAT_MS = 6500
+const LAST = CHAPTERS.length - 1
+const AUTO = [7000, 7500, 7000, 0, 0]  // the data and the last chapter wait for the reader
 
 export default function Intro() {
   const [i, setI] = useState(0)
   const nav = useNavigate()
-  const { catalog } = useSession()
-  const [plan, setPlan] = useState<Plan | null>(null)
-  useEffect(() => { api.plan().then(setPlan).catch(() => undefined) }, [])
-  const enter = () => {
-    try { sessionStorage.setItem('canary.intro', '1') } catch { /* storage blocked */ }
-    nav('/crew')
-  }
+  const { catalog, mission } = useSession()
+  const registered = !!mission?.registered
+
   useEffect(() => {
-    if (i >= LAST) return
-    const t = setTimeout(() => setI(x => x + 1), BEAT_MS)
+    if (!AUTO[i]) return
+    const t = setTimeout(() => setI(x => Math.min(LAST, x + 1)), AUTO[i])
     return () => clearTimeout(t)
   }, [i])
-  const status = useMemo(() => ({}), [])
-  const ready = i === LAST
+
+  const seen = () => { try { sessionStorage.setItem('canary.intro', '1') } catch { /* storage blocked */ } }
+  const skip = () => { seen(); nav('/crew') }
+  const start = () => { seen(); startTour(registered ? 'dashboard' : 'control'); nav('/control') }
+  const ch = CHAPTERS[i]
 
   return (
     <div className="intro">
       <Stars />
       <div className="row intro-top">
         <span className="brand"><CanaryMark size={24} />CANARY</span>
-        <button className="btn sm ghost right" onClick={enter}>Skip intro<Icon name="chev" /></button>
+        <button className="btn sm ghost right" onClick={skip}>Skip intro<Icon name="chev" /></button>
       </div>
-      <div className="intro-stage">
-        {!ready ? (
-          <div className="intro-copy" key={i}>
-            <h1 className="reveal">{BEATS[i].h}</h1>
-            <p className="lead reveal d1">{BEATS[i].p}</p>
+
+      {i === 3 ? (
+        <div className="intro-stage wide" key={i}>
+          <div className="intro-copy">
+            <h1 className="reveal">{ch.h}</h1>
+            <p className="lead reveal d1">The baseline comes from NASA. The crew's blood is moulded on Inspiration4. The rest is simulated, and labelled as such.</p>
           </div>
-        ) : (
-          <MissionReady plan={plan} crew={catalog?.crew ?? []} places={catalog?.locations} />
-        )}
-        <div className="intro-holo reveal"><BodyHologram className="bodycard" status={status} interactive={false} autoRotate /></div>
-      </div>
+          <DataChapter sources={catalog?.sources ?? []} />
+        </div>
+      ) : (
+        <div className="intro-stage" key={i}>
+          <div className="intro-copy">
+            <h1 className="reveal">{ch.h}</h1>
+            {i < LAST ? <p className="lead reveal d1">{ch.p}</p> : <HowItWorks registered={registered} onStart={start} />}
+          </div>
+          <div className="intro-visual">
+            {i === 0 && <MineScene />}
+            {i === 1 && <FlightScene />}
+            {i >= 2 && <div className="intro-holo"><BodyHologram className="bodycard" status={{}} interactive={false} autoRotate /></div>}
+          </div>
+        </div>
+      )}
+
       <div className="intro-nav">
-        {[...BEATS.map(b => b.k), 'Your mission'].map((label, k) => (
+        {CHAPTERS.map((c, k) => (
           <button key={k} className={`beat ${k < i ? 'done' : k === i ? 'on' : ''}`} onClick={() => setI(k)}>
-            <span className="beatbar"><i key={k === i ? `on${i}` : 'x'} className={k === LAST ? 'static' : ''} /></span>
-            <span className="beat-l">{label}</span>
+            <span className="beatbar"><i key={k === i ? `on${i}` : 'x'} className={AUTO[k] ? '' : 'static'} style={AUTO[k] ? { animationDuration: `${AUTO[k]}ms` } : undefined} /></span>
+            <span className="beat-l">{c.k}</span>
           </button>
         ))}
-        <button className="btn pri lg right" onClick={() => (ready ? enter() : setI(x => x + 1))}>{ready ? 'Enter Canary' : 'Next'}<Icon name="chev" /></button>
+        {i < LAST && <button className="btn pri lg right" onClick={() => setI(x => x + 1)}>Next<Icon name="chev" /></button>}
       </div>
     </div>
   )
 }
 
-/** The last beat: the mission as configured, drawn in. Nothing to fill in here. */
-function MissionReady({ plan, crew, places }: { plan: Plan | null; crew: { id: string; name: string; initials: string; role: string }[]; places?: Record<string, { name: string; reply: string; gravity: string }> }) {
-  if (!plan || !places) return <div className="intro-copy" />
-  const flight = plan.legs[plan.legs.length - 1].end + 1
-  const dest = [...plan.legs].reverse().find(l => l.location !== 'earth' && l.location !== 'rocket') ?? plan.legs[plan.legs.length - 1]
-  const where = places[dest.location]
+/** The steps ahead, and the door into Canary Control. */
+function HowItWorks({ registered, onStart }: { registered: boolean; onStart: () => void }) {
+  const steps = [
+    ['Canary Control', 'Mission Control registers the mission, the crew and their accounts, and connects each astronaut\'s devices.'],
+    ['On Earth', 'The flight surgeon and Mission Control follow operational status and messages, with the real signal delay. Health details stay on board.'],
+    ['On board', 'Each astronaut sees their own body, goals and alerts. The crew medical officer sees everyone, and Guided Response is one hold away.'],
+  ]
   return (
-    <div className="intro-copy ready" key="ready">
-      <h1 className="reveal">{plan.name}. {crewWord(crew.length)}, {flight} days.</h1>
-      <p className="lead reveal d1">{crew.length === 0 ? 'Mission Control registers the crew and the itinerary. ' : 'Itinerary and crew are set by mission control. '}Destination: {where.name}, {where.gravity} gravity, Earth replies in {where.reply.toLowerCase()}. Canary adapts to every leg on its own.</p>
-      <div className="reveal d2"><Timeline legs={plan.legs} places={places} now={0} nowLabel="Launch" compact /></div>
-      <div className="ready-crew">
-        {crew.map((c, k) => (
-          <div key={c.id} className="reveal" style={{ animationDelay: `${700 + k * 90}ms` }}>
-            <Dot p={c} size="md" />
-            <span><b>{c.name}</b><span className="small muted">{c.role}</span></span>
-          </div>
+    <>
+      <ol className="steps-ahead">
+        {steps.map(([t, d], k) => (
+          <li key={t} style={{ animationDelay: `${250 + k * 140}ms` }}><span className="n">{k + 1}</span><span><b>{t}</b><span className="small muted">{d}</span></span></li>
         ))}
+      </ol>
+      <div className="reveal d2">
+        <button className="btn pri lg pulse" onClick={onStart}>{registered ? 'Open Canary Control' : 'Start in Canary Control'}<Icon name="chev" /></button>
       </div>
-    </div>
+    </>
   )
 }
