@@ -70,7 +70,7 @@ def load() -> None:
             crew.append({"id": p["seat"], "name": p["name"], "role": p["role"], "initials": _initials(p["name"]),
                          "home": p["home"], "cbc_subject": seat["cbc_subject"], "age": seat["age"],
                          "sex": reg if reg in ("F", "M") else seat["sex"], "base": seat["base"]})
-            records[p["seat"]] = {k: p.get(k) for k in RECORD_FIELDS}
+            records[p["seat"]] = {k: p.get(k) for k in RECORD_FIELDS if k in p or k != "prior_dose_msv"}
     catalog.CREW[:] = crew
     catalog.CREW_BY_ID.clear()
     catalog.CREW_BY_ID.update({c["id"]: c for c in crew})

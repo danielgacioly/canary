@@ -17,7 +17,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 from .. import db
-from . import care, plan
+from . import care, data, plan
 
 # ---------------------------------------------------------------- tables (prototype assumption)
 # Every weight and cut below is a prototype assumption: no published model sums these signals. They were chosen
@@ -52,7 +52,7 @@ def _token(crew_id: str) -> tuple:
     from . import health
     c = db.q("SELECT COUNT(*) n, COALESCE(MAX(id),0) m, COALESCE(SUM(day),0) d, COALESCE(SUM(LENGTH(payload)),0) p FROM checkins WHERE crew_id=?", (crew_id,))[0]
     g = db.q("SELECT COUNT(*) n, COALESCE(SUM(done),0) d, COALESCE(SUM(day),0) s FROM goal_log WHERE crew_id=?", (crew_id,))[0]
-    return (plan.version(), json.dumps(health.thresholds(), sort_keys=True), json.dumps(health.thresholds_by_indicator(), sort_keys=True),
+    return (plan.version(), data.token(), json.dumps(health.thresholds(), sort_keys=True), json.dumps(health.thresholds_by_indicator(), sort_keys=True),
             c["n"], c["m"], c["d"], c["p"], g["n"], g["d"], g["s"], care.token(crew_id))
 
 

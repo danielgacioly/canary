@@ -50,6 +50,11 @@ class Settings:
     llm_provider: str = os.environ.get("CANARY_LLM_PROVIDER", "none")
     frontend_dist: str = os.environ.get("CANARY_FRONTEND_DIST", str(ROOT / "frontend" / "dist"))
     # Compute the six demo-story days in the background at start-up, so the first click on a scene is quick.
+    # Key a sensor, wearable or lab must send (header X-Canary-Key) to POST /api/observations. Empty: ingest is off.
+    ingest_key: str = os.environ.get("CANARY_INGEST_KEY", "")
+    # Mission package (a folder under data/missions) loaded on first start and by "reset demo". Empty: start with no data.
+    mission_package: str = os.environ.get("CANARY_MISSION_PACKAGE", "odyssey1-mars")
+    missions_dir: str = os.environ.get("CANARY_MISSIONS_DIR", str(ROOT / "data" / "missions"))
     warm_cache: bool = os.environ.get("CANARY_WARM", "1") == "1"
 
 

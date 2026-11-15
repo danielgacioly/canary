@@ -9,7 +9,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from .. import db
-from . import care, plan, reference, risk, standards, telemetry
+from . import care, data, plan, reference, risk, standards, telemetry
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -41,7 +41,7 @@ def baselines(crew_id: str) -> Dict[str, dict]:
     pre-flight measurements (or no pre-flight leg in the plan) it falls back to the catalog seed. Cached per
     crew member, plan version and number of pre-flight check-ins.
     """
-    key = (crew_id, plan.version(), telemetry.preflight_checkins(crew_id))
+    key = (crew_id, plan.version(), data.token(), telemetry.preflight_checkins(crew_id))
     hit = _baselines.get(key)
     if hit is None:
         if len(_baselines) > 64:

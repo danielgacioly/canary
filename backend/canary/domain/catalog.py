@@ -330,3 +330,59 @@ _link(["dsst", "span", "kss", "tlx"], "I", "the brain system's hazard in SYSTEMS
 _link("urine_volume", "G", "the kidney system's hazard in SYSTEMS", _ASSUME)
 # Rows of the matrix with no indicator in the catalog yet: cytokines (OSD-575/656).
 HAZARD_ROWS_WITHOUT_INDICATOR = ["cytokines"]
+
+
+# ---------------------------------------------------------------- what an incoming measurement may look like
+# One entry per measurement the system accepts (POST /api/observations and mission packages): the units it may be sent
+# in and a plausibility range [lo, hi]. The range catches typos, unit slips and broken sensors; it is NOT a clinical
+# range and says nothing about what is healthy (prototype assumption, `verified: False`). Vitals reuse the limits of
+# the self check-in forms (selftests.VITALS_LIMITS). The lab panel and the cabin sensors are listed here too, because
+# the observation table carries them although they are not in INDICATORS. Adding a key to INDICATORS itself would
+# change every health snapshot, so the plausibility ranges live apart.
+ACCEPT: Dict[str, dict] = {
+    "sleep": {"units": ("h",), "range": (0, 24)},
+    "react": {"units": ("ms",), "range": (50, 10000)},
+    "mood": {"units": ("/5",), "range": (0, 5)},
+    "stress": {"units": ("/5",), "range": (0, 5)},
+    "social": {"units": ("min",), "range": (0, 1440)},
+    "dsst": {"units": ("correct", "correct/60s"), "range": (0, 500)},
+    "span": {"units": ("digits",), "range": (0, 30)},
+    "kss": {"units": ("/9",), "range": (0, 9)},
+    "tlx": {"units": ("/100",), "range": (0, 100)},
+    "hr": {"units": ("bpm",), "range": (25, 250)},
+    "bp": {"units": ("mmHg",), "range": (60, 260)},
+    "spo2": {"units": ("%",), "range": (50, 100)},
+    "temp": {"units": ("°C",), "range": (30, 45)},
+    "gluc": {"units": ("mg/dL",), "range": (20, 800)},
+    "water": {"units": ("L",), "range": (0, 20)},
+    "exer": {"units": ("min",), "range": (0, 1440)},
+    "grip": {"units": ("kg",), "range": (0, 120)},
+    "bone": {"units": ("%",), "range": (-100, 200)},
+    "vo2": {"units": ("mL/kg/min",), "range": (5, 100)},
+    "hrv": {"units": ("ms",), "range": (0, 400)},
+    "weight": {"units": ("kg",), "range": (20, 300)},
+    # blood and urine panels
+    "wbc": {"units": ("10^3/uL",), "range": (0.2, 100)},
+    "lym": {"units": ("cells/uL",), "range": (0, 20000)},
+    "neu": {"units": ("cells/uL",), "range": (0, 40000)},
+    "hgb": {"units": ("g/dL",), "range": (3, 25)},
+    "hct": {"units": ("percent", "%"), "range": (10, 70)},
+    "plt": {"units": ("10^3/uL",), "range": (5, 2000)},
+    "rbc": {"units": ("10^6/uL",), "range": (1, 10)},
+    "creatinine": {"units": ("mg/dL",), "range": (0.1, 15)},
+    "potassium": {"units": ("mmol/L",), "range": (1, 10)},
+    "calcium": {"units": ("mg/dL",), "range": (4, 20)},
+    "crp": {"units": ("mg/L",), "range": (0, 1000)},
+    "urine_calcium": {"units": ("mg/24h",), "range": (0, 3000)},
+    "urine_volume": {"units": ("mL/24h",), "range": (0, 10000)},
+    "cortisol": {"units": ("ug/dL",), "range": (0, 100)},
+    "tsh": {"units": ("mIU/L",), "range": (0, 100)},
+    "vitamin_d": {"units": ("ng/mL",), "range": (0, 200)},
+    # cabin air
+    "co2": {"units": ("ppm",), "range": (200, 100000)},
+    # the dosimeter: accepted as a measurement (crew badge or cabin), but NOT an INDICATOR (no baseline, no alert of its
+    # own): the dose model reads it. Absorbed-dose-equivalent rate in mSv per day.
+    "dose_rate": {"units": ("mSv/day",), "range": (0, 100)},
+}
+ACCEPT_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
+CABIN_ID = "cabin"  # the crew id of cabin sensors (air, dosimeter)

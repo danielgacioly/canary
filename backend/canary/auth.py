@@ -46,6 +46,17 @@ def set_pin(crew_id: str, pin: str) -> None:
     db.set_setting("pins", pins)
 
 
+def hashed_pins(pins: Dict[str, str]) -> dict:
+    """The stored `pins` setting with these PINs added (salted and hashed), for callers that write settings themselves."""
+    out = dict(db.get_setting("pins") or {})
+    for crew_id, pin in pins.items():
+        if not valid_pin(pin):
+            raise ValueError("a PIN is exactly 4 digits")
+        salt = os.urandom(16)
+        out[crew_id] = {"salt": salt.hex(), "hash": _hash(pin, salt)}
+    return out
+
+
 # ---------------------------------------------------------------- rate limit
 def locked(key: str) -> bool:
     now = time.time()

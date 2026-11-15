@@ -1,6 +1,6 @@
-start_day,end_day,location
--60,-1,earth
-0,1,rocket
-2,181,iss
-182,182,rocket
-183,270,earth
+start_day,end_day,location,label
+-60,-1,earth,Pre-flight training and baseline
+0,1,rocket,Launch and docking
+2,181,iss,Expedition on the station
+182,182,rocket,Undocking and landing
+183,270,earth,Recovery and rehabilitation

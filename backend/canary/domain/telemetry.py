@@ -1,16 +1,15 @@
 """Where sensor readings come from.
 
-`TelemetrySource` is the seam for real devices. Today the only implementation is
-`DatasetSource`, which reads the observation table (`data/observations.csv`, one row
-per measurement with its origin, built from `data/recipes.json` by
-`data/generate_dataset.py`). Real rows dropped into `data/real/` replace simulated ones.
-A self check-in stored in the database overrides the file value for that day.
+`TelemetrySource` is the seam for real devices. Today the only implementation is `DatasetSource`, which reads the
+`observations` table of the database through domain/data.py (one row per measurement with its origin). The table is
+filled only through the entry points: POST /api/observations, a mission package import, scripts/load_mission.py.
+A self check-in stored in the database overrides the stored value for that day.
 """
 import json
 from typing import Dict, Optional, Protocol
 
 from .. import db
-from . import plan, simdata
+from . import data, plan
 from .catalog import LOCATIONS
 from .simdata import h01  # noqa: F401  (re-exported: goals and suggestions use it)
 
@@ -20,48 +19,21 @@ class TelemetrySource(Protocol):
 
 
 class DatasetSource:
-    """Reads the observation table (backend/canary/data/observations.csv, built by data/generate_dataset.py).
-
-    With the default mission plan it reads the file. With any other plan it generates the same table in
-    memory with the same generator, once per plan (cached). On a day without a measurement it returns the
-    last observation; `last_observation` also says how old it is. A self check-in still wins on top of it
-    (see `overrides`).
-    """
-
-    def __init__(self, path=simdata.OBS_FILE):
-        self.path = path
-        self._tables: Dict[tuple, simdata.Table] = {}
-        self._ver: Optional[tuple] = None  # (plan version, plan signature)
-
-    def _table(self) -> simdata.Table:
-        v = plan.version()
-        if self._ver is None or self._ver[0] != v:
-            self._ver = (v, simdata.signature(plan.get()["legs"]))
-        sig = self._ver[1]
-        t = self._tables.get(sig)
-        if t is None:
-            default = sig == simdata.signature(plan.PRESETS[plan.DEFAULT]["legs"])
-            if default and self.path.exists():
-                rows = [(r["crew_id"], r["day"], r["indicator"], r["value"], r["unit"], r["origin"], r["method"], r["source"], r["note"])
-                        for r in simdata.read_csv(self.path)]
-            else:
-                rows = simdata.Generator(plan.get()["legs"]).observations()
-            t = self._tables[sig] = simdata.Table(rows)
-        return t
+    """Reads the stored observations (see data.py). On a day without a measurement it returns the last observation;
+    `last_observation` also says how old it is. A self check-in still wins on top of it (see `overrides`)."""
 
     def last_observation(self, crew_id: str, ind: str, day: int) -> Optional[dict]:
-        return self._table().last(crew_id, ind, day)
+        return data.last(crew_id, ind, day)
 
     def rows_between(self, crew_id: str, ind: str, d0: int, d1: int) -> Dict[int, float]:
-        """Rows of the file (simulated or real) on days d0..d1, by day."""
-        return {d: v for (d, v, *_rest) in self._table().obs.get((crew_id, ind), []) if d0 <= d <= d1}
+        """Stored rows on days d0..d1, by day."""
+        return data.rows_between(crew_id, ind, d0, d1)
 
     def value(self, crew_id: str, ind: str, day: int) -> float:
-        t = self._table()
-        o = t.last(crew_id, ind, day)
+        o = data.last(crew_id, ind, day)
         if o is not None:
             return o["value"]
-        first = t.first(crew_id, ind)  # before the first measurement: the first one is the best guess
+        first = data.first(crew_id, ind)  # before the first measurement: the first one is the best guess
         if first is None:
             raise KeyError(f"no observations for {crew_id}/{ind}")
         return first
@@ -115,7 +87,7 @@ def last_user_day(crew_id: str, day: int) -> Dict[str, int]:
 def preflight_values(crew_id: str, ind: str) -> Dict[int, float]:
     """Every measurement of `ind` on the plan's pre-flight days (Earth legs that end before launch), by day.
 
-    The file's rows, with the person's own check-ins of those days on top. Never the carried-forward value.
+    The stored rows, with the person's own check-ins of those days on top. Never the carried-forward value.
     """
     days = [(l["start"], min(l["end"], -1)) for l in plan.get()["legs"] if l["location"] == "earth" and l["start"] < 0]
     out: Dict[int, float] = {}
@@ -140,7 +112,7 @@ def overrides(crew_id: str, day: int) -> Dict[str, float]:
 def observation(crew_id: str, ind: str, day: int, uv: Optional[Dict[int, Dict[str, dict]]] = None) -> dict:
     """The one way to read a value: {"value", "origin", "source", "day"}.
 
-    A self check-in of that day wins (origin "user"); otherwise the last row of the observation file up to
+    A self check-in of that day wins (origin "user"); otherwise the last stored row up to
     that day, with the origin and source of the row; before the first row, the first row.
     """
     u = (uv if uv is not None else user_values(crew_id, day, day)).get(day, {}).get(ind)
