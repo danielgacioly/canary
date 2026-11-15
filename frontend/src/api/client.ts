@@ -181,6 +181,7 @@ export const api = {
     return req<ImportResult>('/control/import', { method: 'POST', body: form, })
   },
   controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
+  controlDemoData: () => req<ControlOverview>('/control/demo-data', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),
   medGoals: () => req<MedGoal[]>('/medical/goals'),
