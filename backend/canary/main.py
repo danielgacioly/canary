@@ -726,6 +726,7 @@ class CheckinIn(BaseModel):
     kind: str = Field(pattern="^(" + "|".join(sorted(selftests.TEST_IDS)) + ")$")
     payload: dict
     photo: Optional[str] = None  # vitals only: the display, kept as evidence apart from the numbers
+    origin: str = Field(default="measured", pattern="^(measured|sample)$")  # "sample": filled by the demo button, never feeds alerts
 
 
 @app.post("/api/checkins", tags=["crew"])
@@ -741,9 +742,11 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
             raise validation.FieldError("photo", "Only vital signs take a photo")
         photo = validation.image_data_url(body.photo, "The photo of the display")
     p = selftests.normalise(body.kind, body.payload)
-    cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
-               (body.crew_id, day, body.kind, json.dumps(p), time.time()))
-    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None})  # no values
+    if body.origin == "sample" and settings.mode != "demo":
+        raise HTTPException(404, "Not found")  # sample values exist only in the demo
+    cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at,origin) VALUES(?,?,?,?,?,?)",
+               (body.crew_id, day, body.kind, json.dumps(p), time.time(), body.origin))
+    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None, "origin": body.origin})  # no values
     if photo:  # never part of the payload: the payload feeds events, charts and the assistant
         db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
     g = selftests.goal_for(body.kind, p)

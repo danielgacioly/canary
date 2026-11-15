@@ -328,7 +328,7 @@ def indicators(crew_id: str, ms: dict) -> Dict[str, dict]:
 
 
 def latest_checkin(crew_id: str, kind: str, day: int, window: int = 7) -> Optional[dict]:
-    rows = db.q("SELECT payload,day FROM checkins WHERE crew_id=? AND kind=? AND day<=? AND day>? ORDER BY id DESC LIMIT 1",
+    rows = db.q("SELECT payload,day FROM checkins WHERE crew_id=? AND kind=? AND day<=? AND day>? AND origin<>'sample' ORDER BY id DESC LIMIT 1",
                 (crew_id, kind, day, day - window))
     return {**json.loads(rows[0]["payload"]), "day": rows[0]["day"]} if rows else None
 

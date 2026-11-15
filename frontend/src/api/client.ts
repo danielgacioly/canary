@@ -141,8 +141,8 @@ export const api = {
   goals: (id: string) => req<GoalsResponse>(`/goals/${id}`),
   setGoal: (id: string, goal: string, done: boolean) => req<GoalsResponse>(`/goals/${id}/${goal}`, { method: 'POST', ...body({ done }) }),
   leaderboard: () => req<Leaderboard>('/leaderboard'),
-  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>, photo?: string) =>
-    req<CheckinResult>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload, ...(photo ? { photo } : {}) }) }),
+  checkin: (crew_id: string, kind: string, payload: Record<string, unknown>, photo?: string, origin?: 'sample') =>
+    req<CheckinResult>('/checkins', { method: 'POST', ...body({ crew_id, kind, payload, ...(photo ? { photo } : {}), ...(origin ? { origin } : {}) }) }),
   /** The photo of the display kept with a vitals check-in: the person and the medical team only. */
   checkinPhoto: (crew_id: string, id: number) => req<{ data_url: string }>(`/checkins/${crew_id}/${id}/photo`),
   checkins: (crew_id: string) => req<TestHistory>(`/checkins/${crew_id}`),

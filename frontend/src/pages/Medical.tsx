@@ -289,7 +289,7 @@ function Messages() {
   return (
     <div className="grid g2">
       <form className="col" noValidate onSubmit={form.submit}>
-        <div className="section-head"><h2>Messages</h2></div><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
+        <div className="section-head"><h2>Messages</h2></div><p className="small muted">It arrives after the real delay for where the crew is{catalog?.mode === 'demo' ? ' (20× faster in the demo)' : ''}.</p>
         <Field form={form} name="to" label="To" as="select">
           <option value="mission-control">Mission Control (Earth)</option><option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Field>
         <Field form={form} name="text" label="Message" as="textarea" rows={4} hint={`${String(form.values.text).length} of 1000 characters`} />

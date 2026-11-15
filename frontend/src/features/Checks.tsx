@@ -24,8 +24,12 @@ const rndN = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - l
 const pickOne = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]
 
 /** A quiet button that only fills the fields; the person still checks them and submits. */
+// Values filled by the button are sent with origin 'sample': the server keeps them but never lets them raise an alert.
+let sampled = false
 function SampleButton({ onFill }: { onFill: () => void }) {
-  return <button type="button" className="link-btn sample-btn" onClick={onFill}>Fill with sample values</button>
+  const { catalog } = useSession()
+  if (catalog?.mode !== 'demo') return null
+  return <button type="button" className="link-btn sample-btn" onClick={() => { sampled = true; onFill() }}>Fill with sample values</button>
 }
 
 const ResultCtx = createContext<(r: Saved) => void>(() => {})
@@ -80,9 +84,11 @@ function Result({ saved: { r, note }, onDone }: { saved: Saved; onDone: () => vo
 function useSubmit() {
   const { me, bump } = useSession()
   const show = useContext(ResultCtx)
+  useEffect(() => { sampled = false }, [])
   return async (kind: CheckKind, payload: Record<string, unknown>, note?: string, photo?: string) => {
     if (!me) throw new Error('Enter your PIN in My space first.')
-    const r = await api.checkin(me, kind, payload, photo)
+    const r = await api.checkin(me, kind, payload, photo, sampled ? 'sample' : undefined)
+    sampled = false
     bump(); show({ r, note })
   }
 }

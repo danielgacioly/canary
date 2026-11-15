@@ -19,7 +19,7 @@ const NAV: { group: string; items: [string, string, string][] }[] = [
 ]
 
 export default function Shell() {
-  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs } = useSession()
+  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
   const { data: crew } = useApi(() => api.overview(), [])
@@ -53,9 +53,11 @@ export default function Shell() {
         <header className="topbar">
           {mission && (
             <>
-              <button className="fact" onClick={() => setWhere(true)} title="Change where you are">
-                <span>Where you are</span><b>{mission.place.name} ▾</b>
-              </button>
+              {catalog?.mode === 'demo' ? (
+                <button className="fact" onClick={() => setWhere(true)} title="Simulate another place (demo)">
+                  <span>Where you are</span><b>{mission.place.name} ▾</b>
+                </button>
+              ) : <div className="fact"><span>Where you are</span><b>{mission.place.name}</b></div>}
               <div className="fact"><span>Mission time</span><b className="num">{mission.day_label}</b>{mission.clock && <span className="clock-line">{clockLine(mission.clock)}</span>}</div>
               <div className="fact opt"><span>Earth replies</span><b>{mission.place.reply}</b></div>
               {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
@@ -66,8 +68,8 @@ export default function Shell() {
         {mission && !mission.registered ? <WaitingForControl /> : <Outlet />}
       </div>
 
-      {prefs.storyBar && mission?.registered && <StoryBar />}
-      {where && <WherePicker onClose={() => setWhere(false)} />}
+      {catalog?.mode === 'demo' && prefs.storyBar && mission?.registered && <StoryBar />}
+      {where && catalog?.mode === 'demo' && <WherePicker onClose={() => setWhere(false)} />}
       {emergency && <GuidedResponse onClose={() => setEmergency(false)} />}
       {askOpen && <AskCanary onClose={() => setAskOpen(false)} />}
       <div className="toasts">{toasts.map(t => <div key={t.id} className="toast">{t.t}</div>)}</div>

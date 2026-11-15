@@ -41,7 +41,7 @@ function Inside({ me }: { me: string }) {
   const { data: d, error } = useApi(() => api.crewDetail(me), [me])
   const [check, setCheck] = useState<CheckKind | null>(null)
   const person = catalog?.crew.find(c => c.id === me)
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!d || !person) return <Loading what="your space" />
   return (
     <div className="page myspace">

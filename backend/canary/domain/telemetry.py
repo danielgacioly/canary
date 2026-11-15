@@ -64,7 +64,8 @@ _ckcache: Dict[tuple, list] = {}
 
 
 def _checkins(crew_id: str) -> list:
-    """Every check-in of one person, parsed once per (count, last id): [(day, kind, payload)] in the order they were made."""
+    """Every check-in of one person, parsed once per (count, last id): [(day, kind, payload)] in the order they were made.
+    Sample values (the demo's "Fill with sample values") are kept and shown in the history but never feed alerts or charts."""
     c = db.q("SELECT COUNT(*) n, COALESCE(MAX(id),0) m FROM checkins WHERE crew_id=?", (crew_id,))[0]
     key = (db.epoch, crew_id, c["n"], c["m"])
     hit = _ckcache.get(key)
@@ -72,7 +73,7 @@ def _checkins(crew_id: str) -> list:
         if len(_ckcache) > 64:
             _ckcache.clear()
         hit = _ckcache[key] = [(r["day"], r["kind"], json.loads(r["payload"]))
-                               for r in db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? ORDER BY id", (crew_id,))]
+                               for r in db.q("SELECT kind,day,payload FROM checkins WHERE crew_id=? AND origin<>'sample' ORDER BY id", (crew_id,))]
     return hit
 
 

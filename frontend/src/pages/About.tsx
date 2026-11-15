@@ -28,22 +28,6 @@ export default function About() {
       </section>
 
       <div className="about-pair">
-        <section>
-          <div className="head"><h2>How it is built</h2></div>
-          <pre className="about-diagram">{`Web app (React + Three.js)
-   │  HTTP /api
-   ▼
-Canary API (FastAPI, one process)
-   ├─ telemetry   sensors → simulator today
-   ├─ health      baseline, alerts, scores
-   ├─ goals       goals, crew missions, patches
-   ├─ protocols   Guided Response bank
-   ├─ nasa        DONKI · RAD · OSD-569
-   ├─ medical     PIN → short token
-   └─ assistant   LLMProvider slot
-   ▼
-SQLite on board  ──later──▶  ground sync`}</pre>
-        </section>
         <section className="col">
           <div className="head"><h2>The AI slot</h2><span className="tag right">{st ? (st.configured ? st.provider : 'no model connected') : '…'}</span></div>
           <p className="muted">The assistant is designed, wired and testable; the model is the last piece. It explains and never diagnoses.</p>
@@ -53,14 +37,6 @@ SQLite on board  ──later──▶  ground sync`}</pre>
         </section>
       </div>
 
-      <section>
-        <div className="head"><h2>Who pays for it</h2></div>
-        <div className="about-cols">
-          <div><b>Space agencies and commercial crews</b><p className="muted small">Licence per mission and crew member, with integration and protocol review.</p></div>
-          <div><b>Analog missions and polar stations</b><p className="muted small">A training edition for habitats and stations where isolation is the same problem.</p></div>
-          <div><b>Remote work on Earth</b><p className="muted small">Offshore platforms, ships, mines and remote communities: the hospital is far there too. The core stays open source.</p></div>
-        </div>
-      </section>
       <button className="btn pri about-back" onClick={() => nav('/crew')}>Back to the crew<Icon name="chev" /></button>
     </div>
   )

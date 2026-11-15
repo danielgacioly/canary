@@ -15,7 +15,7 @@ export default function Crew() {
   const { data, error } = useApi(() => api.overview(), [])
   const { data: plan } = useApi(() => api.plan(), [])
   const nav = useNavigate()
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
   if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>

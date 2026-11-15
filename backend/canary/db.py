@@ -16,7 +16,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS checkins (
   id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, day INTEGER NOT NULL,
-  kind TEXT NOT NULL, payload TEXT NOT NULL, created_at REAL NOT NULL);
+  kind TEXT NOT NULL, payload TEXT NOT NULL, created_at REAL NOT NULL, origin TEXT NOT NULL DEFAULT 'measured');
 CREATE TABLE IF NOT EXISTS checkin_photos (
   checkin_id INTEGER PRIMARY KEY, crew_id TEXT NOT NULL, data_url TEXT NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS goal_log (
@@ -127,6 +127,9 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
             ocols = [r[1] for r in _conn.execute("PRAGMA table_info(observations)").fetchall()]
             if "package" not in ocols:  # a database made before readings recorded which package they came from
                 _conn.execute("ALTER TABLE observations ADD COLUMN package TEXT")
+            ccols = [r[1] for r in _conn.execute("PRAGMA table_info(checkins)").fetchall()]
+            if "origin" not in ccols:  # a database made before check-ins said whether they were measured or sample values
+                _conn.execute("ALTER TABLE checkins ADD COLUMN origin TEXT NOT NULL DEFAULT 'measured'")
             gcols = [r[1] for r in _conn.execute("PRAGMA table_info(medical_goals)").fetchall()]
             if "voided_at" not in gcols:  # a database made before health records could only be voided, never deleted
                 for col in ("voided_at", "voided_by", "void_reason"):
