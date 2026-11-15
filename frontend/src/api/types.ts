@@ -40,6 +40,13 @@ export interface Catalog {
   crew: CrewInfo[]; story: StoryStep[]; sources: Source[]; standards?: StandardsSummary
   /** "How to measure and why" per indicator id (and radiation), English, each text with its source or none */
   guide?: Record<string, GuideEntry>
+  /** "demo" shows PIN hints and the demo tools; "flight" shows neither. */
+  mode?: 'demo' | 'flight'
+}
+/** GET /api/accounts/public: who can sign in. Names and roles, never a PIN. */
+export interface PublicAccounts {
+  crew: { id: string; name: string; role: string; initials: string; cmo: boolean }[]
+  ground: { id: string; name: string; role: 'flight_surgeon' | 'mcc' }[]
 }
 export interface GuideEntry {
   how: string; effect: string; actions: { green: string; amber: string; red: string }; frequency: string
@@ -263,22 +270,31 @@ export interface ControlPerson { id: string; name: string; role: string; initial
 export interface ControlOverview {
   registered: boolean; mission: Mission; overview: MissionOverview; people: ControlPerson[]; ridge: Ridge[]
   warnings: { title: string; todo: string[] }[]; dose: Dose; emergencies: Emergency[]
+  waiver: { accepted: boolean; by: string; at: string } | null
+  career: { mission_msv: number; projected_max_msv: number; limit_msv: number }
+  ground: { id: string; name: string; role: string }[]
 }
 export interface SeatForm {
-  /** the person's id; left out, the server gives s1 to s6 in order */
-  seat?: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
+  /** the person's id; left out, the server generates one */
+  seat?: string; /** the crew medical officer (one per crew) */ cmo?: boolean; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
   /** EVA role (surface, microgravity, none) and the dose from earlier flights in mSv; empty means "estimated from days in space". */
   eva?: string; prior_dose_msv?: number | null
 }
-export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string; rover?: boolean }
-export interface ControlDemo {
-  crew: SeatForm[]; mission: MissionForm; presets: Record<string, string>
+export interface MissionForm { callsign: string; name: string; launch_date: string; preset: string; rover?: boolean; dose_waiver?: boolean }
+/** A ground account: a flight surgeon (medical console) or an MCC account (Canary Control). */
+export interface GroundForm { id?: string; name: string; role: 'flight_surgeon' | 'mcc'; pin: string }
+/** GET /api/control/register-options: what the registration form needs, in demo and in flight. */
+export interface RegisterOptions {
+  presets: Record<string, string>
   /** Profiles that can carry a rover leg, the station's daily dose (the prior-dose estimate) and each profile's legs. */
   rover_presets: string[]; iss_dose_msv_per_day: number
   itineraries: Record<string, { rover: Leg[]; plain: Leg[] }>
+  /** Mission dose of each itinerary (mSv) and the career limit, for the projected career dose and the waiver. */
+  mission_dose_msv: Record<string, { rover: number; plain: number }>; career_limit_msv: number
 }
+export interface ControlDemo extends RegisterOptions { crew: SeatForm[]; ground: GroundForm[]; mission: MissionForm }
 
 /** GET /api/control/data-status: counts and dates only, never a value. */
 export interface DataStatus {

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ControlOverview, MissionForm, SeatForm } from '../api/types'
+import type { ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
 import Timeline from '../components/Timeline'
 import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
@@ -31,9 +31,11 @@ const EVA: [string, string][] = [['surface', 'Surface EVAs'], ['microgravity', '
 const emptySeat = (seat = ''): SeatForm => ({
   seat, name: '', role: '', home: '', pin: '', dob: '1990-01-01', sex: '', nationality: '', languages: [], agency: '', flights: 0,
   days_in_space: 0, height_cm: 170, weight_kg: 70, blood_type: '', skin_type: 'III', handedness: 'Right', vision: '', allergies: [],
-  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null,
+  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null, cmo: false,
 })
-const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true }
+const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true, dose_waiver: false }
+const GROUND_ROLES: [string, string][] = [['mcc', 'MCC (Canary Control)'], ['flight_surgeon', 'Flight surgeon (medical console)']]
+const MAX_GROUND = 12
 
 export default function Control() {
   const [signed, setSigned] = useState(api.isControl())
@@ -43,6 +45,12 @@ export default function Control() {
 
 function ControlGate({ onOk }: { onOk: () => void }) {
   const nav = useNavigate()
+  const { catalog } = useSession()
+  const { data: accounts, error } = useApi(() => api.accountsPublic(), [])
+  const [who, setWho] = useState<string | null>(null)
+  const demo = catalog?.mode === 'demo'
+  const mcc = accounts?.ground.filter(g => g.role === 'mcc') ?? []
+  const person = mcc.find(g => g.id === who)
   return (
     <div className="control control-gate">
       <Stars />
@@ -50,7 +58,21 @@ function ControlGate({ onOk }: { onOk: () => void }) {
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
       <div className="control-gate-body">
         <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
-        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        {error && <p className="err">{error}</p>}
+        {accounts && !mcc.length && (
+          <PinPad title="Canary Control first access" subtitle="Enter the first-access PIN. It works until an MCC account is registered." hint={demo ? 'PIN: 4242' : undefined}
+            onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        )}
+        {accounts && mcc.length > 0 && !person && (
+          <div className="col" style={{ gap: 12, alignItems: 'center' }}>
+            <h2>Choose your MCC account</h2>
+            {mcc.map(g => <button key={g.id} className="btn" onClick={() => setWho(g.id)}>{g.name}</button>)}
+          </div>
+        )}
+        {person && (
+          <PinPad title={person.name} subtitle="Enter your 4-digit PIN" hint={demo && person.id === 'g-mcc1' ? 'Demo PIN: 4242' : undefined} onCancel={() => setWho(null)}
+            onSubmit={async pin => { await api.controlSignIn(pin, person.id); onOk() }} />
+        )}
       </div>
     </div>
   )
@@ -58,13 +80,14 @@ function ControlGate({ onOk }: { onOk: () => void }) {
 
 function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   const nav = useNavigate()
-  const { bump, rev } = useSession()
+  const { bump, rev, toast, catalog } = useSession()
   const [ov, setOv] = useState<ControlOverview | null>(null)
   const [tab, setTab] = useState<Tab | null>(null)
   useEffect(() => { api.controlOverview().then(o => { setOv(o); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
   if (!ov || !tab) return <div className="control"><Loading what="Canary Control" /></div>
-  const refresh = (o: ControlOverview) => { setOv(o); bump() }
-  const loadDemoData = async () => { refresh(await api.controlDemoData()); setTab('dashboard') }
+    // The first-access sign-in closes the moment an MCC account exists: after registering, sign in again with an MCC account.
+  const registered = () => { bump(); toast('Registered. Sign in with an MCC account.'); onSignOut() }
+  const loadDemoData = async () => { await api.controlDemoData(); registered() }
   return (
     <div className="control">
       <header className="control-top">
@@ -76,10 +99,9 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
         </div>
       </header>
       <div className="control-page">
-        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
-        {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }}
-          onDemo={loadDemoData} onRegister={() => setTab('register')} />}
-        {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} onDemo={loadDemoData} />}
+        <Tabs value={tab} onChange={setTab} options={ov.registered ? [['dashboard', 'Dashboard'], ['data', 'Data'], ['messages', 'Messages']] : [['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
+        {tab === 'dashboard' && <Dashboard ov={ov} demoMode={catalog?.mode === 'demo'} onDemo={loadDemoData} onRegister={() => setTab('register')} />}
+        {tab === 'register' && !ov.registered && <Register demoMode={catalog?.mode === 'demo'} onSaved={registered} onDemo={loadDemoData} />}
         {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
@@ -88,18 +110,16 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
 }
 
 /* ---------------------------------------------------------------- dashboard */
-function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; onClear: () => Promise<void>; onDemo: () => Promise<void>; onRegister: () => void }) {
-  const [confirm, setConfirm] = useState<'clear' | 'demo' | null>(null)
-  const clear = useAction()
+function Dashboard({ ov, demoMode, onDemo, onRegister }: { ov: ControlOverview; demoMode: boolean; onDemo: () => Promise<void>; onRegister: () => void }) {
   const demo = useAction()
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
         <h2>Nothing registered</h2>
-        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission, or fill everything with the demo mission.</p>
+        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission.{demoMode ? ' Or fill everything with the demo mission.' : ''}</p>
         <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
           <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
-          <button className="btn" disabled={demo.busy} onClick={() => demo.run(onDemo)}>{demo.busy ? 'Loading…' : 'Use demo data'}</button>
+          {demoMode && <button className="btn" disabled={demo.busy} onClick={() => demo.run(onDemo)}>{demo.busy ? 'Loading…' : 'Use demo data'}</button>}
         </div>
         <ActionError error={demo.error} />
       </div>
@@ -145,20 +165,10 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
         ) : <p className="muted">None so far.</p>}
       </section>
 
-      <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
-        <div className="grow"><b>Use demo data</b><p className="small muted">Replace everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
-        {confirm === 'demo'
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn pri" disabled={demo.busy} onClick={() => demo.run(async () => { await onDemo(); setConfirm(null) })}>{demo.busy ? 'Loading…' : 'Replace with demo data'}</button></div>
-          : <button className="btn" onClick={() => setConfirm('demo')}>Use demo data</button>}
-        <ActionError error={demo.error} />
-      </section>
-
-      <section className="danger-zone rise" style={{ ['--d' as string]: 5 }}>
-        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again or use the demo data.</p></div>
-        {confirm === 'clear'
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
-          : <button className="btn" onClick={() => setConfirm('clear')}>Clear crew and mission</button>}
-        <ActionError error={clear.error} />
+      <section className="rise" style={{ ['--d' as string]: 4 }}>
+        <div className="section-head"><h2>Mission record</h2><span className="sub">The registered mission is locked. Only the demo reset starts over, and only in demo mode.</span></div>
+        <p className="small muted">Projected career dose, highest in the crew: {ov.career.projected_max_msv} mSv of {ov.career.limit_msv} mSv.
+          {ov.waiver ? ` Risk-acceptance waiver accepted by ${ov.ground.find(g => g.id === ov.waiver!.by)?.name ?? ov.waiver.by} on ${ov.waiver.at.slice(0, 10)}.` : ''}</p>
       </section>
     </>
   )
@@ -178,8 +188,26 @@ const items = (t: string) => t.split(',').map(x => x.trim()).filter(Boolean)
 
 function seatToValues(c: SeatForm, i: number): Values {
   const o: Values = {}
-  for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : val ?? ''
+  for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : k === 'cmo' ? (val ? 'yes' : '') : val ?? ''
   return o
+}
+/** A person's projected career dose (mSv): the dose carried in (typed, else estimated from days in space) plus the mission's. */
+function careerOf(f: Values, i: number, issRate: number, missionMsv: number): number {
+  const typed = v.parseNumber(str(f[`crew.${i}.prior_dose_msv`]))
+  const days = v.parseNumber(str(f[`crew.${i}.days_in_space`])) ?? 0
+  return (typed ?? days * issRate) + missionMsv
+}
+/** The form's values without ground account `j`: the accounts after it move up one place. */
+function withoutGround(f: Values, j: number, n: number): Values {
+  const out: Values = {}
+  for (const [k, val] of Object.entries(f)) {
+    const m = /^ground\.(\d+)\.(.+)$/.exec(k)
+    if (!m) { out[k] = val; continue }
+    const i = Number(m[1])
+    if (i < j) out[k] = val
+    else if (i > j && i < n) out[`ground.${i - 1}.${m[2]}`] = val
+  }
+  return out
 }
 /** The form's values without person `j`: the people after it move up one place. */
 function withoutPerson(f: Values, j: number, n: number): Values {
@@ -193,10 +221,11 @@ function withoutPerson(f: Values, j: number, n: number): Values {
   }
   return out
 }
-const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes' })
+const groundToValues = (g: GroundForm[]): Values => Object.fromEntries(g.flatMap((x, i) => [[`ground.${i}.name`, x.name], [`ground.${i}.role`, x.role], [`ground.${i}.pin`, x.pin]]))
+const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...groundToValues([{ name: '', role: 'mcc', pin: '' }]), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
 
 /** Every rule of the registration form, by field. The server repeats them (SeatIn, MissionRegIn, _check_registration). */
-function validateRegister(f: Values, n: number, presets: string[], roverPresets: string[]): Errors {
+function validateRegister(f: Values, n: number, gn: number, presets: string[], roverPresets: string[], needsWaiver: boolean): Errors {
   const e: Errors = {}
   const launch = str(f['mission.launch_date'])
   const pins = new Map<string, number>()
@@ -223,7 +252,19 @@ function validateRegister(f: Values, n: number, presets: string[], roverPresets:
     put('handedness', v.oneOf('Dominant hand', HAND)(g('handedness')))
     put('eva', v.oneOf('EVA role', EVA.map(x => x[0]))(g('eva')))
     put('prior_dose_msv', v.number('Dose from earlier flights', { min: 0, max: 600, unit: 'mSv', optional: true })(g('prior_dose_msv')))
+    put('cmo', g('cmo') === 'yes' && Array.from({ length: i }, (_, j) => j).some(j => str(f[`crew.${j}.cmo`]) === 'yes') ? 'Only one crew medical officer: another person already is one' : null)
   })
+  const gpins = new Map<string, number>()
+  Array.from({ length: gn }, (_, i) => i).forEach(i => {
+    const g = (k: string) => str(f[`ground.${i}.${k}`])
+    e[`ground.${i}.name`] = v.length('Name', { min: 2, max: 60 })(g('name'))
+    e[`ground.${i}.role`] = v.oneOf('Role', GROUND_ROLES.map(x => x[0]))(g('role'))
+    const pin = v.pin4()(g('pin'))
+    e[`ground.${i}.pin`] = pin ?? (gpins.has(g('pin')) ? `PIN is already used by ground account ${gpins.get(g('pin'))! + 1}; each account needs its own` : null)
+    if (!pin) gpins.set(g('pin'), gpins.get(g('pin')) ?? i)
+  })
+  e.ground = Array.from({ length: gn }, (_, i) => str(f[`ground.${i}.role`])).includes('mcc') ? null : 'Register at least one MCC account for Canary Control'
+  e['mission.dose_waiver'] = needsWaiver && str(f['mission.dose_waiver']) !== 'yes' ? 'Projected career dose exceeds the NASA limit (NASA-STD-3001 Vol 1, 4.2.10); a risk-acceptance waiver is required.' : null
   e['mission.callsign'] = v.length('Callsign', { min: 2, max: 24 })(str(f['mission.callsign']))
   e['mission.name'] = v.length('Mission name', { min: 2, max: 80 })(str(f['mission.name']))
   e['mission.launch_date'] = v.date('Launch date', { minYear: 2025, maxYear: 2100 })(launch)
@@ -232,17 +273,23 @@ function validateRegister(f: Values, n: number, presets: string[], roverPresets:
   return e
 }
 
-function Register({ registered, onSaved, onDemo }: { registered: boolean; onSaved: (o: ControlOverview) => void; onDemo: () => Promise<void> }) {
+function Register({ demoMode, onSaved, onDemo }: { demoMode: boolean; onSaved: () => void; onDemo: () => Promise<void> }) {
   const loadDemo = useAction()
   const [step, setStep] = useState(0)
   const [count, setCount] = useState(1)
   const [open, setOpen] = useState(0)
-  const { data: demo } = useApi(() => api.controlDemo(), [])
+  const [gcount, setGcount] = useState(1)
+  const { data: demo } = useApi(() => api.controlOptions(), [])
   const presets = demo?.presets ?? { mars: 'Mars reference mission', iss: 'Six months on the ISS', moon: 'Lunar surface mission' }
   const roverPresets = demo?.rover_presets ?? ['mars', 'moon']
+  const needsWaiverFor = (f: Values) => {
+    const rover = roverPresets.includes(str(f['mission.preset'])) && f['mission.rover'] !== 'no'
+    const mission = demo?.mission_dose_msv[str(f['mission.preset'])]?.[rover ? 'rover' : 'plain'] ?? 0
+    return Array.from({ length: count }, (_, i) => careerOf(f, i, demo?.iss_dose_msv_per_day ?? 0.5, mission)).some(c => c > (demo?.career_limit_msv ?? 600))
+  }
   const form = useForm<Values>({
     initial: toValues([emptySeat()], emptyMission),
-    validate: f => validateRegister(f, count, Object.keys(presets), roverPresets),
+    validate: f => validateRegister(f, count, gcount, Object.keys(presets), roverPresets, needsWaiverFor(f)),
     submit: async f => {
       const g = (i: number, k: string) => str(f[`crew.${i}.${k}`]).trim()
       const crew = Array.from({ length: count }, (_, i): SeatForm => ({
@@ -251,16 +298,18 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
         height_cm: v.parseNumber(g(i, 'height_cm')) ?? 0, weight_kg: v.parseNumber(g(i, 'weight_kg')) ?? 0, blood_type: g(i, 'blood_type'), skin_type: g(i, 'skin_type'),
         handedness: g(i, 'handedness'), vision: g(i, 'vision'), allergies: items(g(i, 'allergies')), medications: items(g(i, 'medications')), conditions: items(g(i, 'conditions')),
         diet: g(i, 'diet'), vaccinations: g(i, 'vaccinations'), emergency_contact: g(i, 'emergency_contact'),
-        eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')),
+        eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')), cmo: g(i, 'cmo') === 'yes',
       }))
+      const ground = Array.from({ length: gcount }, (_, i): GroundForm => ({ name: str(f[`ground.${i}.name`]).trim(), role: str(f[`ground.${i}.role`]) as GroundForm['role'], pin: str(f[`ground.${i}.pin`]).trim() }))
       const mission: MissionForm = { callsign: str(f['mission.callsign']).trim(), name: str(f['mission.name']).trim(), launch_date: str(f['mission.launch_date']), preset: str(f['mission.preset']),
-        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false }
-      onSaved(await api.controlRegister(crew, mission))
+        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false, dose_waiver: str(f['mission.dose_waiver']) === 'yes' }
+      await api.controlRegister(crew, mission, ground)
+      onSaved()
     },
     // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
     reveal: key => {
       const m = /^crew\.(\d+)\./.exec(key)
-      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) setStep(1)
+      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.dose_waiver')) { setStep(2) } else if (key.startsWith('ground') || key.startsWith('mission.')) { setStep(1) }
     },
   })
   const addPerson = () => {
@@ -273,25 +322,27 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
     form.setValues(f => withoutPerson(f, j, count))
     setCount(count - 1); setOpen(o => (o === j ? -1 : o > j ? o - 1 : o))
   }
-  const seatNo = (key: string) => { const m = /^crew\.(\d+)\./.exec(key); return m ? `Person ${Number(m[1]) + 1}` : 'Mission' }
+  const seatNo = (key: string) => { const m = /^crew\.(\d+)\./.exec(key); return m ? `Person ${Number(m[1]) + 1}` : key.startsWith('ground') ? 'Ground team' : 'Mission' }
   const people = Array.from({ length: count }, (_, i) => i)
   const val = (k: string) => str(form.values[k])
   const next = (prefix: string, to: number) => { if (!form.check(k => k.startsWith(prefix)).length) setStep(to) }
   const { catalog } = useSession()
   const withRover = roverPresets.includes(val('mission.preset')) && val('mission.rover') !== 'no'
   const itinerary = demo && catalog ? demo.itineraries[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] : undefined
-  const allErrs = validateRegister(form.values, count, Object.keys(presets), roverPresets)
+  const needsWaiver = needsWaiverFor(form.values)
+  const missionDose = demo?.mission_dose_msv[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] ?? 0
+  const careerMax = Math.max(0, ...people.map(i => careerOf(form.values, i, demo?.iss_dose_msv_per_day ?? 0.5, missionDose)))
+  const allErrs = validateRegister(form.values, count, gcount, Object.keys(presets), roverPresets, needsWaiver)
   const seatBad = (i: number) => Object.keys(allErrs).filter(k => k.startsWith(`crew.${i}.`) && allErrs[k]).length
   const seatShown = (i: number) => form.visible.filter(x => x.key.startsWith(`crew.${i}.`)).length
   return (
     <form className="register" noValidate onSubmit={form.submit}>
       <div className="row wrap rise">
-        <div className="stepper">{['Crew', 'Mission', 'Review and save'].map((t, i) => (
+        <div className="stepper">{['Crew', 'Mission and ground team', 'Review and save'].map((t, i) => (
           <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
       </div>
-      {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
-      {!registered && step === 0 && (
+      {demoMode && step === 0 && (
         <div className="set-row rise">
           <div className="grow"><b>Use demo data</b><p className="small muted">Fill everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
           <button type="button" className="btn" disabled={loadDemo.busy} onClick={() => loadDemo.run(onDemo)}>{loadDemo.busy ? 'Loading…' : 'Use demo data'}</button>
@@ -332,6 +383,20 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
               <option value="yes">Include the rover traverse</option><option value="no">Surface stay only</option></Field>
           )}
           <p className="small muted" style={{ gridColumn: '1 / -1' }}>The profile sets the itinerary (training, launch, transfer, stay, return). Every rule on board adapts to it: goals, alerts, radiation, signal delay, Guided Response.</p>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <h3>Ground team</h3>
+            <p className="small muted">Ground accounts sign in with their own PIN: MCC accounts to Canary Control, flight surgeons to the medical console. At least one MCC account is required. The crew medical officer signs in to the medical console with their crew PIN.</p>
+            {form.error('ground') && <p className="err">{form.error('ground')}</p>}
+          </div>
+          {Array.from({ length: gcount }, (_, i) => (
+            <div key={i} className="form-grid" style={{ gridColumn: '1 / -1' }}>
+              <Field form={form} name={`ground.${i}.name`} label={`Ground account ${i + 1}: name`} maxLength={60} />
+              <Field form={form} name={`ground.${i}.role`} label="Role" as="select">{GROUND_ROLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Field>
+              <Field form={form} name={`ground.${i}.pin`} label="PIN (4 digits)" hint="Different for each account" inputMode="numeric" maxLength={4} autoComplete="off" />
+              {gcount > 1 && <div className="row"><button type="button" className="link-btn" onClick={() => { form.setValues(f => withoutGround(f, i, gcount)); setGcount(gcount - 1) }}>Remove this account</button></div>}
+            </div>
+          ))}
+          <div className="row" style={{ gridColumn: '1 / -1' }}><button type="button" className="btn" disabled={gcount >= MAX_GROUND} onClick={() => { form.setValues(f => ({ ...f, [`ground.${gcount}.name`]: '', [`ground.${gcount}.role`]: 'flight_surgeon', [`ground.${gcount}.pin`]: '' })); setGcount(gcount + 1) }}><Icon name="plus" />Add a ground account</button></div>
           <div className="row" style={{ gridColumn: '1 / -1' }}><button type="button" className="btn ghost" onClick={() => setStep(0)}><Icon name="back" />Crew</button><span className="grow" /><button type="button" className="btn pri" onClick={() => next('mission.', 2)}>Next: review<Icon name="chev" /></button></div>
         </div>
       )}
@@ -343,6 +408,14 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
           <div className="scroll"><table className="t"><thead><tr><th>#</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
             <tbody>{people.map(i => <tr key={i}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
           {itinerary && <Timeline legs={itinerary} places={catalog?.locations ?? {}} />}
+          <p>Projected career dose, highest in the crew: <b>{Math.round(careerMax * 10) / 10} mSv</b> <span className="muted">of {demo?.career_limit_msv ?? 600} mSv (the mission adds {Math.round(missionDose * 10) / 10} mSv)</span></p>
+          <p className="small muted">Ground team: {Array.from({ length: gcount }, (_, i) => `${val(`ground.${i}.name`) || '—'} (${val(`ground.${i}.role`) === 'mcc' ? 'MCC' : 'flight surgeon'})`).join(', ')}</p>
+          {needsWaiver && (
+            <div className="field">
+              <label><input type="checkbox" checked={val('mission.dose_waiver') === 'yes'} onChange={e => form.set('mission.dose_waiver', e.target.checked ? 'yes' : '')} /> I accept the radiation risk waiver for this mission</label>
+              {form.error('mission.dose_waiver') ? <span className="err">{form.error('mission.dose_waiver')}</span> : <span className="hint">The projected career dose passes the NASA limit (NASA-STD-3001 Vol 1, 4.2.10). The waiver is recorded with your account and the time.</span>}
+            </div>
+          )}
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
           <FormSummary form={form} describe={seatNo} />
           <FormError form={form} />
@@ -376,7 +449,9 @@ function SeatFields({ form, i, issRate, onRemove }: { form: ReturnType<typeof us
         <Field form={form} name={n('dob')} label="Date of birth" type="date" hint={`Age ${SEAT_AGE[0]}–${SEAT_AGE[1]} at launch`} />
         {sel('sex', 'Sex', SEX)}{txt('nationality', nationality[1], { max: nationality[2] })}{list('languages', 'Languages')}{txt('agency', agency[1], { max: agency[2] })}
         {num('flights', 'Previous flights', v.range(0, 20))}{num('days_in_space', 'Days in space before', v.range(0, 1000, 'days'))}
-        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each person" inputMode="numeric" maxLength={4} autoComplete="off" /></div>
+        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each person" inputMode="numeric" maxLength={4} autoComplete="off" />
+        <div className="field"><label><input type="checkbox" checked={str(form.values[n('cmo')]) === 'yes'} onChange={e => form.set(n('cmo'), e.target.checked ? 'yes' : '')} /> Crew medical officer</label>
+          {form.error(n('cmo')) ? <span className="err">{form.error(n('cmo'))}</span> : <span className="hint">At most one per crew. Signs in to the medical console with their crew PIN.</span>}</div></div>
       <h3>Body</h3>
       <div className="form-grid">{num('height_cm', 'Height (cm)', v.range(140, 210, 'cm'))}{num('weight_kg', 'Weight (kg)', v.range(40, 150, 'kg'))}{sel('blood_type', 'Blood type', BLOOD)}{sel('skin_type', 'Skin type (Fitzpatrick)', SKIN, true)}
         {sel('handedness', 'Dominant hand', HAND, true)}{txt('vision', vision[1], { ph: 'e.g. No correction', max: vision[2] })}</div>
@@ -395,13 +470,15 @@ function SeatFields({ form, i, issRate, onRemove }: { form: ReturnType<typeof us
 function ControlMessages({ delay }: { delay: string }) {
   const { bump } = useSession()
   const { data } = useApi(() => api.messages(), [])
+  const { data: accounts } = useApi(() => api.accountsPublic(), [])
+  const mccIds = useMemo(() => new Set((accounts?.ground ?? []).filter(g => g.role === 'mcc').map(g => g.id)), [accounts])
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
-  const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || m.sender === 'mission-control'), [data])
+  const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || mccIds.has(m.sender)), [data, mccIds])
   const form = useForm({
     initial: { text: '' },
     validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
-    submit: async f => { await api.send('mission-control', 'medical', f.text.trim()); form.reset({ text: '' }); bump() },
+    submit: async f => { await api.send('control', 'medical', f.text.trim()); form.reset({ text: '' }); bump() },
   })
   return (
     <div className="grid g2 rise">
@@ -416,10 +493,10 @@ function ControlMessages({ delay }: { delay: string }) {
         <h2 className="traffic-h">Traffic with the ship</h2>
         <div className="col" style={{ gap: 12 }}>{traffic.map(m => {
           const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
-          const out = m.sender === 'mission-control'
+          const out = mccIds.has(m.sender)
           return (
             <div key={m.id} className={`msg ${out ? 'out' : 'in'}`}>
-              <div className="row small"><b>{out ? 'Mission Control → medical team' : `${m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
+              <div className="row small"><b>{out ? 'Mission Control → medical team' : `${accounts?.crew.find(c => c.id === m.sender)?.name ?? accounts?.ground.find(g => g.id === m.sender)?.name ?? m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
                 <span className="num dim right">{eta ? `${out ? 'arrives' : 'arriving'} in ${eta}s` : out ? 'delivered' : 'received'}</span></div>
               <div className="muted pre-line">{m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
             </div>)

@@ -12,7 +12,6 @@ import MissionPlan from './pages/MissionPlan'
 import Protocols from './pages/Protocols'
 import Ranking from './pages/Ranking'
 import Settings from './pages/Settings'
-import Setup from './pages/Setup'
 import Tests from './pages/Tests'
 
 function seenIntro(): boolean {
@@ -23,7 +22,6 @@ export default function App() {
   return (
     <Routes>
       <Route path="/welcome" element={<Intro />} />
-      <Route path="/setup" element={<Setup />} />
       <Route path="/control" element={<Control />} />
       <Route element={<Shell />}>
         <Route path="/me" element={<MySpace />} />

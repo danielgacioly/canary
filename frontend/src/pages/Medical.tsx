@@ -46,11 +46,31 @@ export default function Medical() {
   )
 }
 
+const DEMO_MEDICAL_PINS: Record<string, string> = { k: '1002', 'g-fs1': '1961' }
+
+/** Pick the account (the crew medical officer or a ground flight surgeon), then its PIN. */
 function PinGate({ onOk }: { onOk: () => void }) {
+  const { catalog } = useSession()
+  const { data: accounts, error } = useApi(() => api.accountsPublic(), [])
+  const [who, setWho] = useState<string | null>(null)
+  const options = [...(accounts?.crew.filter(c => c.cmo).map(c => ({ id: c.id, name: c.name, role: 'Crew medical officer' })) ?? []),
+    ...(accounts?.ground.filter(g => g.role === 'flight_surgeon').map(g => ({ id: g.id, name: g.name, role: 'Flight surgeon' })) ?? [])]
+  const person = options.find(o => o.id === who)
   return (
     <div className="page med-gate">
-      <PinPad title="Medical console" subtitle="The crew has no accounts. Only the medical team signs in with a 4-digit PIN." hint="Demo PIN: 1961"
-        onSubmit={async pin => { await api.medicalSignIn(pin); onOk() }} />
+      {!person && (
+        <div className="col" style={{ gap: 12, alignItems: 'center' }}>
+          <h1>Medical console</h1>
+          <p className="muted">Sign in with your own account.</p>
+          {error && <p className="err">{error}</p>}
+          {accounts && !options.length && <p className="muted">No medical account is registered yet. Canary Control registers them.</p>}
+          {options.map(o => <button key={o.id} className="btn" onClick={() => setWho(o.id)}><b>{o.name}</b> <span className="muted">{o.role}</span></button>)}
+        </div>
+      )}
+      {person && (
+        <PinPad title={person.name} subtitle="Enter your 4-digit PIN" hint={catalog?.mode === 'demo' && DEMO_MEDICAL_PINS[person.id] ? `Demo PIN: ${DEMO_MEDICAL_PINS[person.id]}` : undefined} onCancel={() => setWho(null)}
+          onSubmit={async pin => { await api.medicalSignIn(person.id, pin); onOk() }} />
+      )}
     </div>
   )
 }
@@ -234,12 +254,14 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
 function Messages() {
   const { me, catalog, bump } = useSession()
   const { data } = useApi(() => api.messages(), [])
+  const { data: accounts } = useApi(() => api.accountsPublic(), [])
+  const nameOf = (id: string) => accounts?.crew.find(c => c.id === id)?.name ?? accounts?.ground.find(g => g.id === id)?.name ?? id
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
   const form = useForm({
     initial: { to: 'crew', text: '' },
     validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
-    submit: async f => { await api.send(f.to === 'mission-control' ? 'ship medical team' : 'flight surgeon', f.to, f.text.trim()); form.reset({ to: f.to, text: '' }); bump() },
+    submit: async f => { await api.send('medical', f.to, f.text.trim()); form.reset({ to: f.to, text: '' }); bump() },
   })
   return (
     <div className="grid g2">
@@ -250,7 +272,7 @@ function Messages() {
         <Field form={form} name="text" label="Message" as="textarea" rows={4} hint={`${String(form.values.text).length} of 1000 characters`} />
         <FormError form={form} />
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
-        <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
+        <span className="small dim">Sent as the account signed in to this console{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
       </form>
       <section><div className="section-head"><h2>Link log</h2></div>
         <ul className="plain link-log">{(data ?? []).map(m => {
@@ -258,7 +280,7 @@ function Messages() {
           return (
             <li key={m.id} className="small">
               <span className={`dot s${eta ? 1 : 0}`} />
-              <div className="grow"><b>{m.sender} → {m.recipient}</b> <span className="dim">{m.kind}</span><div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
+              <div className="grow"><b>{nameOf(m.sender)} → {nameOf(m.recipient)}</b> <span className="dim">{m.kind}</span><div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
               <span className="num dim">{eta ? `in ${eta}s` : 'delivered'}</span>
             </li>)
         })}</ul>

@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  CheckinResult, ControlDemo, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
+  CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -19,9 +19,9 @@ function storeViewer(token: string | null) {
   try { token === null ? sessionStorage.removeItem('canary.viewer') : sessionStorage.setItem('canary.viewer', token) } catch { /* private mode */ }
 }
 
-/** The token carries `{id}.{exp}.{sig}`. A 403 on your own space, or any 401/403 after expiry, means it no longer works. */
+/** The token carries `{kind}.{id}.{roles}.{exp}.{jti}.{sig}`. A 403 on your own space, or any 401/403 after expiry, means it no longer works. */
 function sessionLost(path: string, status: number, token: string): boolean {
-  const [id, exp] = token.split('.')
+  const [, id, , exp] = token.split('.')
   if (Number(exp) * 1000 < Date.now()) return true
   const otherPerson = /^\/crew\/([a-z]+)$/.exec(path)
   return status === 403 && !(otherPerson && otherPerson[1] !== id)
@@ -79,6 +79,12 @@ export function errorText(e: unknown): string {
   return e instanceof Error && e.message ? e.message : 'Something went wrong. Try again.'
 }
 
+/** Ask the server to revoke a token (POST /api/session/logout). Best effort: the token is dropped here either way. */
+function endSession(headers: Record<string, string>, token: string | null) {
+  if (!token) return
+  fetch('/api/session/logout', { method: 'POST', headers }).catch(() => undefined)
+}
+
 const body = (b: unknown) => ({ body: JSON.stringify(b) })
 
 export const api = {
@@ -101,10 +107,9 @@ export const api = {
     storeViewer(r.token)
     return r.token
   },
-  crewSignOut: () => storeViewer(null),
+  crewSignOut: () => { endSession({ 'X-Canary-Viewer': viewerToken ?? '' }, viewerToken); storeViewer(null) },
   changePin: (id: string, current: string, next: string) =>
     req<{ changed: boolean }>(`/crew/${id}/pin`, { method: 'PUT', ...body({ current, new: next }) }),
-  setup: (name: string, legs: Leg[]) => req<Mission>('/setup', { method: 'POST', ...body({ name, legs }) }),
   crew: () => req<CrewList>('/crew'),
   overview: () => req<CrewOverview>('/crew/overview'),
   photos: () => req<Record<string, string>>('/crew/photos'),
@@ -132,7 +137,12 @@ export const api = {
     req<Emergency>(`/emergencies/${id}`, { method: 'POST', ...body(e) }),
 
   messages: (crew_id?: string) => req<Message[]>(`/messages${crew_id ? `?crew_id=${crew_id}` : ''}`),
-  send: (sender: string, recipient: string, text: string) => req<Message[]>('/messages', { method: 'POST', ...body({ sender, recipient, text }) }),
+  /** The sender is whoever is signed in. `as` sends only that console's token, so the message is from that person. */
+  send: (as: 'medical' | 'control' | 'crew', recipient: string, text: string) => req<Message[]>('/messages', {
+    method: 'POST', ...body({ recipient, text }),
+    headers: { ...(as !== 'medical' ? { Authorization: '' } : {}), ...(as !== 'control' ? { 'X-Canary-Control': '' } : {}), ...(as !== 'crew' ? { 'X-Canary-Viewer': '' } : {}) },
+  }),
+  accountsPublic: () => req<PublicAccounts>('/accounts/public'),
 
   spaceWeather: () => req<SpaceWeather>('/space-weather'),
   rad: () => req<Rad>('/nasa/rad'),
@@ -144,29 +154,32 @@ export const api = {
   approveBriefing: (id: number) => req<Briefing>(`/briefings/${id}/approve`, { method: 'POST' }),
   briefings: (crew_id: string) => req<Briefing[]>(`/briefings/${crew_id}`),
 
-  medicalSignIn: async (pin: string) => {
-    const r = await req<{ token: string }>('/medical/session', { method: 'POST', ...body({ pin }) })
+  medicalSignIn: async (account_id: string, pin: string) => {
+    const r = await req<{ token: string }>('/medical/session', { method: 'POST', ...body({ account_id, pin }) })
     medicalToken = r.token
     try { sessionStorage.setItem('canary.med', r.token) } catch { /* private mode */ }
     return true
   },
   medicalSignOut: () => {
+    endSession({ Authorization: `Bearer ${medicalToken}` }, medicalToken)
     medicalToken = null
     try { sessionStorage.removeItem('canary.med') } catch { /* private mode */ }
   },
   isMedical: () => medicalToken !== null,
 
   missionOverview: () => req<MissionOverview>('/mission/overview'),
-  controlSignIn: async (pin: string) => {
-    const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body({ pin }) })
+  /** An MCC account and its PIN; without `account_id`, the first-access PIN (only until an MCC account is registered). */
+  controlSignIn: async (pin: string, account_id?: string) => {
+    const r = await req<{ token: string }>('/control/session', { method: 'POST', ...body(account_id ? { account_id, pin } : { pin }) })
     controlToken = r.token
     try { sessionStorage.setItem('canary.ctl', r.token) } catch { /* private mode */ }
   },
-  controlSignOut: () => { controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
+  controlSignOut: () => { endSession({ 'X-Canary-Control': controlToken ?? '' }, controlToken); controlToken = null; try { sessionStorage.removeItem('canary.ctl') } catch { /* private mode */ } },
   isControl: () => controlToken !== null,
   controlOverview: () => req<ControlOverview>('/control/overview'),
   controlDemo: () => req<ControlDemo>('/control/demo'),
-  controlRegister: (crew: SeatForm[], mission: MissionForm) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission }) }),
+  controlOptions: () => req<RegisterOptions>('/control/register-options'),
+  controlRegister: (crew: SeatForm[], mission: MissionForm, ground: GroundForm[]) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission, ground }) }),
   controlDataStatus: () => req<DataStatus>('/control/data-status'),
   controlSpaceEvents: () => req<{ events: SpaceEvent[] }>('/control/space-events'),
   controlAddSpaceEvent: (e: NewSpaceEvent) => req<SpaceEvent>('/control/space-events', { method: 'POST', ...body(e) }),
@@ -180,7 +193,6 @@ export const api = {
     // req leaves the Content-Type out for a FormData body: the browser adds the multipart boundary
     return req<ImportResult>('/control/import', { method: 'POST', body: form, })
   },
-  controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
   controlDemoData: () => req<ControlOverview>('/control/demo-data', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),

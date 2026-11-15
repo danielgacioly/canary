@@ -1,9 +1,10 @@
 // Settings for this terminal: appearance, accessibility, Guided Response, demo controls.
 // Personal settings (photo, PIN) live in My space.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Prefs } from '../state/prefs'
+import type { PublicAccounts } from '../api/types'
 import { ActionError } from '../components/Field'
 import PinPad, { PinModal } from '../components/PinPad'
 import { useAction } from '../lib/useAction'
@@ -23,7 +24,11 @@ function Row({ title, desc, children }: { title: string; desc: string; children:
 }
 
 export default function Settings() {
-  const { prefs, setPref, setStep, toast } = useSession()
+  const { prefs, setPref, setStep, toast, catalog } = useSession()
+  const demo = catalog?.mode === 'demo'
+  const [mcc, setMcc] = useState<PublicAccounts['ground']>([])
+  const [mccId, setMccId] = useState<string | null>(null)
+  useEffect(() => { if (demo) api.accountsPublic().then(a => setMcc(a.ground.filter(g => g.role === 'mcc'))).catch(() => undefined) }, [demo])
   const nav = useNavigate()
   const reset = useAction()
   const [askPin, setAskPin] = useState(false)
@@ -66,23 +71,26 @@ export default function Settings() {
         {toggle('voice', 'Read steps aloud', 'Start every emergency with the voice on, so hands stay free.')}
       </section>
 
-      <section className="set-group rise" style={{ ['--d' as string]: 4 }}>
+      {demo && <section className="set-group rise" style={{ ['--d' as string]: 4 }}>
         <h2>Demo</h2>
         {toggle('storyBar', 'Show the demo story bar', 'The bar at the bottom that walks through the six scenes.')}
         <Row title="Replay the intro" desc="The canary story and the mission, from the start.">
           <button className="btn" onClick={() => nav('/welcome')}>Replay</button>
         </Row>
-        <Row title="Reset the demo" desc="Clears check-ins, goals ticked, messages, emergencies, photos and changed PINs. Asks for the Canary Control PIN.">
-          <button className="btn" disabled={reset.busy} onClick={() => api.isControl() ? doReset(false) : setAskPin(true)}>{reset.busy ? 'Resetting…' : 'Reset'}</button>
+        <Row title="Reset the demo" desc="Clears check-ins, goals ticked, messages, emergencies, photos and changed PINs. Asks for the MCC PIN.">
+          <button className="btn" disabled={reset.busy} onClick={() => api.isControl() ? doReset(false) : (setMccId(mcc[0]?.id ?? null), setAskPin(true))}>{reset.busy ? 'Resetting…' : 'Reset'}</button>
         </Row>
         <ActionError error={reset.error} />
         {askPin && (
           <PinModal onCancel={() => setAskPin(false)}>
-            <PinPad title="Canary Control PIN" subtitle="Resetting clears the whole demo" hint="Demo PIN: 4242" onCancel={() => setAskPin(false)}
-              onSubmit={async pin => { await api.controlSignIn(pin); setAskPin(false); doReset(true) }} />
+            <>
+              {mcc.length > 1 && <select aria-label="MCC account" value={mccId ?? ''} onChange={e => setMccId(e.target.value)}>{mcc.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select>}
+              <PinPad title="MCC PIN" subtitle={`Resetting clears the whole demo${mcc.find(g => g.id === mccId) ? ` · ${mcc.find(g => g.id === mccId)!.name}` : ''}`} hint="Demo PIN: 4242" onCancel={() => setAskPin(false)}
+                onSubmit={async pin => { if (!mccId) throw new Error('No MCC account is registered.'); await api.controlSignIn(pin, mccId); setAskPin(false); doReset(true) }} />
+            </>
           </PinModal>
         )}
-      </section>
+      </section>}
     </div>
   )
 }
