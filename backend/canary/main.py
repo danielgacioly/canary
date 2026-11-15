@@ -972,9 +972,17 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or (v["me"] & {r["sender"], r["recipient"]})))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
+    actor = (v or {}).get("actor")
+    on_board = bool(actor) and (actor["kind"] == "crew" or actor["role"] == "cmo")
     for r in rows:
         r["delivered"] = now >= r["deliver_at"]
         r["eta_s"] = max(0, round(r["deliver_at"] - now))
+        # The text of a message that has not arrived yet belongs to its sender (and, for what goes to Earth, to the people on board
+        # who are on the sender's side of the link). The receiving side gets it when the signal does, not before.
+        sender_side = bool(v and (v["me"] & {r["sender"]})) or (on_board and r["recipient"] in ("earth", "mission-control"))
+        r["in_transit"] = not r["delivered"] and not sender_side
+        if r["in_transit"]:
+            r["text"] = ""
     return rows
 
 

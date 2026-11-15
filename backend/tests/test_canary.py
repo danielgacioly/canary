@@ -533,7 +533,12 @@ def test_mission_control_and_the_medical_console_talk_with_the_signal_delay():
     out = next(m for m in msgs if m["sender"] == "g-mcc1")  # the sender is the account that signed in
     back = next(m for m in msgs if m["recipient"] == "mission-control")
     assert back["sender"] == "k"
-    assert not out["delivered"] and 10 <= out["eta_s"] <= 15 and back["text"].startswith("All four")
+    assert not out["delivered"] and 10 <= out["eta_s"] <= 15
+    assert out["text"].startswith("Confirm the crew") and not out["in_transit"]  # the sender still sees what they sent
+    assert back["in_transit"] and back["text"] == ""  # the receiving side gets the text when the signal does
+    at_medical = client.get("/api/messages", headers=_med()).json()
+    assert next(m for m in at_medical if m["sender"] == "g-mcc1")["text"] == ""  # and the other way round
+    assert next(m for m in at_medical if m["recipient"] == "mission-control")["text"].startswith("All four")  # the sender's own text
 
 
 # ---------------------------------------------------------------- the observation table (DatasetSource)

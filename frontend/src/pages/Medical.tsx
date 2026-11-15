@@ -303,7 +303,7 @@ function Messages() {
           return (
             <li key={m.id} className="small">
               <span className={`dot s${eta ? 1 : 0}`} />
-              <div className="grow"><b>{nameOf(m.sender)} → {nameOf(m.recipient)}</b> <span className="dim">{m.kind}</span><div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
+              <div className="grow"><b>{nameOf(m.sender)} → {nameOf(m.recipient)}</b> <span className="dim">{m.kind}</span><div className="muted msg-text">{m.in_transit ? `In transit, arrives in ${eta}s` : m.text.slice(0, 220)}</div></div>
               <span className="num dim">{eta ? `in ${eta}s` : 'delivered'}</span>
             </li>)
         })}</ul>

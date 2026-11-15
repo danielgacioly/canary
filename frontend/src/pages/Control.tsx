@@ -531,7 +531,7 @@ function ControlMessages({ delay }: { delay: string }) {
             <div key={m.id} className={`msg ${out ? 'out' : 'in'}`}>
               <div className="row small"><b>{out ? 'Mission Control → medical team' : `${accounts?.crew.find(c => c.id === m.sender)?.name ?? accounts?.ground.find(g => g.id === m.sender)?.name ?? m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
                 <span className="num dim right">{eta ? `${out ? 'arrives' : 'arriving'} in ${eta}s` : out ? 'delivered' : 'received'}</span></div>
-              <div className="muted pre-line">{m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
+              <div className="muted pre-line">{m.in_transit ? `In transit, arrives in ${eta}s` : m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
             </div>)
         })}{!traffic.length && <p className="muted">No traffic yet.</p>}</div>
       </section>
