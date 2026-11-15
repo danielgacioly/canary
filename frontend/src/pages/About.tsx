@@ -23,6 +23,7 @@ export default function About() {
         <div className="head"><h2>NASA open data in Canary</h2></div>
         <div className="scroll"><table className="t"><thead><tr><th>Source</th><th>Provider</th><th>Used for</th></tr></thead>
           <tbody>{catalog?.sources.map(s => <tr key={s.id}><td><a href={s.url} target="_blank" rel="noreferrer" className="link">{s.name}</a></td><td className="muted">{s.org}</td><td>{s.used_for}</td></tr>)}</tbody></table></div>
+        <p className="small muted">3D anatomy: BodyParts3D, © The Database Center for Life Science (CC BY-SA 2.1 Japan).</p>
         <p className="small dim about-note">Astronaut vital signs are not published as open data, so crew vitals, names and messages are simulated and labelled as such. Protocols are illustrative and not clinically reviewed.</p>
       </section>
 
