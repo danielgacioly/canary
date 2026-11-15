@@ -67,7 +67,6 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
   const { data } = useApi<GoalsResponse>(() => api.goals(me), [me])
   if (!data || !catalog) return <Loading what="goals" />
   const p = data.profile
-  const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const done = data.personal.filter(g => g.done).length
   return (
     <div className="goals-page">
@@ -91,8 +90,8 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
         )
       })}
       <section className="rise" style={{ ['--d' as string]: 3 }}>
-        <div className="section-head"><h2>Crew missions this week</h2><span className="sub">Shared goals for the whole crew</span></div>
-        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
+        <div className="section-head"><h2>Crew missions this week</h2></div>
+        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} mine={data.personal} />)}</div>
       </section>
     </div>
   )

@@ -19,7 +19,6 @@ export default function Crew() {
   const n = data.people.length
   if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
   const storm = data.warnings[0]
-  const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const eva = storm ? { l: 2, t: 'EVA suspended for everyone' }
     : data.eva_open ? { l: 0, t: 'EVA open, the medical team clears each person' }
       : { l: 1, t: 'No EVA at this place' }
@@ -35,7 +34,7 @@ export default function Crew() {
       <div className="head rise">
         <div>
           <h1>{headline}</h1>
-          <p className="sub">{ms.day_label} · {clockLine(ms.clock)} · {ms.place.name}. No one's health is shown here; tap yourself to open your space with your PIN.</p>
+          <p className="sub">{ms.day_label} · {clockLine(ms.clock)} · {ms.place.name}</p>
         </div>
       </div>
 
@@ -72,7 +71,6 @@ export default function Crew() {
         <p className="facts-line small">
           <span><span className={`dot s${eva.l}`} />{eva.t}</span>
           <span>Mission dose {data.dose.mission_msv} mSv, {data.dose.pct_of_limit}% of the career limit</span>
-          <span className="dim">The same for everyone on board. Each person's career dose is in My space.</span>
         </p>
       </section>
 
@@ -82,7 +80,7 @@ export default function Crew() {
           <span className="sub">{data.team_done} of {data.team_total} done this week · crew streak {data.crew_streak} {data.crew_streak === 1 ? 'day' : 'days'}</span>
           <button className="link right" onClick={() => nav('/ranking')}>Ranking</button>
         </div>
-        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} names={names} />)}</div>
+        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} />)}</div>
       </section>
     </div>
   )

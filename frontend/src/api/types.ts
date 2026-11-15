@@ -119,7 +119,11 @@ export interface Profile {
 }
 export interface TeamGoal {
   id: string; area: Area; title: string; target: number; unit: string
-  value: number; pct: number; done: boolean; contrib: Record<string, number>
+  value: number; pct: number; done: boolean
+  /** one sentence: what the mission is */
+  what: string
+  /** the routine personal goals that count toward it (catalog data, the same for everyone) */
+  personal_ids: string[]
 }
 export interface CrewSummary {
   id: string; name: string; role: string; initials: string; home: string
@@ -177,9 +181,11 @@ export interface CrewOverview {
   contract: ContractRow[]; ridge: Ridge[]; warnings: Warning[]
 }
 export interface GoalsResponse { personal: Goal[]; team: TeamGoal[]; profile: Profile }
-/** One person in the crew's ranking: routine goals only, never the split by area, daily counts or patch progress. */
+/** One person in the crew's ranking: routine goals only and the patches earned, never the split by area, daily counts or patch progress. */
 export interface LeaderRow {
   crew_id: string; goals_week: number; completion_7d: number; streak: number; badges_earned: number
+  /** earned patches: effort-based, public */
+  patches: { id: string; name: string }[]
   rank: number; name: string; initials: string; role: string
 }
 export interface Leaderboard { rows: LeaderRow[];team: TeamGoal[]; crew_goals_week: number; team_done: number; team_total: number }
