@@ -99,7 +99,7 @@ function StoryBar() {
       <span className="small story-step">Demo {mission.step + 1}/{mission.steps}</span>
       <div className="dots">{scenes.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b className="ink">Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b className="ink">{mission.story.when}.</b> {mission.story.text}</>}</p>
-      {!mission.custom_day && me !== mission.suggested_user && (
+      {!mission.custom_day && me !== mission.suggested_user && catalog.crew.some(c => c.id === mission.suggested_user) && (
         <button className="btn sm ghost" onClick={() => nav(`/me?who=${mission.suggested_user}`)} title="Opens the PIN pad for this person">
           Enter as {catalog.crew.find(c => c.id === mission.suggested_user)?.name.split(' ')[0]}
         </button>

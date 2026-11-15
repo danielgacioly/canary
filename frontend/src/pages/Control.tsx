@@ -16,9 +16,11 @@ import { CanaryMark, Icon, Loading, Tabs } from '../components/ui'
 import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
+import ControlData from './ControlData'
 
-type Tab = 'dashboard' | 'register' | 'messages'
+type Tab = 'dashboard' | 'register' | 'data' | 'messages'
 const MAX_PEOPLE = 6
 const BLOOD = ['O−', 'O+', 'A−', 'A+', 'B−', 'B+', 'AB−', 'AB+']
 const SKIN = ['I', 'II', 'III', 'IV', 'V', 'VI']
@@ -66,16 +68,17 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
     <div className="control">
       <header className="control-top">
         <span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
-        <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${ov.mission.place.name}` : 'No mission registered'}</span>
+        <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${clockLine(ov.mission.clock)} · ${ov.mission.place.name}` : 'No mission registered'}</span>
         <div className="right row" style={{ gap: 8 }}>
           <button className="btn sm" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button>
           <button className="btn sm ghost" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
       <div className="control-page">
-        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['messages', 'Messages']]} />
+        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
         {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }} onRegister={() => setTab('register')} />}
         {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} />}
+        {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
     </div>

@@ -76,14 +76,14 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
 
       {lens === 'physical' ? (
         <section id="sec-physical" key="physical">
-          <div className="section-head rise"><h2>Physical</h2><span className="sub">{num(d.areas.physical.score)} · sorted by what needs attention</span></div>
+          <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score !== null && `${d.areas.physical.score} · `}sorted by what needs attention</span></div>
           <Tiles count={physical.length}>
             {physical.map((s, i) => <PhysicalTile key={s} d={d} s={s} i={i} on={sel === s} onPick={() => choose(s, true)} />)}
           </Tiles>
         </section>
       ) : (
         <section id="sec-mental" key="mental">
-          <div className="section-head rise"><h2>Mental</h2><span className="sub">{num(d.areas.mental.score)} · rest, focus, mood, stress, connection</span></div>
+          <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score !== null && `${d.areas.mental.score} · `}rest, focus, mood, stress, connection</span></div>
           <Tiles count={mental.length}>
             {mental.map((k, i) => {
               const ind = d.indicators[k]
