@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from .. import db
 from . import care, data, plan, reference, risk, standards, telemetry
+from . import dose as dose_mod
 from .catalog import CAREER_LIMIT_MSV, CREW_BY_ID, EXERCISE_BY_PLACE, INDICATORS, LOCATIONS, SYSTEMS
 
 STATUS = ["On track", "Watch", "Act"]
@@ -121,12 +122,15 @@ def latest_checkin(crew_id: str, kind: str, day: int, window: int = 7) -> Option
 
 
 def dose(ms: dict, crew_id: Optional[str] = None) -> dict:
-    """Mission dose, the same for everyone on board. With a crew member, also their career dose: NASA's 600 mSv limit
-    counts every earlier flight (NASA-STD-3001 V1 4030)."""
-    total = telemetry.cumulative_dose(ms["day"], ms["location"], ms["storm"])
+    """Mission dose in mSv: the cabin dosimeter, or the plan where it has no reading (dose.py), the same for everyone on
+    board. With a crew member, it counts that person's own dosimeter first, and adds their career dose: NASA's 600 mSv
+    limit counts every earlier flight (NASA-STD-3001 V1 4030)."""
+    d = dose_mod.mission(crew_id, ms["day"], ms["location"])
+    total = d["msv"]
     out = {"mission_msv": total, "rate_msv_day": LOCATIONS[ms["location"]]["dose_rate"],
            "career_limit_msv": CAREER_LIMIT_MSV, "pct_of_limit": round(100 * total / CAREER_LIMIT_MSV, 1),
-           "simulated": True, "limit_source": "NASA-STD-3001 V1 4030"}
+           "simulated": d["simulated"], "limit_source": "NASA-STD-3001 V1 4030",
+           "origin": d["origin"], "measured_days": d["measured_days"], "estimated_days": d["estimated_days"]}
     if crew_id is not None:
         prior = standards.prior_dose(crew_id)
         career = round(prior["msv"] + total, 1)
@@ -160,7 +164,7 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                 lv, note = 2, f"Career dose {d['career_msv']:g} mSv, past NASA's 600 mSv limit."
             elif d["career_pct_of_limit"] >= 50:
                 lv, note = max(lv, 1), f"{d['career_pct_of_limit']}% of the career limit used, earlier flights included."
-        if sid == "immune" and not ms["learning"] and 152 <= ms["day"] <= 165:
+        if sid == "immune" and not ms["learning"] and data.storms_following(ms["day"], risk.RULES["immune"]["storm_follow_days"]):
             lv, note = max(lv, 1), "Blood count due after the radiation storm."
         if ms["learning"]:  # nothing to watch yet, except a safety limit
             lv = 2 if any(inds[i]["population"]["status"] == "critical" for i in S["indicators"]) else 0
@@ -285,7 +289,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
     place = LOCATIONS[ms["location"]]
 
     if ms["storm"]:
-        mars = ms["storm"] == "mars"
+        mars = (data.event(ms["storm"]) or {}).get("source") == "nasa:rad"  # the surface record, not the particle storm
         A.append({"id": "storm", "level": 2, "env": True, "sys": "skin", "protocol": "rad",
                   "title": "Radiation is 51 times above normal." if mars else "A solar particle storm is hitting.",
                   "why": ("Curiosity's RAD detector recorded the peak at 06:15 on 20 May 2024. Nobody leaves the habitat today."

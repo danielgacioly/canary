@@ -44,7 +44,9 @@ def snapshot() -> dict:
     return _SNAPSHOT
 
 
-def space_weather(storm: Optional[str]) -> dict:
+def space_weather(event: Optional[dict] = None) -> dict:
+    """The space-weather snapshot. `event` is the space event active on the mission day at the crew's place (a row of
+    data.events(), found with data.event(ms["storm"])), or None."""
     d = _SNAPSHOT["donki"]
     kp_max = max(k[1] for k in d["kp"]) if d["kp"] else None
     out = {
@@ -57,10 +59,13 @@ def space_weather(storm: Optional[str]) -> dict:
         "kp": d["kp"],
         "sep": d["sep"],
         "cme": d["cme"],
-        "active": storm is not None,
-        "headline": "Solar particle storm in progress" if storm == "sep" else "Radiation storm at Gale crater" if storm == "mars" else "Calm",
+        "active": event is not None,
+        "headline": "Calm" if event is None else "Radiation storm at Gale crater" if event["source"] == "nasa:rad" else "Solar particle storm in progress",
         "source": "nasa:donki",
     }
+    if event is not None:  # replayed from a record, or live from DONKI
+        out["event"] = {"id": event["id"], "kind": event["kind"], "origin": event["origin"], "source": event["source"],
+                        "live": event["origin"] == "donki"}
     if settings.live_space_weather:
         live = _live()
         if live:
