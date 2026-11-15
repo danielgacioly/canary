@@ -23,9 +23,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
-from .assistant import briefing, chat, providers, suggestions, tools
+from .assistant import briefing, chat, protocol_match, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
+from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
 from .domain import simdata
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
@@ -406,7 +406,7 @@ def crew_overview():
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
-            "warnings": [{k: a[k] for k in ("id", "level", "title", "why", "todo", "sources")} for a in env],
+            "warnings": [{k: a.get(k) for k in ("id", "level", "title", "why", "todo", "sources", "protocol")} for a in env],
             "team": board["team"], "crew_streak": board["crew_streak"],
             "team_done": board["team_done"], "team_total": board["team_total"], "dose": health.dose(ms),
             "space_weather": {k: v for k, v in sw.items() if k in ("headline", "active", "kp_max", "sep_events")},
@@ -610,6 +610,32 @@ def get_protocols():
     return protocols.resolve(mission.state()["location"])
 
 
+@app.get("/api/protocols/library", tags=["guided response"])
+def protocols_library(v: dict = Depends(viewer)):
+    """The Protocols page: every protocol as a reference page and which ones are in force now. Crew-wide, no personal health data;
+    the care window is listed only for the medical team."""
+    ms = mission.state()
+    return protocol_pages.library(ms, health.dose(ms), medical=v["medical"])
+
+
+class MatchIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, t: str) -> str:
+        if not t.strip():
+            raise ValueError("describe what you see")
+        return t
+
+
+@app.post("/api/protocols/match", tags=["guided response"])
+def match_protocol(body: MatchIn):
+    """What the person sees, in their own words -> the closest protocols with the words that matched. Rules first; a connected
+    model may only re-rank them (assistant/protocol_match.py). Never starts anything."""
+    return protocol_match.match(body.text)
+
+
 class EmergencyIn(BaseModel):
     protocol: Optional[str] = None
     patient: Optional[str] = None
@@ -781,6 +807,18 @@ def suggestion_accept(crew_id: str, sid: str, v: dict = Depends(viewer)):
         raise HTTPException(403, "suggestions are for the astronaut only")
     try:
         return suggestions.accept(crew_id, sid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/suggestions/{crew_id}/{sid}/dismiss", tags=["assistant"])
+def suggestion_dismiss(crew_id: str, sid: str, v: dict = Depends(viewer)):
+    """Hide a suggestion for today and remember the choice: the ranking learns from it (assistant/suggestions.py)."""
+    _crew(crew_id)
+    if v["id"] != crew_id:
+        raise HTTPException(403, "suggestions are for the astronaut only")
+    try:
+        return suggestions.dismiss(crew_id, sid)
     except ValueError as e:
         raise HTTPException(404, str(e))
 

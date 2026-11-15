@@ -908,6 +908,8 @@ ul.recent li { display: grid; grid-template-columns: minmax(120px, 200px) 1fr au
 /* ---------- health: the body always fills its column, no hole beside a tall panel ---------- */
 .hero > div:first-child { display: flex; flex-direction: column; }
 .hero > div:first-child .bodycard { flex: 1; height: auto; min-height: min(70vh, 620px); }
+/* the camera fits the body to the box height, so any height the column asks for frames it the same way */
+@media (max-width: 1100px) { .hero > div:first-child .bodycard { flex: none; height: 58vh; min-height: 420px; } }
 .tile > div:last-child { margin-top: auto; }
 
 /* ---------- goals: one area at a time, room to breathe ---------- */
@@ -1072,7 +1074,7 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .ask-row { align-items: flex-start; }
 
 /* ---------- health tab: one stack, no spacer, numbers in tiles that close their last row ---------- */
-.hero { align-items: start; }
+.hero { align-items: stretch; }
 .hero-side { gap: 26px; }
 .verdict { display: flex; flex-direction: column; gap: 26px; }
 .verdict .why { max-width: 56ch; }
@@ -1304,3 +1306,41 @@ table.t th.r, table.t td.r { text-align: right; }
 .er-voice { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .sample-btn { align-self: flex-start; font-size: 13px; color: var(--dim); }
 .team-mine li span { white-space: nowrap; }
+
+/* ---------- protocols: a list that reads like a table of contents, and one page per protocol ---------- */
+.plist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.plist li { border-bottom: 1px solid var(--line); }
+.prow { display: flex; align-items: baseline; gap: 12px; padding: 14px 4px; }
+.prow:hover { background: var(--surface); }
+.prow .dot { align-self: center; }
+.prow > .grow { display: grid; grid-template-columns: minmax(180px, 300px) 1fr; gap: 2px 20px; }
+.prow > .grow > .small { grid-column: 2; }
+@media (max-width: 760px) { .prow > .grow { grid-template-columns: 1fr; } .prow > .grow > .small { grid-column: 1; } }
+.prow > svg { color: var(--dim); align-self: center; }
+.pbody { display: flex; flex-direction: column; gap: 36px; max-width: 760px; }
+.pbody h2 { font-size: 18px; margin-bottom: 12px; }
+ul.bul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.live { list-style: none; margin: 0; padding: 0; color: var(--muted); }
+.ptable { border-collapse: collapse; width: 100%; font-size: 14px; }
+.ptable td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
+
+/* ---------- Guided Response: describe what you see ---------- */
+.er-describe { width: 100%; resize: none; font-size: 22px; line-height: 1.4; padding: 16px 18px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line-2); }
+.er-describe:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.er-match { padding: 22px 0 6px; border-top: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.er-alt { padding: 10px 0; border-top: 1px solid var(--line); }
+
+/* ---------- mission plan: one leg, in reading order ---------- */
+.leg-facts { display: flex; flex-wrap: wrap; gap: 4px 0; margin: 4px 0 0; color: var(--ink); font-size: 16px; }
+.leg-facts > span + span::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--line-2); margin: 0 14px 3px; }
+button.prow { width: 100%; text-align: left; }
+
+/* ---------- suggestions: the top few in one column, the rest folded ---------- */
+.suggest { max-width: 820px; }
+.suggest .suggest-list { grid-template-columns: 1fr; gap: 34px; }
+.suggest-card { padding-top: 24px; }
+.because { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 15px; }
+.because .link { margin-top: 4px; }
+.suggest-more summary { cursor: pointer; color: var(--muted); font-weight: 500; padding: 12px 0; }
+.suggest-more[open] summary { margin-bottom: 14px; }
+@media (max-width: 760px) { .leg-facts { flex-direction: column; } .leg-facts > span + span::before { display: none; } }

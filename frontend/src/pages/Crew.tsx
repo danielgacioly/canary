@@ -1,11 +1,12 @@
 // Crew home: what everyone on board may see. The crew, today's hazards, crew missions.
 // No status, no scores, no averages (with few people an average gives individuals away), no vitals.
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { TeamRow } from '../components/GoalItems'
 import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
 import { Loading } from '../components/ui'
+import { protocolPath } from './Protocols'
 import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
@@ -18,10 +19,6 @@ export default function Crew() {
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
   if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
-  const storm = data.warnings[0]
-  const eva = storm ? { l: 2, t: 'EVA suspended for everyone' }
-    : data.eva_open ? { l: 0, t: 'EVA open, the medical team clears each person' }
-      : { l: 1, t: 'No EVA at this place' }
   const ms = data.mission
   const count = ['No one', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][n] ?? String(n)
   const last = plan ? plan.legs[plan.legs.length - 1].end : null
@@ -63,14 +60,11 @@ export default function Crew() {
         {data.warnings.map(w => (
           <div key={w.id} className={`warning s${w.level}`}>
             <span className="dot" />
-            <div className="grow"><b>{w.title}</b><p className="small muted">{w.todo.join(' · ')}</p></div>
+            <div className="grow row"><b>{w.title}</b><Link className="link right" to={protocolPath(w.protocol ?? 'rad')}>Protocol</Link></div>
           </div>
         ))}
         <Hazards items={data.ridge} />
-        <p className="facts-line small">
-          <span><span className={`dot s${eva.l}`} />{eva.t}</span>
-          <span>Mission dose {data.dose.mission_msv} mSv, {data.dose.pct_of_limit}% of the career limit</span>
-        </p>
+        <p className="small muted" style={{ marginTop: 14 }}>EVA, dose and what is in force today are on the <Link className="link" to="/protocols">Protocols</Link> page.</p>
       </section>
 
       <section className="rise" style={{ ['--d' as string]: 3 }}>

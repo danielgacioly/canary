@@ -2,6 +2,8 @@
 // Physical shows the physical systems, Mental the mental facets (charts live on the Dashboard tab). Click any part of the body or any tile and the
 // verdict area becomes that system.
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { protocolPath } from '../pages/Protocols'
 import type { CrewDetail, GuideEntry, HazardId, Indicator, Risk } from '../api/types'
 import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
@@ -153,7 +155,8 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
 }
 
 function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; onCheck?: (k: CheckKind) => void; onPick: (s: SystemId) => void }) {
-  const { setEmergency, setAskOpen } = useSession()
+  const { setAskOpen } = useSession()
+  const nav = useNavigate()
   const top = d.alerts[0]
   const first = d.crew.name.split(' ')[0]
   const learning = d.mission.learning
@@ -174,7 +177,7 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
           <ol className="steps">{top.todo.map(t => <li key={t}>{t}</li>)}</ol>
           <div className="row wrap">
             {top.test && onCheck && self && <button className="btn pri" onClick={() => onCheck(top.test as CheckKind)}>Take the reaction test</button>}
-            {top.protocol && <button className="btn pri" onClick={() => setEmergency(true)}>Open the radiation protocol</button>}
+            {top.protocol && <button className="btn pri" onClick={() => nav(protocolPath(top.protocol as string))}>Open the radiation protocol</button>}
             {top.sys && <button className="btn" onClick={() => onPick(top.sys as SystemId)}>Show on the body</button>}
             {self && <button className="btn ghost" onClick={() => setAskOpen(true)}><Icon name="ask" />Ask why</button>}
           </div>
@@ -195,7 +198,7 @@ function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; o
             ))}
           </ul>
         )}
-        {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}.</p>}
+        {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}. <Link className="link" to={protocolPath(care.protocol)}>Protocol</Link></p>}
       </div>
       {self && <div className="rise" style={{ ['--d' as string]: 3 }}><EvaReadiness d={d} compact /></div>}
     </div>

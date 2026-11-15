@@ -167,7 +167,7 @@ export interface Person {
 }
 export interface Hazard { title: string; level: Level; what: string; sources: string[] }
 export interface Ridge { id: HazardId; name: string; what: string; level: Level; label: string; here: string; systems: string[]; system_names: string[]; basis?: string; assumption?: boolean }
-export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[] }
+export interface Warning { id: string; level: Level; title: string; why: string; todo: string[]; sources: string[]; protocol?: string | null }
 export interface LegConditions extends Leg { days: number; gravity_key: string; ridge: Ridge[]; dose_leg_msv: number }
 export interface PlanConditions {
   name: string; legs: LegConditions[]; today: number; leg_index: number
@@ -192,6 +192,22 @@ export interface Leaderboard { rows: LeaderRow[];team: TeamGoal[]; crew_goals_we
 export interface Step { i: number; t?: string; q?: string; yes?: number | string; no?: number | string; timer?: number; metro?: number; breath?: number; end?: number; variant?: string | null }
 export interface Protocol { id: string; name: string; sign: string; kit: string[]; after: string[]; after_items: { title: string; days: number }[]; window_days: number; ops: 'full' | 'limited' | 'rest'; steps: Step[]; source: string }
 export interface Protocols { order: string[]; protocols: Record<string, Protocol>; reviewed: boolean; care_note?: { source: string; verified: boolean; note: string } }
+export interface ProtocolPage {
+  id: string; kind: 'emergency' | 'operational'; name: string; sign: string | null; audience: string; guided: boolean
+  when: string[]; steps: { t: string | null; variant: string | null; q: string | null }[]; watch: string[]; kit: string[]
+  window_days: number; ops: 'full' | 'limited' | 'rest' | null; links: string[]; source: string | null; live: string[]
+  standard: { text: string; items: string[]; name: string; url: string; checked: string } | null
+}
+export interface InForce { id: string; level: Level; reason: string; audience?: string }
+export interface ProtocolLibrary {
+  in_force: InForce[]; emergency: ProtocolPage[]; operational: ProtocolPage[]; reviewed: boolean; note: string
+  care_table: { id: string; name: string; window_days: number; ops: 'full' | 'limited' | 'rest' }[]; place: { id: string; name: string }
+}
+export interface ProtocolMatch {
+  mode: 'rules' | 'ai'; provider: string
+  matches: { id: string; name: string; sign: string; score: number; matched: string[] }[]
+  fallback: { id: string; name: string; sign: string } | null
+}
 export interface Emergency { id: number; protocol: string | null; patient: string | null; responder: string | null; location: string; day: number; started_at: number; ended_at: number | null; outcome: string | null; log: [number, string][] }
 export interface Message { id: number; sender: string; recipient: string; kind: string; text: string; sent_at: number; deliver_at: number; delivered: boolean; eta_s: number }
 export interface Claim { text: string; source_ids: string[] }
@@ -225,8 +241,11 @@ export interface TestResult { id: number; kind: string; day: number; at: number;
 export interface TestDef { id: string; group: string; name: string; measures: string; minutes: number; source: string; latest: TestResult | null }
 export interface CheckinResult { ok: boolean; summary: string; goal: string | null; conclusion: { population: string; personal: string; text: string } | null }
 export interface TestHistory { tests: TestDef[]; recent: TestResult[] }
-export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean }
-export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[] }
+export interface Suggestion { id: string; area: Area; priority: number; title: string; why: string; steps: string[]; goal: string | null; sources: string[]; accepted: boolean
+  /** One short line each, either may be empty: what in the environment fits this today, and what in the person's own state. */
+  because_outside: string; because_inside: string; protocol: string | null
+  rank: { priority: number; both: number; learned: number; score: number; accepted: number; dismissed: number } }
+export interface Suggestions { mode: 'rules' | 'ai'; provider: string; day: number; items: Suggestion[]; context: { place: string; in_force: string[] } }
 export interface PersonalRecord {
   name: string; role: string; home: string; dob: string; age: number; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; bmi: number

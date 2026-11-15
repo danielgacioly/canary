@@ -80,7 +80,7 @@ def get_provider() -> LLMProvider:
 def status() -> dict:
     p = get_provider()
     return {"provider": p.name, "configured": p.configured, "available": list(_PROVIDERS),
-            "entries": ["chat", "briefing", "suggestions"],
+            "entries": ["chat", "briefing", "suggestions", "protocol_match"],
             "rules": ["Answers only from this person's data, the system cards and the protocols",
                       "Every claim cites a source; claims without one are dropped",
                       "No diagnosis, no medication doses: those go to the medical officer",
