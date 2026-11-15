@@ -563,7 +563,7 @@ The demo packages are generated, not typed (see [Mission data](#mission-data) fo
 ## The 3D body
 
 - **Shape:** the MakeHuman base mesh (CC0), converted by `tools/build_body_model.py` into `frontend/public/models/body.glb` (13,380 vertices, scaled to 1.75 m) and `joints.json` (125 joint centres). Every vertex is tagged with a surface region (head, torso, arm, hand, leg, foot) so regions can be picked and coloured.
-- **Inside:** skeleton (vertebrae, ribs, sternum, pelvis, long bones, every finger and toe), brain, eyes, heart, lungs, liver, stomach, intestines, spleen, kidneys, bladder, arteries and nerves are built procedurally from the joints (`frontend/src/hologram/anatomy.ts`).
+- **Inside:** the bones (skull, jaw, vertebrae, ribs, sternum, pelvis, shoulder girdle, arms, hands, legs, feet) and the organs (brain, eyes, heart, lungs and airways, liver, stomach, pancreas, intestines, kidneys, bladder, thymus, aorta and great veins) are real anatomical meshes from BodyParts3D, fitted to the body and stored in `frontend/public/models/anatomy.glb` by `tools/build_anatomy_model.py` (about 228,000 triangles, 1.1 MB, meshopt-compressed; credits and licence in `frontend/public/models/ANATOMY_CREDITS.md`). The spleen, the arteries of the limbs and the nerves are drawn procedurally from the joints (`frontend/src/hologram/anatomy.ts`). If `anatomy.glb` cannot be loaded, the whole inside is built procedurally as before, so the body never disappears.
 - **Look:** custom shaders (`materials.ts`): an iridescent fresnel shell with muscle striations and a scan line, glowing organs, light flowing along vessels and nerves, bloom, a holographic platform and particles. The body assembles from the feet up on load.
 - **Meaning:** each body system takes its status colour (green / amber / red, pulsing when it needs action). The **Physical** lens shows organs and bones; the **Mental** lens dims the body to violet and lights the brain and nervous system. Click a part to focus the camera on it and open its panel.
 
@@ -607,7 +607,7 @@ frontend/
     features/            Guided Response, Ask Canary, self-tests and logs (Checks)
     pages/               Intro, Setup (admin preview), Crew (home), Astronaut (public card or medical view), MySpace (Health, Goals, Suggestions, Patches, Dashboard, My information, Settings), MissionInfo, Control (Canary Control), Tests, Settings, Ranking, MissionPlan, Medical, About
     styles/app.css       design tokens and components
-  public/models/         body.glb, joints.json
+  public/models/         body.glb, joints.json, anatomy.glb, ANATOMY_CREDITS.md
 data/missions/          mission packages: odyssey1-mars, odyssey1-moon, odyssey1-iss (CSV spreadsheets, generated, each with a README)
 data/demo_crew.json      the demo crew, story and PINs (read only by the generator)
 scripts/load_mission.py  load a package folder into a database without a server
@@ -619,6 +619,7 @@ data/prepare_blood.py    rebuilds the blood sections of nasa_snapshot.json from 
 data/DATASET.md          what is in the file, where each part comes from, how it would be collected
 data/prepare_nasa_data.py
 tools/build_body_model.py
+tools/build_anatomy_model.py
 Makefile
 ```
 
@@ -732,6 +733,7 @@ The accepted ranges are listed in "Limits, honestly": they catch typos, they say
 ## Credits and licences
 
 - Body mesh: [MakeHuman](https://github.com/makehumancommunity/makehuman) base mesh, **CC0 1.0**.
+- Bones and organs: [BodyParts3D](https://dbarchive.biosciencedbc.jp/en/bodyparts3d/), (c) The Database Center for Life Science, **CC BY-SA 2.1 Japan** (share-alike applies to `anatomy.glb`; details in `frontend/public/models/ANATOMY_CREDITS.md`).
 - NASA data: DONKI, Curiosity RAD (PDS/SPDF) and OSDR OSD-569 and OSD-575 are NASA open data. NASA-STD-3001 is a NASA technical standard, quoted by item.
 - Fonts: Archivo, Public Sans and DM Mono from Google Fonts (SIL Open Font License).
 - Built for NASA Space Apps Challenge 2026. Canary is not affiliated with or endorsed by NASA.
