@@ -16,7 +16,6 @@ from typing import Dict, List, Optional
 from . import db
 from .config import PIN_RE, settings
 
-ITERATIONS = 100_000
 MAX_FAILS = 5
 WINDOW_S = 60
 
@@ -24,7 +23,7 @@ _failed: Dict[str, List[float]] = {}
 
 
 def _hash(pin: str, salt: bytes) -> str:
-    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, ITERATIONS).hex()
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, settings.pin_iterations).hex()
 
 
 def valid_pin(pin: str) -> bool:

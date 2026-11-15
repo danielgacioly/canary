@@ -39,6 +39,9 @@ class Settings:
     # in the settings table and wins over this default until the demo is reset.
     control_pin: str = _medical_pin(os.environ.get("CANARY_CONTROL_PIN", "4242"))
     crew_pins: Dict[str, str] = _pins(os.environ.get("CANARY_CREW_PINS", "h:1001,k:1002,a:1003,t:1004"))
+    # PBKDF2 rounds for PIN hashes. Leave the default: a stored hash does not record the count, so changing it
+    # invalidates every stored PIN. The test suite lowers it to run fast.
+    pin_iterations: int = int(os.environ.get("CANARY_PBKDF2_ITERATIONS", "100000"))
     token_secret: str = os.environ.get("CANARY_TOKEN_SECRET", secrets.token_hex(16))
     token_ttl_s: int = int(os.environ.get("CANARY_TOKEN_TTL", "3600"))
     # Communication delay runs this many times faster than real time in the demo.
