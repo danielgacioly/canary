@@ -13,9 +13,10 @@ from datetime import date, timedelta
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -23,7 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import __version__, auth, db
 from .assistant import briefing, chat, providers, suggestions, tools
 from .config import settings
-from .domain import advice, care, goals, guide, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
+from .domain import advice, care, data, goals, guide, health, mission, nasa, notify, plan, privacy, protocols, registry, selftests, standards, telemetry, validation
+from .domain import simdata
 from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, STORY, SYSTEMS
 
 def _warm_story() -> None:
@@ -43,6 +45,10 @@ def _warm_story() -> None:
 async def lifespan(_app):
     db.connect()
     registry.load()
+    try:
+        data.bootstrap()  # first start with no data and no crew: load the configured mission package once
+    except validation.ValidationFailure as e:  # a broken or missing package must not stop the API from starting
+        print("mission package not loaded:", "; ".join(x["message"] for x in e.errors[:3]))
     if settings.warm_cache:
         import threading
         threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
@@ -243,10 +249,17 @@ def put_mission(body: MissionIn):
 
 @app.post("/api/demo/reset", tags=["mission"])
 def demo_reset():
+    """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
+    An empty setting starts with no data at all."""
     db.reset()
     plan.reset_cache()
     registry.load()
     auth.clear_failures()
+    if settings.mission_package:
+        try:
+            data.import_named(settings.mission_package)
+        except validation.ValidationFailure as e:
+            raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
     return mission.state()
 
 
@@ -294,7 +307,18 @@ def put_plan(body: PlanIn):
     except ValueError as e:
         raise HTTPException(400, str(e))
     mission.set_setup_done()
+    _reload_for_legs(plan.get()["legs"])
     return get_plan()
+
+
+def _reload_for_legs(legs: list) -> None:
+    """Legs that equal a preset's are that preset: the bundled package of the preset replaces the data. A custom
+    itinerary changes only the plan: real measurements do not change because the plan did."""
+    sig = simdata.signature(legs)
+    for key in plan.PRESETS:
+        if any(simdata.signature(plan.preset_legs(key, r)) == sig for r in (True, False)):
+            data.reload_for_preset(key)
+            return
 
 
 class PresetIn(BaseModel):
@@ -307,6 +331,7 @@ def plan_preset(body: PresetIn):
         plan.use_preset(body.preset)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    data.reload_for_preset(body.preset)
     mission.set_setup_done()
     return get_plan()
 
@@ -319,6 +344,7 @@ def mission_setup(body: PlanIn):
     except ValueError as e:
         raise HTTPException(400, str(e))
     mission.set_setup_done()
+    _reload_for_legs(plan.get()["legs"])
     return mission.set_step(0)  # the demo story bar keeps working: it starts from its first scene
 
 
@@ -1051,6 +1077,7 @@ def control_register(body: RegisterIn):
         auth.set_pin(p["seat"], p["pin"])
     plan.use_preset(body.mission.preset, rover)
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
+    data.reload_for_preset(body.mission.preset)
     mission.set_step(0)
     return control_overview()
 
@@ -1060,6 +1087,85 @@ def control_clear():
     """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
     registry.clear()
     return control_overview()
+
+
+# ---------------------------------------------------------------- data entry points
+# Sensors, wearables and labs send readings with a key; Mission Control adds space events and imports mission packages.
+# All of them end in domain/data.py, which validates everything first and writes in one transaction.
+MAX_OBS_BATCH = 5000
+
+
+def require_ingest(x_canary_key: Optional[str] = Header(None)) -> None:
+    """The ingest key (CANARY_INGEST_KEY) in the X-Canary-Key header. Never logged, never returned."""
+    if not settings.ingest_key:
+        raise HTTPException(503, "Ingest is off")
+    if not x_canary_key or not hmac.compare_digest(x_canary_key.encode(), settings.ingest_key.encode()):
+        raise HTTPException(401, "A valid X-Canary-Key is required")
+
+
+@app.post("/api/observations", tags=["data"], dependencies=[Depends(require_ingest)])
+def post_observations(body: dict = Body(...)):
+    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note}]}.
+    Up to 5000 rows. One bad row refuses the whole batch (422, `rows.N.field`) and nothing is stored."""
+    rows = body.get("rows") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        raise validation.FieldError("rows", "Send {\"rows\": [...]}")
+    if len(rows) > MAX_OBS_BATCH:
+        raise validation.FieldError("rows", f"At most {MAX_OBS_BATCH} readings per request")
+    return data.add_observations(rows)
+
+
+@app.get("/api/scenes", tags=["data"])
+def get_scenes():
+    """The guided demo's bookmarks (a day, a place, a person, a sentence). Not health data."""
+    return data.scenes()
+
+
+@app.post("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
+def control_add_space_event(body: dict = Body(...)):
+    """One space-weather event: kind, start_day, end_day, locations, extra_dose_msv (0 to 2000), origin, source, note."""
+    return data.add_space_event(body)
+
+
+@app.get("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
+def control_space_events():
+    return {"events": data.events()}
+
+
+def _multipart_files(content_type: str, raw: bytes) -> list:
+    """(filename, bytes) of every file part of a multipart/form-data body (standard library, no extra dependency)."""
+    from email import policy
+    from email.parser import BytesParser
+    msg = BytesParser(policy=policy.HTTP).parsebytes(b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + raw)
+    if not msg.is_multipart():
+        raise validation.FieldError("file", "Send a multipart upload with the files")
+    return [(part.get_filename(), part.get_payload(decode=True) or b"") for part in msg.iter_parts() if part.get_filename()]
+
+
+@app.post("/api/control/import", tags=["control"], dependencies=[Depends(require_control)])
+async def control_import(request: Request):
+    """Import a mission package: a multipart upload of a .zip or of CSV files named like the package files, or JSON
+    {"package": "odyssey1-mars"} for a bundled one. Any error: 422 {"errors": [...]} and nothing is written."""
+    ctype = request.headers.get("content-type", "")
+    try:
+        if ctype.startswith("application/json"):
+            try:
+                body = await request.json()
+            except ValueError:
+                raise validation.FieldError("package", "Send JSON like {\"package\": \"odyssey1-mars\"}")
+            name = body.get("package") if isinstance(body, dict) else None
+            res = await run_in_threadpool(data.import_package, data.package_dir(name), name, True)
+        elif ctype.startswith("multipart/form-data"):
+            if int(request.headers.get("content-length") or 0) > data.MAX_UPLOAD_BYTES:
+                raise validation.FieldError("file", "The upload is too large")
+            raw = await request.body()
+            files = data.files_from_upload(_multipart_files(ctype, raw))
+            res = await run_in_threadpool(data.import_package, files, "upload", False)
+        else:
+            raise HTTPException(415, "Send multipart/form-data (a zip or CSV files) or JSON {\"package\": \"name\"}")
+    except validation.ValidationFailure as e:
+        return JSONResponse(status_code=422, content={"detail": e.errors, "errors": e.errors, "accepted": {}})
+    return {**res, "errors": []}
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)

@@ -35,10 +35,14 @@ def new_client(db_path: Optional[str] = None):
 
 
 def load_demo(client) -> None:
-    """Put the app in the demo state. Today: reset the database to the built-in demo.
-    Later phases will make this load the mock mission package instead; only this helper should need to change."""
+    """Put the app in the demo state: reset the database, which loads the mock mission package named by
+    CANARY_MISSION_PACKAGE (odyssey1-mars by default) through the same import the control endpoint and
+    scripts/load_mission.py use. Then check the package really is what the engine runs on."""
+    from canary import db
+    from canary.config import settings
     r = client.post("/api/demo/reset")
     assert r.status_code == 200, r.text
+    assert settings.mission_package == "odyssey1-mars" and db.get_setting("package")["name"] == "odyssey1-mars"
 
 
 def go_to_scene(client, i: int) -> dict:
