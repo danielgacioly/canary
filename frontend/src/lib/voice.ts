@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 
 /** Novelty voices that ship with macOS; never used for an emergency. */
 const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Ralph|Fred)\b/i
-const QUALITY: [RegExp, number][] = [[/natural/i, 9], [/premium/i, 8], [/enhanced/i, 8], [/google/i, 6], [/microsoft/i, 6], [/^(Samantha|Alex|Daniel|Ava|Allison|Tom|Susan)\b/i, 3]]
+// Neural and downloaded voices sound human; they win over the language order. Then calm, warm system voices.
+const QUALITY: [RegExp, number][] = [[/natural|neural|siri/i, 24], [/premium/i, 22], [/enhanced/i, 18],
+  [/^(Ava|Zoe|Samantha|Allison|Serena|Karen|Moira|Evan|Nathan|Tom|Daniel)\b/i, 6], [/microsoft/i, 4], [/google/i, 2]]
 
 /** The best English voice of the list, or null. en-US first, then en-GB, then any other English. */
 export function pickEnglishVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
@@ -61,7 +63,8 @@ export function cleanSpeech(text: string): string {
 
 let audio: AudioContext | null = null
 
-/** A short two-tone radio chirp before a step. No audio file: two sine beeps. Resolves with its length in ms. */
+/** A soft two-note chime before a step (a falling fifth, slow attack, low volume): it asks for attention without
+ *  alarm. No audio file. Returns its length in ms. */
 export function chirp(): number {
   try {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
@@ -69,32 +72,37 @@ export function chirp(): number {
     audio = audio ?? new Ctx()
     if (audio.state === 'suspended') void audio.resume()
     const t0 = audio.currentTime + 0.02
-    ;[[1000, 0], [1500, 0.09]].forEach(([hz, at]) => {
+    ;[[784, 0], [523, 0.22]].forEach(([hz, at]) => {
       const osc = audio!.createOscillator(), gain = audio!.createGain()
       osc.type = 'sine'; osc.frequency.value = hz
       gain.gain.setValueAtTime(0.0001, t0 + at)
-      gain.gain.exponentialRampToValueAtTime(0.14, t0 + at + 0.01)
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.08)
+      gain.gain.exponentialRampToValueAtTime(0.06, t0 + at + 0.04)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.5)
       osc.connect(gain).connect(audio!.destination)
-      osc.start(t0 + at); osc.stop(t0 + at + 0.09)
+      osc.start(t0 + at); osc.stop(t0 + at + 0.52)
     })
-    return 260
+    return 700
   } catch { return 0 }
 }
 
-/** Chirp, then read `text` with `voice`. Returns a function that cancels both. */
+/** Chime, then read `text` with `voice`, one sentence at a time with a short breath between them, a little slower
+ *  than normal speech: steady and calm, not robotic. Returns a function that cancels everything. */
 export function speakWithChirp(text: string, voice: SpeechSynthesisVoice): () => void {
   let timer: number | undefined
+  let stopped = false
+  const sentences = text.match(/[^.?!]+[.?!]*/g)?.map(s => s.trim()).filter(Boolean) ?? [text]
+  const say = (k: number) => {
+    if (stopped || k >= sentences.length) return
+    try {
+      const u = new SpeechSynthesisUtterance(sentences[k])
+      u.voice = voice; u.lang = voice.lang; u.rate = 0.9; u.pitch = 1.0; u.volume = 0.95
+      u.onend = () => { timer = window.setTimeout(() => say(k + 1), k === 0 ? 450 : 320) }
+      speechSynthesis.speak(u)
+    } catch { /* no speech */ }
+  }
   try {
     speechSynthesis.cancel()
-    const wait = chirp()
-    timer = window.setTimeout(() => {
-      try {
-        const u = new SpeechSynthesisUtterance(text)
-        u.voice = voice; u.lang = voice.lang; u.rate = 1.0; u.pitch = 0.9; u.volume = 1
-        speechSynthesis.speak(u)
-      } catch { /* no speech */ }
-    }, wait)
+    timer = window.setTimeout(() => say(0), chirp())
   } catch { /* no speech */ }
-  return () => { window.clearTimeout(timer); try { speechSynthesis.cancel() } catch { /* no speech */ } }
+  return () => { stopped = true; window.clearTimeout(timer); try { speechSynthesis.cancel() } catch { /* no speech */ } }
 }

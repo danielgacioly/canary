@@ -50,7 +50,6 @@ export default function Crew() {
                 <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
                 <span className="small dim num">{p.today.done}/{p.today.total} today</span>
               </span>
-              {p.id === me && <span className="tag">You</span>}
             </button>
           ))}
         </div>
