@@ -31,7 +31,7 @@ NEW_FIELDS = {"stale", "age_days", "origin", "clock", "event", "measured_days", 
               "personal_ids", "patches", "what",
               "protocol",
               # phase "accounts and roles": roles, ground accounts, the dose waiver and the operating mode
-              "cmo", "ground", "dose_waiver", "waiver", "career", "mission_dose_msv", "career_limit_msv", "mode"}  # the crew warnings name the Protocols page they belong to  # phase 4: a system or a person with no data yet; an indicator still learning its normal
+              "cmo", "ground", "dose_waiver", "waiver", "career", "mission_dose_msv", "career_limit_msv", "mode", "counts", "in_transit"}  # the crew warnings name the Protocols page they belong to  # phase 4: a system or a person with no data yet; an indicator still learning its normal
 
 
 def new_client(db_path: Optional[str] = None):

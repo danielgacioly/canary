@@ -37,7 +37,6 @@ const emptySeat = (seat = ''): SeatForm => ({
 })
 const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true, dose_waiver: false }
 const GROUND_ROLES: [string, string][] = [['mcc', 'MCC (Canary Control)'], ['flight_surgeon', 'Flight surgeon (medical console)']]
-const MAX_GROUND = 12
 
 export default function Control() {
   const [signed, setSigned] = useState(api.isControl())
@@ -91,10 +90,15 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   // The first-access sign-in closes the moment an MCC account exists. The registration form knows the MCC PIN it just sent, so sign
   // in again with it; if that does not work, ask for the PIN.
   const registered = async (mcc?: { name: string; pin: string }) => {
+    if (!mcc) {  // no ground account was sent: the first-access sign-in stays valid
+      setTab('dashboard'); bump(); toast('Sent to Canary.')
+      if (tourStage() === 'connect') setTourStage('dashboard')
+      return
+    }
     try {
       const acc = await api.accountsPublic()
       const m = acc.ground.find(g => g.role === 'mcc' && g.name === mcc?.name)
-      if (!mcc || !m) throw new Error('no account')
+      if (!m) throw new Error('no account')
       await api.controlSignIn(mcc.pin, m.id)
       setTab('dashboard'); bump(); toast('Sent to Canary. Signed in to Canary Control.')
       if (tourStage() === 'connect') setTourStage('dashboard')
@@ -240,18 +244,6 @@ function careerOf(f: Values, i: number, issRate: number, missionMsv: number): nu
   const days = v.parseNumber(str(f[`crew.${i}.days_in_space`])) ?? 0
   return (typed ?? days * issRate) + missionMsv
 }
-/** The form's values without ground account `j`: the accounts after it move up one place. */
-function withoutGround(f: Values, j: number, n: number): Values {
-  const out: Values = {}
-  for (const [k, val] of Object.entries(f)) {
-    const m = /^ground\.(\d+)\.(.+)$/.exec(k)
-    if (!m) { out[k] = val; continue }
-    const i = Number(m[1])
-    if (i < j) out[k] = val
-    else if (i > j && i < n) out[`ground.${i - 1}.${m[2]}`] = val
-  }
-  return out
-}
 /** The form's values without person `j`: the people after it move up one place. */
 function withoutPerson(f: Values, j: number, n: number): Values {
   const out: Values = {}
@@ -264,11 +256,10 @@ function withoutPerson(f: Values, j: number, n: number): Values {
   }
   return out
 }
-const groundToValues = (g: GroundForm[]): Values => Object.fromEntries(g.flatMap((x, i) => [[`ground.${i}.name`, x.name], [`ground.${i}.role`, x.role], [`ground.${i}.pin`, x.pin]]))
-const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...groundToValues([{ name: '', role: 'mcc', pin: '' }]), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
+const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
 
 /** Every rule of the registration form, by field. The server repeats them (SeatIn, MissionRegIn, _check_registration). */
-function validateRegister(f: Values, n: number, gn: number, presets: string[], roverPresets: string[], needsWaiver: boolean): Errors {
+function validateRegister(f: Values, n: number, gn: number, presets: string[], roverPresets: string[]): Errors {
   const e: Errors = {}
   const launch = str(f['mission.launch_date'])
   const pins = new Map<string, number>()
@@ -297,7 +288,7 @@ function validateRegister(f: Values, n: number, gn: number, presets: string[], r
     put('prior_dose_msv', v.number('Dose from earlier flights', { min: 0, max: 600, unit: 'mSv', optional: true })(g('prior_dose_msv')))
     put('cmo', g('cmo') === 'yes' && Array.from({ length: i }, (_, j) => j).some(j => str(f[`crew.${j}.cmo`]) === 'yes') ? 'Only one crew medical officer: another person already is one' : null)
   })
-  const gpins = new Map<string, number>()
+  const gpins = new Map<string, number>()  // ground accounts are no longer part of the form (gn is 0)
   Array.from({ length: gn }, (_, i) => i).forEach(i => {
     const g = (k: string) => str(f[`ground.${i}.${k}`])
     e[`ground.${i}.name`] = v.length('Name', { min: 2, max: 60 })(g('name'))
@@ -306,8 +297,6 @@ function validateRegister(f: Values, n: number, gn: number, presets: string[], r
     e[`ground.${i}.pin`] = pin ?? (gpins.has(g('pin')) ? `PIN is already used by ground account ${gpins.get(g('pin'))! + 1}; each account needs its own` : null)
     if (!pin) gpins.set(g('pin'), gpins.get(g('pin')) ?? i)
   })
-  e.ground = Array.from({ length: gn }, (_, i) => str(f[`ground.${i}.role`])).includes('mcc') ? null : 'Register at least one MCC account for Canary Control'
-  e['mission.dose_waiver'] = needsWaiver && str(f['mission.dose_waiver']) !== 'yes' ? 'Projected career dose exceeds the NASA limit (NASA-STD-3001 Vol 1, 4.2.10); a risk-acceptance waiver is required.' : null
   e['mission.callsign'] = v.length('Callsign', { min: 2, max: 24 })(str(f['mission.callsign']))
   e['mission.name'] = v.length('Mission name', { min: 2, max: 80 })(str(f['mission.name']))
   e['mission.launch_date'] = v.date('Launch date', { minYear: 2025, maxYear: 2100 })(launch)
@@ -323,16 +312,17 @@ const DEVICES: [string, string][] = [
 ]
 const missionToValues = (m: MissionForm): Values => ({ ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
 /** What the form says about the people, the ground team and the mission, to tell whether it still equals the demo data (the waiver is the person's own choice). */
-const formSig = (f: Values) => JSON.stringify(Object.entries(f).filter(([k, x]) => /^(crew|ground|mission)\./.test(k) && k !== 'mission.dose_waiver' && str(x) !== '').map(([k, x]) => [k, str(x)]).sort())
+const formSig = (f: Values) => JSON.stringify(Object.entries(f).filter(([k, x]) => /^(crew|mission)\./.test(k) && k !== 'mission.dose_waiver' && str(x) !== '').map(([k, x]) => [k, str(x)]).sort())
 type Sources = 'idle' | 'scanning' | 'none' | 'loaded'
 
 function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { name: string; pin: string }) => void }) {
   const [step, setStep] = useState(0)
   const [count, setCount] = useState(1)
   const [open, setOpen] = useState(demoMode ? -1 : 0)
-  const [gcount, setGcount] = useState(1)
+  const gcount = 0  // the registration is about the mission and the crew: ground accounts come from the mission package
   const [scan, setScan] = useState<Sources>('idle')      // "Scan for crew devices"
-  const [crewDemo, setCrewDemo] = useState(false)         // the demo crew is in the form (with its paired devices)
+  const [crewDemo, setCrewDemo] = useState(false)         // the demo crew is in the form
+  const [devicesPaired, setDevicesPaired] = useState(false)  // "Use demo devices": each person's devices are paired (demo)
   const [src, setSrc] = useState<Sources>('idle')         // "Connect mission sources"
   const demoData = useRef<ControlDemo | null>(null)
   const demoSig = useRef('')
@@ -352,7 +342,7 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
   }
   const form = useForm<Values>({
     initial: toValues([emptySeat()], emptyMission),
-    validate: f => validateRegister(f, count, gcount, Object.keys(presets), roverPresets, needsWaiverFor(f)),
+    validate: f => validateRegister(f, count, gcount, Object.keys(presets), roverPresets),
     submit: async f => {
       const g = (i: number, k: string) => str(f[`crew.${i}.${k}`]).trim()
       const crew = Array.from({ length: count }, (_, i): SeatForm => ({
@@ -363,10 +353,10 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
         diet: g(i, 'diet'), vaccinations: g(i, 'vaccinations'), emergency_contact: g(i, 'emergency_contact'),
         eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')), cmo: g(i, 'cmo') === 'yes',
       }))
-      const ground = Array.from({ length: gcount }, (_, i): GroundForm => ({ name: str(f[`ground.${i}.name`]).trim(), role: str(f[`ground.${i}.role`]) as GroundForm['role'], pin: str(f[`ground.${i}.pin`]).trim() }))
+      const ground: GroundForm[] = []
       const mission: MissionForm = { callsign: str(f['mission.callsign']).trim(), name: str(f['mission.name']).trim(), launch_date: str(f['mission.launch_date']), preset: str(f['mission.preset']),
-        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false, dose_waiver: str(f['mission.dose_waiver']) === 'yes' }
-      const mcc = ground.find(x => x.role === 'mcc')
+        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false, dose_waiver: false }
+      const mcc = demoMode && crewDemo && src === 'loaded' && formSig(f) === demoSig.current ? demoData.current?.ground.find(x => x.role === 'mcc') : undefined
       // Still exactly the demo data: load the whole demo package (readings, goal history, story). Anything else is registered as typed.
       if (demoMode && crewDemo && src === 'loaded' && formSig(f) === demoSig.current) await api.controlDemoData()
       else await api.controlRegister(crew, mission, ground)
@@ -375,15 +365,15 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
     // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
     reveal: key => {
       const m = /^crew\.(\d+)\./.exec(key)
-      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.dose_waiver')) { setStep(2) } else if (key.startsWith('ground') || key.startsWith('mission.')) { setStep(1) }
+      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) { setStep(1) }
     },
   })
   const getDemo = async () => demoData.current ?? (demoData.current = await api.controlDemo())
   const useDemoCrew = () => fetchDemo.run(async () => {
     const d = await getDemo()
-    form.setValues(f => ({ ...Object.fromEntries(Object.entries(f).filter(([k]) => !/^(crew|ground)\./.test(k))), ...Object.assign({}, ...d.crew.map(seatToValues)), ...groundToValues(d.ground) }))
-    setCount(d.crew.length); setGcount(d.ground.length); setOpen(-1); setCrewDemo(true)
-    demoSig.current = formSig({ ...Object.assign({}, ...d.crew.map(seatToValues)), ...groundToValues(d.ground), ...missionToValues(d.mission) })
+    form.setValues(f => ({ ...Object.fromEntries(Object.entries(f).filter(([k]) => !/^(crew|ground)\./.test(k))), ...Object.assign({}, ...d.crew.map(seatToValues)) }))
+    setCount(d.crew.length); setOpen(-1); setCrewDemo(true)
+    demoSig.current = formSig({ ...Object.assign({}, ...d.crew.map(seatToValues)), ...missionToValues(d.mission) })
   })
   const loadDemoMission = () => fetchDemo.run(async () => {
     const d = await getDemo()
@@ -392,7 +382,7 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
   })
   const clearForm = () => {
     form.reset(toValues([emptySeat()], emptyMission))
-    setCount(1); setGcount(1); setOpen(demoMode ? -1 : 0); setScan('idle'); setSrc('idle'); setCrewDemo(false); setStep(0)
+    setCount(1); setOpen(demoMode ? -1 : 0); setScan('idle'); setSrc('idle'); setCrewDemo(false); setDevicesPaired(false); setStep(0)
   }
   const addPerson = () => {
     if (count >= MAX_PEOPLE) return
@@ -414,7 +404,7 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
   const needsWaiver = needsWaiverFor(form.values)
   const missionDose = demo?.mission_dose_msv[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] ?? 0
   const careerMax = Math.max(0, ...people.map(i => careerOf(form.values, i, demo?.iss_dose_msv_per_day ?? 0.5, missionDose)))
-  const allErrs = validateRegister(form.values, count, gcount, Object.keys(presets), roverPresets, needsWaiver)
+  const allErrs = validateRegister(form.values, count, gcount, Object.keys(presets), roverPresets)
   const seatBad = (i: number) => Object.keys(allErrs).filter(k => k.startsWith(`crew.${i}.`) && allErrs[k]).length
   const seatShown = (i: number) => form.visible.filter(x => x.key.startsWith(`crew.${i}.`)).length
   return (
@@ -429,11 +419,18 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
       {step === 0 && (
         <div className="seats rise">
           {demoMode && (
+            <div className="set-row" data-tour="crew-demo">
+              <div className="grow"><b>Crew members</b>
+                <p className="small muted">{crewDemo ? `The demo crew is in the form: ${count} people. Open Edit details to change anyone.` : 'Fill in each person below, or use the demo crew.'}</p></div>
+              {!crewDemo && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={useDemoCrew}>Use demo crew</button>}
+            </div>
+          )}
+          {demoMode && (
             <div className="set-row" data-tour="scan">
               <div className="grow"><b>Crew devices</b>
-                <p className="small muted">{crewDemo ? 'The demo crew and the ground team are in the form.' : scan === 'scanning' ? 'Scanning for wristbands and crew devices…' : scan === 'none' ? 'No wristband or crew device found.' : 'Find the wristbands and monitors the crew wears.'}</p></div>
-              {!crewDemo && scan !== 'none' && <button type="button" className="btn" disabled={scan === 'scanning'} onClick={() => setScan('scanning')}>{scan === 'scanning' ? 'Scanning…' : 'Scan for crew devices'}</button>}
-              {!crewDemo && scan === 'none' && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={useDemoCrew}>Use demo crew</button>}
+                <p className="small muted">{devicesPaired ? 'The demo devices are paired to every person (demo).' : scan === 'scanning' ? 'Scanning for wristbands and crew devices…' : scan === 'none' ? 'No wristband or crew device found.' : 'Find the wristbands and monitors the crew wears.'}</p></div>
+              {!devicesPaired && scan !== 'none' && <button type="button" className="btn" disabled={scan === 'scanning'} onClick={() => setScan('scanning')}>{scan === 'scanning' ? 'Scanning…' : 'Scan for crew devices'}</button>}
+              {!devicesPaired && scan === 'none' && <button type="button" className="btn pri pulse" onClick={() => setDevicesPaired(true)}>Use demo devices</button>}
             </div>
           )}
           {demoMode && <ActionError error={fetchDemo.error} />}
@@ -445,9 +442,9 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
                 {seatShown(i) ? <span className="small err">{seatShown(i)} to fix</span>
                   : <span className={`small ${seatBad(i) ? 'dim' : 'ok-text'}`}>{seatBad(i) ? 'Not complete' : 'Ready'}</span>}
               </button>
-              {crewDemo && (
+              {(devicesPaired || crewDemo) && (
                 <div className="seat-devices small">
-                  {DEVICES.map(([n, what]) => <div key={n}><b>{n}</b> <span className="muted">· {what}</span> <span className="dim">· Paired (demo)</span></div>)}
+                  {devicesPaired && DEVICES.map(([n, what]) => <div key={n}><b>{n}</b> <span className="muted">· {what}</span> <span className="dim">· Paired (demo)</span></div>)}
                   <button type="button" className="link-btn" onClick={() => setOpen(o => (o === i ? -1 : i))}>{open === i ? 'Hide details' : 'Edit details'}</button>
                 </div>
               )}
@@ -483,20 +480,6 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
               <option value="yes">Include the rover traverse</option><option value="no">Surface stay only</option></Field>
           )}
           <p className="small muted" style={{ gridColumn: '1 / -1' }}>The profile sets the itinerary (training, launch, transfer, stay, return). Every rule on board adapts to it: goals, alerts, radiation, signal delay, Guided Response.</p>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <h3>Ground team</h3>
-            <p className="small muted">Ground accounts sign in with their own PIN: MCC accounts to Canary Control, flight surgeons to the medical console. At least one MCC account is required. The crew medical officer signs in to the medical console with their crew PIN.</p>
-            {form.error('ground') && <p className="err">{form.error('ground')}</p>}
-          </div>
-          {Array.from({ length: gcount }, (_, i) => (
-            <div key={i} className="form-grid" style={{ gridColumn: '1 / -1' }}>
-              <Field form={form} name={`ground.${i}.name`} label={`Ground account ${i + 1}: name`} maxLength={60} />
-              <Field form={form} name={`ground.${i}.role`} label="Role" as="select">{GROUND_ROLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Field>
-              <Field form={form} name={`ground.${i}.pin`} label="PIN (4 digits)" hint="Different for each account" inputMode="numeric" maxLength={4} autoComplete="off" />
-              {gcount > 1 && <div className="row"><button type="button" className="link-btn" onClick={() => { form.setValues(f => withoutGround(f, i, gcount)); setGcount(gcount - 1) }}>Remove this account</button></div>}
-            </div>
-          ))}
-          <div className="row" style={{ gridColumn: '1 / -1' }}><button type="button" className="btn" disabled={gcount >= MAX_GROUND} onClick={() => { form.setValues(f => ({ ...f, [`ground.${gcount}.name`]: '', [`ground.${gcount}.role`]: 'flight_surgeon', [`ground.${gcount}.pin`]: '' })); setGcount(gcount + 1) }}><Icon name="plus" />Add a ground account</button></div>
           <div className="row" style={{ gridColumn: '1 / -1' }}><button type="button" className="btn ghost" onClick={() => setStep(0)}><Icon name="back" />Crew</button><span className="grow" /><button type="button" className="btn pri" onClick={() => next('mission.', 2)}>Next: review<Icon name="chev" /></button></div>
         </div>
       )}
@@ -508,18 +491,12 @@ function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { 
           <div className="scroll"><table className="t"><thead><tr><th>#</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
             <tbody>{people.map(i => <tr key={i}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
           {itinerary && <Timeline legs={itinerary} places={catalog?.locations ?? {}} />}
-          <p>Projected career dose, highest in the crew: <b>{Math.round(careerMax * 10) / 10} mSv</b> <span className="muted">of {demo?.career_limit_msv ?? 600} mSv (the mission adds {Math.round(missionDose * 10) / 10} mSv)</span></p>
-          <p className="small muted">Ground team: {Array.from({ length: gcount }, (_, i) => `${val(`ground.${i}.name`) || '—'} (${val(`ground.${i}.role`) === 'mcc' ? 'MCC' : 'flight surgeon'})`).join(', ')}</p>
-          {needsWaiver && (
-            <div className="field">
-              <label><input type="checkbox" checked={val('mission.dose_waiver') === 'yes'} onChange={e => form.set('mission.dose_waiver', e.target.checked ? 'yes' : '')} /> I accept the radiation risk waiver for this mission</label>
-              {form.error('mission.dose_waiver') ? <span className="err">{form.error('mission.dose_waiver')}</span> : <span className="hint">The projected career dose passes the NASA limit (NASA-STD-3001 Vol 1, 4.2.10). The waiver is recorded with your account and the time.</span>}
-            </div>
-          )}
+          <p>Projected career dose, highest in the crew: <b>{Math.round(careerMax * 10) / 10} mSv</b> <span className="muted">of {demo?.career_limit_msv ?? 600} mSv (the mission adds {Math.round(missionDose * 10) / 10} mSv)</span>{needsWaiver ? <span className="muted"> · This exceeds the NASA career limit (NASA-STD-3001 Vol 1, 4.2.10). For information.</span> : null}</p>
+          {devicesPaired && <p className="small muted">Devices paired (demo) for each person: {DEVICES.map(d => d[0]).join(', ')}.</p>}
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
           <FormSummary form={form} describe={seatNo} />
           <FormError form={form} />
-          <div className="row wrap"><button type="button" className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission data</button>
+          <div className="row wrap">
             <button type="button" className="btn ghost" onClick={clearForm}>Clear form</button><span className="grow" />
             <span data-tour="save"><SubmitButton form={form} busyLabel="Sending…">Save and send to Canary</SubmitButton></span></div>
         </div>

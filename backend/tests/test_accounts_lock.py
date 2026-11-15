@@ -331,42 +331,25 @@ def test_a_bundled_package_by_name_is_refused_once_registered():
     assert client.get("/api/plan").json()["preset"] == "mars"
 
 
-# ---------------------------------------------------------------- the dose waiver
-def test_the_mars_plan_needs_the_waiver_and_the_waiver_is_recorded():
+# ---------------------------------------------------------------- the career dose is information, not a gate
+def test_the_mars_plan_registers_without_a_waiver_and_the_career_dose_is_shown():
+    form = demo_form()
+    empty(client)
+    r = client.post("/api/control/register", headers=control_headers(client), json={"crew": form["crew"], "ground": form["ground"], "mission": {**form["mission"], "dose_waiver": False}})
+    assert r.status_code == 200, r.text
+    assert r.json()["waiver"] is None
+    career = r.json()["career"]
+    assert career["limit_msv"] == 600 and career["projected_max_msv"] > 600 and career["mission_msv"] > 600
+
+
+def test_registering_needs_no_ground_account_and_the_first_access_pin_keeps_control_open():
     form = demo_form()
     empty(client)
     ctl = control_headers(client)
-    body = {"crew": form["crew"], "ground": form["ground"], "mission": {**form["mission"], "dose_waiver": False}}
-    r = client.post("/api/control/register", headers=ctl, json=body)
-    assert r.status_code == 422
-    assert r.json()["detail"] == [{"field": "mission.dose_waiver", "message": "Projected career dose exceeds the NASA limit (NASA-STD-3001 Vol 1, 4.2.10); a risk-acceptance waiver is required."}]
-    assert not registry.registered()  # nothing was saved
-    r = client.post("/api/control/register", headers=ctl, json={**body, "mission": {**body["mission"], "dose_waiver": True}})
+    r = client.post("/api/control/register", headers=ctl, json={"crew": form["crew"], "mission": form["mission"]})
     assert r.status_code == 200, r.text
-    w = r.json()["waiver"]
-    assert w["accepted"] is True and w["by"] == "bootstrap" and w["at"].endswith("Z")
-    career = r.json()["career"]
-    assert career["limit_msv"] == 600 and career["projected_max_msv"] > 600 and career["mission_msv"] > 600
-    assert registry.mission_info()["waiver"] == w
-
-
-def test_a_short_plan_does_not_need_the_waiver_and_records_none():
-    form = demo_form()
-    empty(client)
-    r = client.post("/api/control/register", headers=control_headers(client),
-                    json={"crew": form["crew"], "ground": form["ground"], "mission": {**form["mission"], "preset": "moon", "dose_waiver": False}})
-    assert r.status_code == 200, r.text
-    assert r.json()["waiver"] is None and r.json()["career"]["projected_max_msv"] < 600
-
-
-def test_a_large_earlier_dose_alone_can_need_the_waiver():
-    form = demo_form()
-    crew = [dict(p) for p in form["crew"]]
-    crew[0]["prior_dose_msv"] = 580  # 580 + the 46.9 mSv of the lunar plan
-    empty(client)
-    r = client.post("/api/control/register", headers=control_headers(client),
-                    json={"crew": crew, "ground": form["ground"], "mission": {**form["mission"], "preset": "moon", "dose_waiver": False}})
-    assert r.status_code == 422 and r.json()["detail"][0]["field"] == "mission.dose_waiver"
+    assert not registry.has_mcc()
+    assert client.get("/api/control/overview", headers=ctl).status_code == 200  # the bootstrap sign-in still works
 
 
 def test_the_demo_package_carries_the_waiver_accepted_by_the_demo_mcc_account():

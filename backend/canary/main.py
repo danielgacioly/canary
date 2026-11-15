@@ -998,7 +998,7 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
         r["eta_s"] = max(0, round(r["deliver_at"] - now))
         # The text of a message that has not arrived yet belongs to its sender (and, for what goes to Earth, to the people on board
         # who are on the sender's side of the link). The receiving side gets it when the signal does, not before.
-        sender_side = bool(v and (v["me"] & {r["sender"]})) or (on_board and r["recipient"] in ("earth", "mission-control"))
+        sender_side = bool(v and (v["me"] & {r["sender"]})) or (on_board and (r["recipient"] in ("earth", "mission-control") or str(r["recipient"]).startswith(registry.GROUND_PREFIX)) and not str(r["sender"]).startswith(registry.GROUND_PREFIX))
         r["in_transit"] = not r["delivered"] and not sender_side
         if r["in_transit"]:
             r["text"] = ""
@@ -1366,7 +1366,7 @@ def _register_options() -> dict:
             "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"],
             # the itinerary each profile gives, with and without its rover leg, for the review step
             "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS},
-            # the mission dose of each itinerary, so the review step can show the projected career dose and ask for the waiver
+            # the mission dose of each itinerary, so the review step can show the projected career dose as information
             "mission_dose_msv": {k: {"rover": round(dose.legs_dose(plan.preset_legs(k, True)), 1), "plain": round(dose.legs_dose(plan.preset_legs(k, False)), 1)} for k in plan.PRESETS},
             "career_limit_msv": CAREER_LIMIT_MSV}
 
@@ -1455,7 +1455,7 @@ class MissionRegIn(BaseModel):
     launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     preset: str
     rover: Optional[bool] = None  # a pressurized rover leg; left out, the profile's own default (on for Moon and Mars)
-    dose_waiver: bool = False  # the risk-acceptance waiver, required when a projected career dose passes the NASA limit
+    dose_waiver: bool = False  # accepted and ignored: registration no longer asks for a waiver (the career dose is shown as information)
 
     @field_validator("launch_date")
     @classmethod
@@ -1480,15 +1480,12 @@ class GroundIn(BaseModel):
 class RegisterIn(BaseModel):
     crew: List[SeatIn]  # one to six people (checked in _check_registration, which answers on the `crew` field)
     mission: MissionRegIn
-    ground: List[GroundIn] = []  # flight surgeons and MCC accounts; at least one MCC (checked in _check_registration)
-
-
-WAIVER_TEXT = "Projected career dose exceeds the NASA limit (NASA-STD-3001 Vol 1, 4.2.10); a risk-acceptance waiver is required."
+    ground: List[GroundIn] = []  # optional flight surgeons and MCC accounts; without an MCC account the first-access PIN keeps Control open
 
 
 def _check_registration(body: RegisterIn, ids: List[str]) -> None:
     """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between people, ages at
-    launch, one crew medical officer, at least one MCC account, and the dose waiver when a career dose would pass the limit."""
+    launch and one crew medical officer."""
     errs: List[dict] = []
     if not 1 <= len(body.crew) <= registry.MAX_CREW:
         errs.append({"field": "crew", "message": f"Register between 1 and {registry.MAX_CREW} people"})
@@ -1516,8 +1513,6 @@ def _check_registration(body: RegisterIn, ids: List[str]) -> None:
         seen.setdefault(p.pin, i)
     gseen: dict = {}
     gids: dict = {}
-    if not any(g.role == "mcc" for g in body.ground):
-        errs.append({"field": "ground", "message": "Register at least one MCC account for Canary Control"})
     for i, g in enumerate(body.ground):
         if g.pin in gseen:
             errs.append({"field": f"ground.{i}.pin", "message": f"PIN is already used by ground account {gseen[g.pin] + 1}; each account needs its own"})
@@ -1526,11 +1521,6 @@ def _check_registration(body: RegisterIn, ids: List[str]) -> None:
             errs.append({"field": f"ground.{i}.id", "message": f"ID is already used by ground account {gids[g.id] + 1}"})
         if g.id:
             gids.setdefault(g.id, i)
-    if body.mission.preset in plan.PRESETS and not body.mission.dose_waiver:
-        rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
-        check = dose.career_check([standards.prior_dose_of(p.model_dump())["msv"] for p in body.crew], plan.preset_legs(body.mission.preset, rover))
-        if check["over"]:
-            errs.append({"field": "mission.dose_waiver", "message": WAIVER_TEXT})
     if errs:
         raise validation.ValidationFailure(errs)
 
@@ -1546,10 +1536,9 @@ def control_register(body: RegisterIn, actor: dict = Depends(require_control)):
                                                                   "launch_date": body.mission.launch_date})  # no PINs, no medical records
     crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
-    waiver = {"waiver": {"accepted": True, "by": actor["id"], "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}} if body.mission.dose_waiver else {}
     info = {k: v for k, v in body.mission.model_dump().items() if k != "dose_waiver"}
     try:
-        registry.register(crew, {**info, "rover": rover, **waiver}, [g.model_dump() for g in body.ground])
+        registry.register(crew, {**info, "rover": rover}, [g.model_dump() for g in body.ground])
     except ValueError as e:
         raise HTTPException(400, str(e))
     first = data.scenes()[:1]  # the clock restarts where the story began, if there was one

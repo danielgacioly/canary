@@ -1834,9 +1834,7 @@ def test_control_registration_names_every_wrong_seat_field_and_saves_nothing_unt
     assert "mission.callsign" in bad_mission(callsign="K") and "mission.callsign" in bad_mission(callsign="x" * 25)
     assert "mission.name" in bad_mission(name="  ") and "mission.launch_date" in bad_mission(launch_date="2035-13-40")
     assert "mission.preset" in bad_mission(preset="venus")
-    assert "ground" in bad_ground([g for g in good["ground"] if g["role"] != "mcc"])  # at least one MCC account
     assert "ground.1.pin" in bad_ground([good["ground"][1], {**good["ground"][0], "id": None, "pin": good["ground"][1]["pin"]}])
-    assert "mission.dose_waiver" in bad_mission(dose_waiver=False)  # the Mars plan passes the career limit
     assert [p["name"] for p in client.get("/api/catalog").json()["crew"]] == names
 
     crew = [dict(p) for p in good["crew"]]

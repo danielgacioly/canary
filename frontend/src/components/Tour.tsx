@@ -8,7 +8,8 @@ interface Step { anchor: string; text: string; last?: boolean; noNext?: boolean 
 const STEPS: Partial<Record<TourStage, Step[]>> = {
   control: [{ anchor: 'gate', text: 'Mission Control signs in here. Demo account: Sam Okoye, PIN 4242.', noNext: true }],
   connect: [
-    { anchor: 'scan', text: 'No devices in this demo: use the demo crew.' },
+    { anchor: 'crew-demo', text: 'Use the demo crew for the people.' },
+    { anchor: 'scan', text: 'No devices in this demo: use the demo devices.' },
     { anchor: 'sources', text: 'Load the demo mission.' },
     { anchor: 'save', text: 'Send it to Canary.', noNext: true },
   ],

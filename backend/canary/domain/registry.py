@@ -189,9 +189,7 @@ def normalize(crew: List[dict]) -> Tuple[List[dict], Dict[str, str]]:
 
 def normalize_ground(ground_in: List[dict], taken: Optional[set] = None) -> Tuple[List[dict], Dict[str, str]]:
     """Check the ground accounts: returns (the accounts as stored: id, name, role; the PINs by id). Raises ValueError.
-    At least one MCC account; roles flight_surgeon or mcc; ids `g-...` unique (generated when left out); a PIN each."""
-    if not any(g.get("role") == "mcc" for g in ground_in):
-        raise ValueError("register at least one MCC account for Canary Control")
+    No ground account is required (without an MCC account the first-access PIN keeps Canary Control open); roles flight_surgeon or mcc; ids `g-...` unique (generated when left out); a PIN each."""
     if len(ground_in) > MAX_GROUND:
         raise ValueError(f"register at most {MAX_GROUND} ground accounts")
     taken = set(taken or ())
@@ -226,7 +224,7 @@ def assign_ground_ids(ids: List[Optional[str]], taken: Optional[set] = None) -> 
 
 def register(crew: List[dict], mission: dict, ground_in: Optional[List[dict]] = None) -> None:
     """Register the crew (one to six people), the ground accounts and the mission. PINs are stored hashed (auth), not in the
-    registry. Ground accounts are required (at least one MCC); nothing is stored when any check fails."""
+    registry. Ground accounts are optional; nothing is stored when any check fails."""
     people, pins = normalize(crew)
     ground_rows, ground_pins = normalize_ground(ground_in or [], {p["seat"] for p in people})
     db.set_setting("registry", {"crew": people, "mission": mission, "ground": ground_rows})
