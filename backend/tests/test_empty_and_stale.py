@@ -106,7 +106,7 @@ def check_empty(out, crew=gc.CREW_IDS):
         assert s["level"] == 0
         assert all(x["no_data"] for x in s["systems"].values() if x["indicators"])
         assert all(not any(v for _d, v in t if v is not None) for t in s["trends"].values())  # no line to draw
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0
 
 
 @pytest.mark.parametrize("d", [-30, 100])
@@ -186,7 +186,7 @@ def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatc
     assert d["level"] == 0 and d["baseline_from"] == "learning"
     snap = client.get("/api/crew/h", headers=tokens()[0]["h"]).json()
     assert not [a for a in snap["alerts"] if a["id"] == "ind_sleep"]
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0
     assert not any(v["from"] == "catalog" for v in health.baselines("h").values())  # never a seed
 
 
@@ -302,7 +302,7 @@ def test_missing_some_indicators_breaks_nothing_and_alerts_nothing_for_them(monk
             x = s["indicators"][i]
             assert x["value"] is None and x["status"] == "no_data" and x["level"] == 0
         assert not [a for a in s["alerts"] if a["id"] in {f"ind_{i}" for i in inds}]
-    assert db.q("SELECT COUNT(*) n FROM notices WHERE alert_id IN ({})".format(",".join("?" * len(inds))), tuple(f"ind_{i}" for i in inds))[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events WHERE key IN ({})".format(",".join("?" * len(inds))), tuple(f"ind_{i}" for i in inds))[0]["n"] == 0
 
 
 def test_the_writing_routes_work_on_an_empty_system_too(monkeypatch):
@@ -322,4 +322,4 @@ def test_the_writing_routes_work_on_an_empty_system_too(monkeypatch):
             assert client.post(f"/api/suggestions/h/{it['id']}/accept", headers=h).status_code == 200
     assert client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 4, "stress": 2}}, headers=h).status_code == 200
     assert client.post("/api/goals/h/mood", json={"done": True}, headers=h).status_code in (200, 204)
-    assert db.q("SELECT COUNT(*) n FROM notices")[0]["n"] == 0
+    assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0

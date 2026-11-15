@@ -1067,7 +1067,7 @@ def medical_overview():
                     "dose": s["dose"], "standard_profile": standards.crew_profile(c["id"]),
                     "care_events": care.events(c["id"], ms["day"])})
     return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5],
-            "notices": notify.list_for(ms["day"]), "care_sensitivity": care.sensitivity()}
+            "care_sensitivity": care.sensitivity()}
 
 
 class CareSensitivityIn(BaseModel):

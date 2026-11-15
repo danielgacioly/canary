@@ -167,7 +167,6 @@ export interface Ops {
   /** inside the care window of a closed emergency: why, and the last restricted day */
   reason?: string; until_day?: number; care?: { protocol: string; name: string; ops: 'full' | 'limited' | 'rest'; day: number; until_day: number }
 }
-export interface Notice { crew_id: string; name: string; alert_id: string; title: string; since_day: number; day: number; level: Level; to: string; to_name: string }
 export interface Person {
   id: string; name: string; role: string; initials: string; home: string
   today: { done: number; total: number; streak: number }
@@ -233,7 +232,7 @@ export interface SpaceWeather {
 export interface Rad { quietMean: number; quiet: [number, number][]; storm: [number, number][]; unit: string; det: string; peak: number; ratio: number }
 export interface MedicalOverview {
   mission: Mission; thresholds: { watch: number; act: number }; emergencies: Emergency[]
-  notices: Notice[]; care_sensitivity: { factor: number; source: string; verified: boolean }
+  care_sensitivity: { factor: number; source: string; verified: boolean }
   crew: {
     id: string; name: string; role: string; level: Level; ops: Ops; care_events: CareEvent[]; areas: Record<Area, AreaState>; indicators: Record<string, Indicator>; systems: Record<string, SystemState>; alerts: Alert[]
     /** the short form of each risk; evidence and hazard links are in the person view */

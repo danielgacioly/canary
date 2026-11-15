@@ -1191,8 +1191,6 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .ind-table td.r { min-width: 96px; }
 .ind-table td:last-child { min-width: 130px; max-width: 190px; }
 .cell-note { font-family: var(--f-body); margin-top: 2px; }
-.notices { padding: 0; }
-.notices ul { margin-top: 8px; }
 .med-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); column-gap: 44px; row-gap: 28px; align-items: start; }
 .brief-text { white-space: pre-wrap; font: 500 13px/1.7 var(--f-mono); margin: 0; color: var(--ink); }
 .link-log li { display: flex; align-items: flex-start; gap: 10px; }

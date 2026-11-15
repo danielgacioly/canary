@@ -148,19 +148,6 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           })}
         </ul>
       </section>
-      {ov.notices.length > 0 && (
-        <details className="how notices">
-          <summary>Critical alerts sent · {ov.notices.length}</summary>
-          <p className="small dim">Once per episode, to the medical officer or the substitute.</p>
-          <ul className="plain">
-            {ov.notices.map(n => (
-              <li key={`${n.crew_id}${n.alert_id}${n.since_day}`} className="small">
-                <b>{n.name}</b> · {n.title} <span className="muted num">since day {n.since_day} · sent day {n.day} to {n.to_name}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
       <section>
         <div className="section-head"><h2>Every indicator, every person</h2><span className="sub">value and deviation (σ) from their own normal</span></div>
         <div className="scroll"><table className="t ind-table">

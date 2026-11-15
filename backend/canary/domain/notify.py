@@ -6,10 +6,10 @@ event is never recomputed: changing a threshold later does not rewrite history. 
 the day sync and right after readings are ingested) opens, raises and closes events and tells people:
 
 - level 2 (a personal alert): a message for the crew medical officer on board at once (the substitute when the patient is the
-  officer) and a delayed one for Earth (the flight surgeon), once per episode (`notices` keeps the episode key);
+  officer) and a delayed one for Earth (the flight surgeon), once per event (the `level2` recipient on the stored event is the record that it was done);
 - a storm or other environment alert (`env`): the officer at once, and Earth (every flight surgeon and every MCC account)
   after the signal delay, once for the crew as a whole, not once per person;
-- level 1 that lasts 7 mission days: one notice for the officer, once per event;
+- level 1 that lasts 7 mission days: one message for the officer, once per event;
 - a level 2 nobody acknowledged: `escalate(now)` raises it after `escalate_after_s()` seconds to the commander and, after the
   same wait again, to the flight surgeon. Any acknowledgement (officer on board or flight surgeon) stops the climb.
 
@@ -27,7 +27,7 @@ from .catalog import CREW, CREW_BY_ID, LOCATIONS
 # Version of the rules that decide an alert and who hears about it. Stored on every event. The medical engine's author bumps it
 # when the rules change (thresholds, risk scoring), so an old event says which rules it was judged by.
 RULES_VERSION = "2026.11-1"
-PERSIST_DAYS = 7          # level 1 this long: one notice for the officer
+PERSIST_DAYS = 7          # level 1 this long: one message for the officer
 ACK_ROLES = ("cmo", "flight_surgeon")
 SYSTEM = {"id": "system", "role": "system"}
 
@@ -65,21 +65,6 @@ def _msg(sender: str, to: str, kind: str, text: str, now: float, deliver_at: Opt
 
 def _grounds(role: str) -> List[str]:
     return [g["id"] for g in registry.ground() if g["role"] == role]
-
-
-# ---------------------------------------------------------------- the episodes the notice table keeps
-def _new(crew_id: str, alerts: List[dict]) -> List[dict]:
-    out = []
-    for a in alerts:
-        if a["level"] < 2 or a.get("env") or a.get("data"):
-            continue
-        if db.q("SELECT 1 FROM notices WHERE crew_id=? AND alert_id=? AND since_day=?", (crew_id, a["id"], a["since_day"])):
-            continue
-        if a["days_active"] >= health.ALERT_LOOKBACK and db.q(
-                "SELECT 1 FROM notices WHERE crew_id=? AND alert_id=? AND day>=?", (crew_id, a["id"], a["since_day"])):
-            continue
-        out.append(a)
-    return out
 
 
 # ---------------------------------------------------------------- events
@@ -168,14 +153,11 @@ def _notify_env(ev: dict, a: dict, ms: dict, now: float) -> None:
 
 
 def _notify_personal(crew_id: str, new: List[dict], evs: Dict[str, dict], ms: dict, now: float) -> None:
-    """The per-episode notice for a new critical alert: officer now, Earth after the delay. The events record who was told."""
+    """The message for a new critical alert: officer now, Earth after the delay. The events record who was told."""
     from ..assistant import briefing  # late import: the text for Earth is the weekly briefing's
     day = ms["day"]
     to = privacy.alerts_to(crew_id)
     titles = " ".join(a["title"] for a in new)
-    for a in new:
-        db.x("INSERT OR IGNORE INTO notices(crew_id,alert_id,since_day,day,level,title,to_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
-             (crew_id, a["id"], a["since_day"], day, a["level"], a["title"], to, now))
     _msg("canary", to, "alert", f"Critical alert for {_first(crew_id)} on day {day}: {titles} Details are in the medical console.", now)
     delay = _delay_s(ms["location"])
     _msg("canary", "earth", "alert_earth", briefing.template(briefing.facts(crew_id)), now, now + delay)
@@ -188,7 +170,7 @@ def _notify_personal(crew_id: str, new: List[dict], evs: Dict[str, dict], ms: di
 
 def run(ms: dict, crew_ids: Optional[List[str]] = None) -> Dict[str, int]:
     """Bring the stored events up to date with the alerts of every given person (everybody by default) and tell whoever must be
-    told. Returns {"episodes": new critical episodes noticed, "opened": events opened, "closed": events closed}."""
+    told. Returns {"episodes": new critical events told, "opened": events opened, "closed": events closed}."""
     day, now = ms["day"], time.time()
     episodes = opened = closed = 0
     for c in CREW:
@@ -222,7 +204,7 @@ def run(ms: dict, crew_ids: Optional[List[str]] = None) -> Dict[str, int]:
                 ev["level"] = a["level"]
                 if a.get("env") and a["level"] >= 2:
                     _notify_env(ev, a, ms, now)
-        new = _new(cid, alerts)
+        new = [a for a in alerts if a["level"] >= 2 and not a.get("env") and not any(r["reason"] == "level2" for r in evs[a["id"]]["recipients"])]
         if new:
             _notify_personal(cid, new, evs, ms, now)
             episodes += len(new)
@@ -333,11 +315,3 @@ def events(crew_id: Optional[str] = None, open_only: bool = False, limit: int = 
     sql = "SELECT * FROM alert_events WHERE 1=1" + (" AND crew_id=?" if crew_id else "") + (" AND closed_at IS NULL" if open_only else "")
     rows = db.q(sql + " ORDER BY id DESC LIMIT ?", ((crew_id,) if crew_id else ()) + (limit,))
     return [_load(r) for r in rows]
-
-
-def list_for(day: int) -> List[dict]:
-    """Notices sent up to `day`, newest first, for the medical console."""
-    rows = db.q("SELECT * FROM notices WHERE since_day<=? ORDER BY created_at DESC, rowid DESC LIMIT 30", (day,))
-    return [{"crew_id": r["crew_id"], "name": CREW_BY_ID[r["crew_id"]]["name"], "alert_id": r["alert_id"], "title": r["title"],
-             "since_day": r["since_day"], "day": r["day"], "level": r["level"], "to": r["to_id"],
-             "to_name": CREW_BY_ID[r["to_id"]]["name"]} for r in rows if r["crew_id"] in CREW_BY_ID and r["to_id"] in CREW_BY_ID]

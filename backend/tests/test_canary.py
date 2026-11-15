@@ -1253,7 +1253,7 @@ def test_a_critical_alert_reaches_the_medical_officer_once_per_episode():
         assert notify.sync(mission.state()) == 0
     _day(148), _day(147), _day(146)
     client.post("/api/checkins", json={"crew_id": "h", "kind": "mood", "payload": {"mood": 3, "stress": 3}}, headers=as_("h"))
-    assert len([m for m in _alert_msgs() if m["recipient"] == "k"]) == 1 and len(db.q("SELECT 1 FROM notices")) == 1
+    assert len([m for m in _alert_msgs() if m["recipient"] == "k"]) == 1 and len(db.q("SELECT 1 FROM alert_events WHERE recipients LIKE '%level2%'")) == 1
     earth = _alert_msgs("alert_earth")
     assert len(earth) == 1 and earth[0]["recipient"] == "earth" and earth[0]["deliver_at"] - earth[0]["sent_at"] > 5
 
@@ -1267,7 +1267,8 @@ def test_a_critical_alert_of_the_medical_officer_goes_to_the_substitute():
     assert [m["recipient"] for m in msgs] == ["h"] and "Kenji" in msgs[0]["text"]
     assert _checkin("k", "vitals", {"spo2": 84}).status_code == 200  # same episode: no second message
     assert len(_alert_msgs()) == 1
-    assert [n["to"] for n in client.get("/api/medical/overview", headers=_med()).json()["notices"]] == ["h"]
+    ev = client.get("/api/alerts/events", headers=_med()).json()["events"]
+    assert [r["id"] for e in ev if e["crew_id"] == "k" for r in e["recipients"] if r["reason"] == "level2" and r["role"] == "cmo"] == ["h"]
 
 
 def test_alerts_and_windows_are_private_to_the_medical_team():
@@ -1277,7 +1278,8 @@ def test_alerts_and_windows_are_private_to_the_medical_team():
     _checkin("k", "vitals", {"spo2": 85})
     assert client.get("/api/medical/overview").status_code == 401
     ov = client.get("/api/medical/overview", headers=_med()).json()
-    assert {n["crew_id"] for n in ov["notices"]} >= {"h", "k"} and all(n["title"] and n["since_day"] <= 147 for n in ov["notices"])
+    told = [e for e in client.get("/api/alerts/events", headers=_med()).json()["events"] if any(r["reason"] == "level2" for r in e["recipients"])]
+    assert {e["crew_id"] for e in told} >= {"h", "k"} and all(e["title"] and e["opened_day"] <= 147 for e in told) and "notices" not in ov
     assert any(c["id"] == "t" and c["care_events"] and c["ops"]["key"] == "rest" for c in ov["crew"])
     kinds = lambda hdr: {m["kind"] for m in client.get("/api/messages", headers=hdr).json()}  # noqa: E731
     assert client.get("/api/messages").status_code == 401
@@ -1287,7 +1289,7 @@ def test_alerts_and_windows_are_private_to_the_medical_team():
     assert not any(m["kind"] == "alert" and m["recipient"] != "k" for m in client.get("/api/messages", headers=as_("k")).json())
     assert "alert_earth" in kinds(_med())
     o = str(client.get("/api/crew/overview").json())
-    for leak in ("care_events", "until_day", "notices", "Critical alert for", "Guided Response ("):
+    for leak in ("care_events", "until_day", "alert_events", "Critical alert for", "Guided Response ("):
         assert leak not in o
     assert client.get("/api/crew/t", headers=as_("a")).status_code == 403
 
@@ -1295,13 +1297,13 @@ def test_alerts_and_windows_are_private_to_the_medical_team():
 def test_reading_never_writes_the_notice_tables():
     _day(147)
     _close("seizure", "t")
-    n = _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+    n = _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("alert_events", "care_events", "medical_goals")}
     for path in ("/api/mission", "/api/crew", "/api/crew/overview", "/api/protocols", "/api/emergencies"):
         client.get(path, headers=_med())
     for cid in "hkat":
         client.get(f"/api/crew/{cid}", headers=as_(cid))
     client.get("/api/medical/overview", headers=_med())
-    assert n == _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("notices", "care_events", "medical_goals")}
+    assert n == _counts() | {t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in ("alert_events", "care_events", "medical_goals")}
 
 
 # ---------------------------------------------------------------- Prompt 6: the other risks, RIDGE from the plan, hazard labels

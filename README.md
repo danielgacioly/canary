@@ -84,7 +84,7 @@ Other commands:
 | `CANARY_INGEST_KEY` | empty | secret a sensor, wearable or lab sends in the `X-Canary-Key` header of `POST /api/observations`. Empty: ingest is off (503). Control › Data only says "configured" or "off", never the key. See [Live data](#live-data) |
 | `CANARY_MISSION_PACKAGE` | `odyssey1-mars` | bundled package (a folder under `data/missions`) loaded on the first start, when the database holds no data and no crew, and by **Reset demo**. Set it to `""` for an empty start: no crew, no readings, no scenes. See [Mission data](#mission-data) |
 | `CANARY_MISSIONS_DIR` | `data/missions` | where bundled packages are looked up by name |
-| `CANARY_DAY_SYNC` | `1` | `1` starts the background thread that notices a new mission day and runs what a new day triggers (advice follow-ups, critical-alert notices); `0` leaves that to the next write |
+| `CANARY_DAY_SYNC` | `1` | `1` starts the background thread that notices a new mission day and runs what a new day triggers (advice follow-ups, critical-alert messages); `0` leaves that to the next write |
 | `CANARY_DAY_SYNC_SECONDS` | `600` | how often that thread looks (and, with `CANARY_LIVE_SPACE_WEATHER=1`, asks DONKI) |
 | `CANARY_WARM` | `1` | `1` computes each person's health once at start-up so the first click is quick; `0` skips it |
 | `CANARY_PBKDF2_ITERATIONS` | `100000` | rounds of the PIN hash. Leave it alone: a stored hash does not record the count, so changing it locks every stored PIN out. The test suite sets it low to run fast |
@@ -155,7 +155,7 @@ How the API enforces it:
 - `GET /api/crew/{id}` answers only the astronaut (session token) and the medical team (bearer token). There is no sharing switch: health never leaves those two.
 - Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. `GET /api/crew` with full summaries is medical-only.
 - Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status. After a closed emergency the status is at least the protocol's `ops` until the end of the care window, with `reason` and `until_day` (see [After an emergency](#after-an-emergency-and-who-is-told)).
-- **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per episode (`crew_id`, `alert_id`, `since_day`); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The list is in `GET /api/medical/overview` → `notices`.
+- **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per alert event (the stored event records the `level2` recipient); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The events themselves, with who was told and who acknowledged, are in `GET /api/alerts/events`.
 - Guided Response itself is a crew-wide event (the whole crew is alerted, and `GET /api/emergencies` lists protocol, patient and outcome as before). What follows it, the care window, the restricted status and the tightened thresholds, is private to the person and the medical team (`care_events` in `GET /api/crew/{id}` and the medical overview).
 
 ### Mission plan
@@ -442,7 +442,7 @@ Each protocol in `data/protocols.json` carries `window_days` (the care window, w
 - `ops` in the patient's `operational status` is at least the protocol's, and says `reason` and `until_day` (the last restricted day);
 - the patient's thresholds are multiplied by `factor` (default 0.8: 1.5σ becomes 1.2σ and 2.5σ becomes 2.0σ) for every indicator, and `sensitive_until` appears on those indicators. Nobody else's thresholds change. The medical team sets it with `PUT /api/medical/care-sensitivity {factor}` (0.5 to 1.0).
 
-`notify.sync` runs in the routes that write (`PUT /api/mission`, `POST /api/checkins` for that person, and the close of an emergency), never in a GET, and writes nothing twice: the `notices` primary key is the episode. An alert that stays active longer than the 60-day look-back is the same episode for notices.
+`notify.sync` runs in the routes that write (`PUT /api/mission`, `POST /api/checkins` for that person, and the close of an emergency), never in a GET, and writes nothing twice: the stored alert event is the episode: an alert that stays active, however long, is one event, and the officer is told once when it reaches level 2.
 
 ### Where a value comes from and how old it is
 
@@ -660,7 +660,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/alerts/{id}/{alert}/seen` | Mark today's episode of an alert as seen (the person only) |
 | `GET/PUT /api/medical/exercise-adjust` | Maximum lightening of the day's exercise under fatigue (medical console) |
 | `GET/PUT /api/medical/care-sensitivity` | How much tighter the patient's thresholds are during the care window after an emergency (medical console) |
-| `GET /api/medical/overview` → `notices`, `care_events` | Critical alerts sent to the medical officer, and each person's closed emergencies (medical console) |
+| `GET /api/medical/overview` → `care_events` | Each person's closed emergencies (medical console); alerts are in `GET /api/alerts/events` |
 | `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence |
 | `GET /api/crew/{id}` → `indicators[*].standard`, `standard_profile`, `dose.career_msv` | NASA-STD-3001 check of each indicator, the person's EVA role and earlier dose, the career dose |
 | `GET /api/catalog` → `standards` | What Canary checks against NASA-STD-3001, with the items, and what it cannot check |
