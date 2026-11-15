@@ -1343,3 +1343,4 @@ button.prow { width: 100%; text-align: left; }
 .because .link { margin-top: 4px; }
 .suggest-more summary { cursor: pointer; color: var(--muted); font-weight: 500; padding: 12px 0; }
 .suggest-more[open] summary { margin-bottom: 14px; }
+@media (max-width: 760px) { .leg-facts { flex-direction: column; } .leg-facts > span + span::before { display: none; } }
