@@ -18,6 +18,16 @@ export const CHECK_TITLE: Record<CheckKind, string> = {
   kss: 'Sleepiness', tlx: 'Workload', wellbeing: 'Wellbeing', symptoms: 'Symptoms', sleep: 'Sleep diary', reading: 'Reading', journal: 'Journal',
 }
 
+/** Demo helpers: a value in [lo, hi] (whole numbers unless `dec` digits), and one of a list. */
+const rnd = (lo: number, hi: number, dec = 0) => { const x = lo + Math.random() * (hi - lo); return dec ? x.toFixed(dec) : String(Math.round(x)) }
+const rndN = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - lo))
+const pickOne = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]
+
+/** A quiet button that only fills the fields; the person still checks them and submits. */
+function SampleButton({ onFill }: { onFill: () => void }) {
+  return <button type="button" className="link-btn sample-btn" onClick={onFill}>Fill with sample values</button>
+}
+
 const ResultCtx = createContext<(r: Saved) => void>(() => {})
 interface Saved { r: CheckinResult; note?: string }
 
@@ -100,6 +110,7 @@ function Pvt() {
   return (
     <div className="col">
       <p className="muted">Tap the box the moment it turns red. Five rounds. It measures the tiredness you do not feel.</p>
+      {rts.length < 5 && <SampleButton onFill={() => { clearTimeout(tm.current); setSt('idle'); setRts(Array.from({ length: 5 }, () => rndN(230, 340))) }} />}
       {rts.length < 5 ? (
         <div className={`pvt ${st === 'go' ? 'go' : ''}`} onPointerDown={tap} role="button" tabIndex={0}>
           {st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · tap for the next` : 'Tap to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW' : 'Too early. Tap to retry'}
@@ -133,6 +144,7 @@ function Mood() {
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Thirty seconds. Only you and the medical team see it. A hard day counts the same as a good one.</p>
+      <SampleButton onFill={() => form.setValues({ mood: rndN(3, 5), stress: rndN(1, 3) })} />
       <Scale5 form={form} name="mood" label="How is your mood?" hint="1 low, 5 great" />
       <Scale5 form={form} name="stress" label="How stressed are you?" hint="1 calm, 5 very" />
       <FormError form={form} />
@@ -198,6 +210,7 @@ function Vitals() {
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
+      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), bp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
       <div className="grid g2">
         {VITALS.map(({ k, label, unit, min, max, ...o }) => (
           <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />
@@ -257,6 +270,7 @@ function Dsst() {
     <div className="col" style={{ gap: 14 }}>
       <p className="muted">Each symbol has a number in the key. For 60 seconds, press the number of the symbol in the middle. Fast, but right.</p>
       <div className="dsst-key">{GLYPHS.map((_, i) => <div key={i}><Glyph i={i} size={22} /><b className="num">{i + 1}</b></div>)}</div>
+      {phase !== 'done' && <SampleButton onFill={() => { setScore({ correct: rndN(38, 56), errors: rndN(0, 3) }); setLeft(0); setPhase('done') }} />}
       {phase === 'idle' && <button className="btn pri" onClick={() => { next(); setPhase('run') }}>Start, 60 seconds</button>}
       {phase === 'run' && (
         <>
@@ -307,6 +321,7 @@ function Span() {
   return (
     <div className="col" style={{ gap: 14 }}>
       <p className="muted">Digits appear one at a time. Type them back in the same order. Each round adds one. Two misses in a row end it.</p>
+      {phase !== 'done' && <SampleButton onFill={() => { setBest(rndN(5, 8)); setPhase('done') }} />}
       {phase === 'idle' && <button className="btn pri" onClick={() => play(3)}>Start</button>}
       {phase === 'show' && <div className="span-digit num" key={shown}>{shown < seq.length ? seq[shown] : ''}</div>}
       {phase === 'answer' && (
@@ -357,6 +372,7 @@ function Tlx() {
   return (
     <div className="col" style={{ gap: 16 }}>
       <p className="muted">Think about today's work. Slide each one.</p>
+      <SampleButton onFill={() => setSc({ mental: 5 * rndN(7, 13), physical: 5 * rndN(4, 10), temporal: 5 * rndN(6, 12), performance: 5 * rndN(2, 6), effort: 5 * rndN(6, 12), frustration: 5 * rndN(1, 6) })} />
       {TLX.map(([k, name, q, anchors]) => {
         const [lo, hi] = anchors.split('|')
         return (
@@ -390,6 +406,7 @@ function Wellbeing() {
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Over the last two weeks, how often have you been bothered by the following? Only you and the medical team see this.</p>
+      <SampleButton onFill={() => form.setValues({ q0: rndN(0, 1), q1: rndN(0, 1), q2: rndN(0, 1), q3: rndN(0, 1) })} />
       {WB_Q.map((q, i) => (
         <FieldGroup key={i} form={form} name={`q${i}`} label={<b className="q">{q}</b>}>
           <div className="seg-ctl wrap">{WB_A.map((t, j) => <button type="button" key={j} className={a[i] === j ? 'on' : ''} aria-pressed={a[i] === j} onClick={() => form.set(`q${i}`, j)}>{t}</button>)}</div>
@@ -415,6 +432,7 @@ function Symptoms() {
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Tick anything you feel now. Leave it empty if all is well: that is useful too.</p>
+      <SampleButton onFill={() => form.setValues({ items: [...SYMPTOMS].sort(() => Math.random() - 0.5).slice(0, rndN(1, 2)), sev: 1, note: '' })} />
       <div className="chips-pick">{SYMPTOMS.map(t => (
         <button type="button" key={t} className={items.includes(t) ? 'on' : ''} aria-pressed={items.includes(t)} onClick={() => form.set('items', items.includes(t) ? items.filter(y => y !== t) : [...items, t])}>{t}</button>
       ))}</div>
@@ -447,6 +465,7 @@ function SleepLog() {
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Last night. It feeds your sleep reading for today.</p>
+      <SampleButton onFill={() => form.setValues({ bed: `22:${pickOne(['30', '45'])}`, wake: `06:${pickOne(['30', '45'])}`, q: rndN(3, 5) })} />
       <div className="grid g2">
         <Field form={form} name="bed" label="Lights out" type="time" hint="24-hour time" />
         <Field form={form} name="wake" label="Woke up" type="time" hint="Sleep of 1 to 16 h" />
@@ -472,6 +491,7 @@ function Reading() {
   return (
     <form className="col" style={{ gap: 14 }} noValidate onSubmit={form.submit}>
       <p className="muted">Deep attention on something that is not the mission. Twenty minutes completes today's reading goal.</p>
+      <SampleButton onFill={() => form.setValues({ title: pickOne(['The Martian', 'Cosmos', 'Dune', 'Pale Blue Dot']), minutes: rnd(20, 45), pages: rnd(15, 40), enjoy: rndN(3, 5) })} />
       <Field form={form} name="title" label="Book" placeholder="Title" maxLength={120} />
       <div className="grid g2">
         <Field form={form} name="minutes" label="Minutes" hint={v.range(1, 600, 'min')} inputMode="numeric" />
@@ -502,6 +522,7 @@ function Journal() {
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">Three lines about today. They stay on this screen: Canary only records that you wrote.</p>
+      <SampleButton onFill={() => form.setValues({ l0: 'A calm day, the routine went well.', l1: 'Rested and focused.', l2: 'Movie night with the crew.' })} />
       {PH.map((ph, i) => <Field key={i} form={form} name={`l${i}`} label={ph} maxLength={200} />)}
       <FormError form={form} />
       <SubmitButton form={form} busyLabel="Saving…">Done</SubmitButton>
