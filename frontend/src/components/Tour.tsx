@@ -61,11 +61,13 @@ export default function Tour() {
   const step = steps[box.i]
   const W = Math.min(300, window.innerWidth - 24), H = 120
   const below = box.r.bottom + 10 + H < window.innerHeight
-  const top = below ? box.r.bottom + 10 : Math.max(8, box.r.top - 10 - H)
+  const above = box.r.top - 10 - H >= 0
+  const inside = !below && !above  // a big anchor: sit inside it, near its top
+  const top = below ? box.r.bottom + 10 : inside ? Math.max(8, Math.min(box.r.top, window.innerHeight - H - 8) + 8) : 0
   const left = Math.min(Math.max(12, box.r.left), window.innerWidth - W - 12)
   const end = () => setTourStage(null)
   return (
-    <div className="tour" role="dialog" aria-label="Guided tour" style={{ top, left, width: W, ...(below ? {} : { top: 'auto', bottom: window.innerHeight - box.r.top + 10 }) }}>
+    <div className="tour" role="dialog" aria-label="Guided tour" style={{ top, left, width: W, ...(below || inside ? {} : { top: 'auto', bottom: window.innerHeight - box.r.top + 10 }) }}>
       <p>{step.text}</p>
       <div className="row" style={{ gap: 8 }}>
         {!step.last && <button className="btn sm ghost" onClick={end}>End tour</button>}

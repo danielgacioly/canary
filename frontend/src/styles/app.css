@@ -1370,3 +1370,4 @@ body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
 .tour { position: fixed; z-index: 90; padding: 12px 14px; background: var(--surface); border: 1px solid var(--canary); border-radius: var(--r-sm); font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
 .tour p { margin: 0; }
 .tour-on { outline: 2px solid var(--canary); outline-offset: 3px; }
+.alarm .grow { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
