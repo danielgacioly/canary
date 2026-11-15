@@ -34,6 +34,8 @@ ROLES = ["Commander", "Crew medical officer", "Pilot", "Engineer", "Geologist", 
 @pytest.fixture(autouse=True)
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", KEY)
+    import canary.main as _main, datetime as _dt0
+    monkeypatch.setattr(_main, "_ingest_now", lambda: _dt0.datetime(2100, 1, 1))  # these readings are in the past; the future check has its own tests
     monkeypatch.setattr(settings, "mission_package", "")
     monkeypatch.setattr(settings, "live_space_weather", False)
     assert reset_demo(client).status_code == 200
@@ -79,7 +81,7 @@ def post_obs(rows):
 def reading(cid, ind, d, v):
     when = dt.datetime(2036, 3, 1, 9, 30) + dt.timedelta(days=d)
     return {"crew_id": cid, "indicator": ind, "value": v, "unit": catalog.ACCEPT[ind]["units"][0],
-            "measured_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "source": "test:band"}
+            "measured_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "source": "test:band", "origin": "device"}
 
 
 def go(day):
@@ -277,7 +279,7 @@ def test_a_registered_person_has_blood_only_from_their_own_observations():
     go(5)
     b = client.get("/api/crew/s1", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
     assert b["analytes"] == {} and b["timepoints"] == [] and b["subject"] is None and b["origin"] is None
-    post_obs([{**reading("s1", "lym", -20, 2100), "origin": "real", "method": "blood", "source": "lab:test", "note": "L-20 draw"}])
+    post_obs([{**reading("s1", "lym", -20, 2100), "origin": "lab", "method": "blood", "source": "lab:test", "note": "L-20 draw"}])
     b = client.get("/api/crew/s1", headers={"X-Canary-Viewer": gc._token(client, "/api/crew/s1/session", PINS["s1"])}).json()["blood"]
     assert b["timepoints"] == ["L-20"] and b["lymphocytes"] == [2100.0] and b["analytes"]["lym"]["status"] == ["in"]
 

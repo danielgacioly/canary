@@ -26,7 +26,7 @@ client = TestClient(app)
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MARS = ROOT / "data" / "missions" / "odyssey1-mars"
 KEY = "test-ingest-key-not-a-secret"
-GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band"}
+GOOD = {"crew_id": "h", "indicator": "sleep", "value": 3.3, "unit": "h", "measured_at": "2035-06-11T09:30:00Z", "source": "test:band", "origin": "device"}
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +34,7 @@ def fresh(monkeypatch):
     monkeypatch.setattr(settings, "ingest_key", KEY)
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     reset_demo(client)
+    client.put("/api/control/clock", json={"date": "2040-01-01"}, headers=ctl())  # readings in the tests are in the past: a time in the future is refused
     yield
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     reset_demo(client)
@@ -63,8 +64,8 @@ def fields(r):
 def test_a_valid_batch_shows_up_in_the_person_page_value_and_series():
     before = n_obs()
     r = client.post("/api/observations", headers=key(), json={"rows": [
-        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "real", "source": "test:band"}]})
-    assert r.status_code == 200 and r.json() == {"accepted": 2, "duplicates": 0}
+        GOOD, {"crew_id": "k", "indicator": "hr", "value": 61, "unit": "bpm", "day": 10, "origin": "device", "source": "test:band"}]})
+    assert r.status_code == 200 and r.json() == {"accepted": 2, "duplicates": 0, "corrected": 0, "alerts_opened": 0}
     assert n_obs() == before + 2
     client.put("/api/mission", json={"day": 10}, headers=control_headers(client))
     assert telemetry.observation("h", "sleep", 10)["value"] == 3.3
@@ -73,8 +74,9 @@ def test_a_valid_batch_shows_up_in_the_person_page_value_and_series():
     assert [v for d, v in page["trends"]["sleep"] if d == 10] == [3.3]
     assert page["indicators"]["sleep"]["value"] < 6  # 60% of today's 3.3 pulled the weighted value down
     k = client.get("/api/crew/k", headers=me("k", "1002")).json()
-    assert [v for d, v in k["trends"]["hr"] if d == 10] == [61]  # `day` is stamped at 08:00 UTC of that mission day
-    assert db.q("SELECT measured_at FROM observations WHERE source='test:band' AND crew_id='k'")[0]["measured_at"] == "2035-06-11T08:00:00Z"
+    assert [v for d, v in k["trends"]["hr"] if d == 10] == [61]  # a reading with only a day counts on that mission day
+    row = db.q("SELECT measured_at, day FROM observations WHERE source='test:band' AND crew_id='k'")[0]
+    assert row["measured_at"] is None and row["day"] == 10  # and no time of day is invented for it
 
 
 @pytest.mark.parametrize("patch,field", [
@@ -107,7 +109,7 @@ def test_the_batch_shape_and_size_are_checked():
     assert fields(client.post("/api/observations", headers=key(), json={"rows": "x"})) == ["rows"]
     r = client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5001})
     assert r.status_code == 422 and fields(r) == ["rows"] and n_obs() == data.count_observations()
-    assert client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5000}).json() == {"accepted": 1, "duplicates": 4999}
+    assert client.post("/api/observations", headers=key(), json={"rows": [GOOD] * 5000}).json() == {"accepted": 1, "duplicates": 4999, "corrected": 0, "alerts_opened": 0}
 
 
 def test_without_a_configured_key_ingest_is_off(monkeypatch):
@@ -129,9 +131,9 @@ def test_a_wrong_or_missing_key_is_refused_and_never_echoed():
 
 def test_the_same_batch_twice_stores_nothing_new():
     rows = [GOOD, {**GOOD, "indicator": "hr", "value": 60, "unit": "bpm"}]
-    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 2, "duplicates": 0}
+    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 2, "duplicates": 0, "corrected": 0, "alerts_opened": 0}
     n = n_obs()
-    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 0, "duplicates": 2}
+    assert client.post("/api/observations", headers=key(), json={"rows": rows}).json() == {"accepted": 0, "duplicates": 2, "corrected": 0, "alerts_opened": 0}
     assert n_obs() == n
     # the same reading from another source is a different reading
     assert client.post("/api/observations", headers=key(), json={"rows": [{**GOOD, "source": "test:other"}]}).json()["accepted"] == 1
@@ -148,7 +150,7 @@ def test_a_reading_changes_the_health_numbers_it_feeds():
 
 def test_the_dose_rate_is_a_measurement_but_not_an_indicator():
     assert "dose_rate" in catalog.ACCEPT and "dose_rate" not in catalog.INDICATORS
-    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter"}
+    row = {"crew_id": "cabin", "indicator": "dose_rate", "value": 0.7, "unit": "mSv/day", "day": 5, "source": "test:dosimeter", "origin": "device"}
     assert client.post("/api/observations", headers=key(), json={"rows": [row]}).json()["accepted"] == 1
     assert telemetry.last_observation("cabin", "dose_rate", 5)["value"] == 0.7
     assert client.post("/api/observations", headers=key(), json={"rows": [{**row, "value": 500}]}).status_code == 422

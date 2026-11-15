@@ -1055,10 +1055,10 @@ def test_reading_never_writes():
     at(2)
     h = as_("h")
     client.post("/api/suggestions/h/sleep/accept", headers=h)
+    _day(160)  # the day sync may write (an environment alert now reaches the officer and Earth); reading never does
     before = _counts()
     for url in ("/api/advice/h", "/api/goals/h", "/api/suggestions/h", "/api/crew/h", "/api/leaderboard", "/api/crew/overview"):
         assert client.get(url, headers=h).status_code == 200
-    _day(160)
     assert _counts() == before
 
 

@@ -44905,7 +44905,7 @@
    "deliver_at": "<volatile>",
    "delivered": false,
    "eta_s": "<volatile>",
-   "id": 2,
+   "id": 5,
    "kind": "alert_earth",
    "recipient": "earth",
    "sender": "canary",
@@ -44916,17 +44916,35 @@
    "deliver_at": "<volatile>",
    "delivered": true,
    "eta_s": "<volatile>",
-   "id": 1,
+   "id": 4,
    "kind": "alert",
    "recipient": "k",
    "sender": "canary",
    "sent_at": "<volatile>",
    "text": "Critical alert for Helena on day 152: Sleep, mood and focus are dropping together. Details are in the medical console."
-  }
- ],
- "/api/messages?crew_id=a [as a]": [],
- "/api/messages?crew_id=h [as h]": [],
- "/api/messages?crew_id=k [as k]": [
+  },
+  {
+   "deliver_at": "<volatile>",
+   "delivered": false,
+   "eta_s": "<volatile>",
+   "id": 3,
+   "kind": "alert_env",
+   "recipient": "g-mcc1",
+   "sender": "canary",
+   "sent_at": "<volatile>",
+   "text": "Environment alert on day 152: A solar particle storm is hitting. It applies to the whole crew."
+  },
+  {
+   "deliver_at": "<volatile>",
+   "delivered": false,
+   "eta_s": "<volatile>",
+   "id": 2,
+   "kind": "alert_earth",
+   "recipient": "g-fs1",
+   "sender": "canary",
+   "sent_at": "<volatile>",
+   "text": "Environment alert on day 152: A solar particle storm is hitting. It applies to the whole crew."
+  },
   {
    "deliver_at": "<volatile>",
    "delivered": true,
@@ -44936,7 +44954,33 @@
    "recipient": "k",
    "sender": "canary",
    "sent_at": "<volatile>",
+   "text": "Environment alert on day 152: A solar particle storm is hitting. It applies to the whole crew. Details are in the medical console."
+  }
+ ],
+ "/api/messages?crew_id=a [as a]": [],
+ "/api/messages?crew_id=h [as h]": [],
+ "/api/messages?crew_id=k [as k]": [
+  {
+   "deliver_at": "<volatile>",
+   "delivered": true,
+   "eta_s": "<volatile>",
+   "id": 4,
+   "kind": "alert",
+   "recipient": "k",
+   "sender": "canary",
+   "sent_at": "<volatile>",
    "text": "Critical alert for Helena on day 152: Sleep, mood and focus are dropping together. Details are in the medical console."
+  },
+  {
+   "deliver_at": "<volatile>",
+   "delivered": true,
+   "eta_s": "<volatile>",
+   "id": 1,
+   "kind": "alert",
+   "recipient": "k",
+   "sender": "canary",
+   "sent_at": "<volatile>",
+   "text": "Environment alert on day 152: A solar particle storm is hitting. It applies to the whole crew. Details are in the medical console."
   }
  ],
  "/api/messages?crew_id=t [as t]": [],

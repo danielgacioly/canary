@@ -32,6 +32,8 @@ MARS = data.package_dir("odyssey1-mars")
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "live_space_weather", False)
     monkeypatch.setattr(settings, "ingest_key", KEY)
+    import canary.main as _main, datetime as _dt0
+    monkeypatch.setattr(_main, "_ingest_now", lambda: _dt0.datetime(2100, 1, 1))  # these readings are in the past; the future check has its own tests
     assert reset_demo(client).status_code == 200
     yield
     monkeypatch.undo()
@@ -482,7 +484,7 @@ def test_flight_mode_has_no_default_crew_pins_and_no_demo_form_pins(monkeypatch)
 
 # ---------------------------------------------------------------- a preset reload never touches other readings
 def test_reloading_a_preset_keeps_readings_that_did_not_come_from_the_package(monkeypatch):
-    mine = {"crew_id": "h", "indicator": "sleep", "value": 7.7, "unit": "h", "measured_at": "2035-06-03T09:00:00Z", "source": "device:band"}
+    mine = {"crew_id": "h", "indicator": "sleep", "value": 7.7, "unit": "h", "measured_at": "2035-06-03T09:00:00Z", "source": "device:band", "origin": "device"}
     assert client.post("/api/observations", headers={"X-Canary-Key": KEY}, json={"rows": [mine]}).json()["accepted"] == 1
     n_mine = db.q("SELECT COUNT(*) n FROM observations WHERE package IS NULL")[0]["n"]
     n_package = db.q("SELECT COUNT(*) n FROM observations WHERE package='odyssey1-mars'")[0]["n"]
