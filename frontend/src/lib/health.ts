@@ -25,10 +25,24 @@ export function missingNote(i: Indicator): string | null {
   return learningNote(i)
 }
 
-/** "Learning your normal: 2 of 5" while the person has too few measurements to have a normal of their own. */
+/** "Learning your normal (2 of 5 readings)" while the person has too few measurements to have a normal of their own.
+ *  The count leaves out today's reading, so with none counted yet it says how many are needed instead of "0 of 5". */
 export function learningNote(i: Indicator): string | null {
-  if (i.baseline_from === 'learning' || (i.learning && i.baseline === null)) return `Learning your normal: ${i.baseline_n} of ${i.baseline_need ?? 5}`
-  return null
+  if (!(i.baseline_from === 'learning' || (i.learning && i.baseline === null))) return null
+  const need = i.baseline_need ?? 5
+  return i.baseline_n > 0 ? `Learning your normal (${i.baseline_n} of ${need} readings)` : `Learning your normal (needs ${need} readings)`
+}
+
+/** True when at least one indicator has a current value and a normal of the person's own to compare it with.
+ *  Without one, nothing can be called "within your normal". */
+export const hasOwnNormal = (d: CrewDetail): boolean => Object.values(d.indicators).some(i => i.value !== null && i.baseline !== null)
+
+/** When something started, counted back from the day being looked at: "started today", "started 5 days ago". */
+export function startedText(since: number | null | undefined, today: number): string | null {
+  if (since === null || since === undefined) return null
+  const n = today - since
+  if (n <= 0) return 'started today'
+  return n === 1 ? 'started yesterday' : `started ${n} days ago`
 }
 
 /** The word for where the dose in a person's page comes from; nothing for a dose that is fully measured or unknown. */

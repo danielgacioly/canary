@@ -112,7 +112,9 @@ def _outside(f: dict, sid: str) -> tuple:
     delay = (f"Earth replies in {rep} each way", "delay") if rep != "Live" else None
     isolation = (f"Isolation is {iso['label'].lower()} here: {iso['here'].lower()}", None) if iso["level"] >= 1 and not f["learning"] else None
     hour = int(o["time"][:2]) if o.get("time") else 12
-    leg = (f"Day {o['leg_day']} of {o['leg_length']} on {o['leg_label']}", None) if o["leg_length"] >= 14 and not f["learning"] else None
+    # Only a day that falls inside the leg: before the plan starts (a real clock years out) "Day -3059 of 60" means nothing.
+    in_leg = 1 <= o["leg_day"] <= o["leg_length"]
+    leg = (f"Day {o['leg_day']} of {o['leg_length']} on {o['leg_label']}", None) if in_leg and o["leg_length"] >= 14 and not f["learning"] else None
     g = f["gravity_key"]
     pick = {
         "sleep": (f"It is {o['time']} on board, in the hours NASA says to avoid critical tasks (V1 6001)", None) if 1 <= hour < 7 else None,

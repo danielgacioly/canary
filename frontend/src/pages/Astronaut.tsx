@@ -7,7 +7,7 @@ import BodyView, { RiskBlock } from '../components/BodyView'
 import EvaReadiness from '../components/EvaReadiness'
 import RadiationBar from '../components/RadiationBar'
 import { Dot } from '../components/People'
-import { Icon, Loading, Patch, Spark } from '../components/ui'
+import { Icon, Loading, Spark } from '../components/ui'
 import { fmtValue, missingNote, num } from '../lib/health'
 import { ActionError } from '../components/Field'
 import { useAction } from '../lib/useAction'
@@ -33,38 +33,38 @@ function Other({ id }: { id: string }) {
     const person = o?.people.find(p => p.id === id)
     return person ? <PublicCard p={person} /> : <Loading what="crew member" />
   }
-  const p = d.profile
+  // Indicators never read in the window get no row of dashes: they are named once under the table.
+  const all = Object.values(d.indicators)
+  const read = all.filter(i => i.value !== null || (d.trends[i.id] ?? []).some(([, y]) => y !== null))
+  const unread = all.filter(i => !read.includes(i))
   return (
     <div className="page">
       <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
-        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · {p.goals_week} goals this week · {p.badges_earned} patches</p></div>
+        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · medical team view</p></div>
         {d.ops && <div className="right ops-right"><span className="small dim">Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
       </div>
-      <p className="muted rise med-note"><b>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</p>
       <BodyView key={d.crew.id} d={d} self={false} />
       <section className="rise"><EvaReadiness d={d} self={false} /></section>
       <RisksAndCare d={d} />
       <section className="rise">
         <div className="section-head"><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
-        <div className="scroll"><table className="t">
-          <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
-          <tbody>{Object.values(d.indicators).map(i => (
-            <tr key={i.id}>
-              <td><b>{i.name}</b><div className="small dim">{i.area}</div></td>
-              <td className="num">{fmtValue(i)} {i.value !== null && <span className="dim">{i.unit}</span>}{missingNote(i) && <div className="small dim">{missingNote(i)}</div>}</td>
-              <td className="num muted">{num(i.baseline, i.dp)}</td>
-              <td><Spark data={d.trends[i.id]} base={i.baseline ?? undefined} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
-            </tr>))}</tbody>
-        </table></div>
+        {read.length > 0 && (
+          <div className="scroll"><table className="t">
+            <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
+            <tbody>{read.map(i => (
+              <tr key={i.id}>
+                <td><b>{i.name}</b><div className="small dim">{i.area}</div></td>
+                <td className="num">{fmtValue(i)} {i.value !== null && <span className="dim">{i.unit}</span>}{missingNote(i) && <div className="small dim">{missingNote(i)}</div>}</td>
+                <td className="num muted">{num(i.baseline, i.dp)}</td>
+                <td><Spark data={d.trends[i.id]} base={i.baseline ?? undefined} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
+              </tr>))}</tbody>
+          </table></div>
+        )}
+        {unread.length > 0 && <p className="small muted">No readings yet: {unread.map(i => i.name).join(', ')}.</p>}
       </section>
       <VitalsPhotos d={d} />
-      <section>
-        <div className="section-head"><h2>Patches</h2></div>
-        <div className="patches">{p.badges.map(b => (
-          <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}><Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span></div>))}</div>
-      </section>
     </div>
   )
 }
@@ -79,7 +79,7 @@ function RisksAndCare({ d }: { d: CrewDetail }) {
       <section className="rise">
         <div className="section-head"><h2>Risks</h2><span className="sub">with the evidence behind each one</span></div>
         {raised.length === 0 && <p className="muted">Nothing is raised.</p>}
-        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} />)}</div>
+        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} today={d.mission.day} />)}</div>
         {quiet.length > 0 && <p className="small dim">{raised.length ? 'Not raised' : 'Checked'}: {quiet.map(r => r.name).join(', ')}.</p>}
       </section>
       {d.care_events.length > 0 && (
@@ -144,12 +144,12 @@ function PublicCard({ p }: { p: Person }) {
           <h2>Today's routine</h2>
           <div className="big-num num" style={{ margin: '10px 0' }}>{p.today.done}<small>of {p.today.total} goals</small></div>
           <div className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></div>
-          <p className="small muted" style={{ marginTop: 10 }}>{p.today.streak ? `${p.today.streak}-day streak.` : 'No streak running.'} Participation is shared; results are not.</p>
+          {p.today.streak > 0 && <p className="small muted" style={{ marginTop: 10 }}>{p.today.streak}-day streak</p>}
         </div>
         <div className="detail-card rise gate-mini" style={{ ['--d' as string]: 2 }}>
           <span className="lock"><Icon name="lock" size={20} /></span>
           <h2>{first}'s health is private</h2>
-          <p className="muted">The crew sees only how {first} is doing with goals, nothing more. Numbers, alerts, advice and operational status stay with {first} and the medical team.</p>
+          <p className="muted">The crew sees only {first}'s goals done. Numbers, alerts and operational status stay with {first} and the medical team.</p>
           <Link to="/medical" className="link">Medical team: open the console</Link>
         </div>
       </section>

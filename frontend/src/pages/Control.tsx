@@ -17,6 +17,7 @@ import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { clockLine } from '../lib/clock'
+import { useProtocolName } from '../lib/names'
 import { useApi, useSession } from '../state/session'
 import ControlData from './ControlData'
 
@@ -92,6 +93,7 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
   const [confirm, setConfirm] = useState<'clear' | 'demo' | null>(null)
   const clear = useAction()
   const demo = useAction()
+  const protocol = useProtocolName()
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
@@ -140,7 +142,7 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
         <div className="section-head"><h2>Emergencies</h2><span className="sub">Guided Response reports reach Earth after the signal delay</span></div>
         {ov.emergencies.length ? (
           <ul className="plain">{ov.emergencies.map(e => (
-            <li key={e.id}><b>{e.protocol ?? 'Triage'}</b> <span className="muted">· day {e.day} · {e.ended_at ? `closed, ${e.outcome}` : 'in progress'}</span></li>
+            <li key={e.id}><b>{protocol(e.protocol)}</b> <span className="muted">· day {e.day} · {e.ended_at ? `closed, ${e.outcome}` : 'in progress'}</span></li>
           ))}</ul>
         ) : <p className="muted">None so far.</p>}
       </section>

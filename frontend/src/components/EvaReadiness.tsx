@@ -28,13 +28,15 @@ export default function EvaReadiness({ d, self = true, compact = false }: { d: C
   if (grip.standard) rows.push({ id: 'grip', name: 'Grip strength', now: grip.value === null ? DASH : `${num(gripPctOfPreflight(grip))}%`, limit: '80% of pre-flight', ind: grip })
   if (bone.standard) rows.push({ id: 'bone', name: 'Bone density', now: bone.value === null ? DASH : `${num(bonePctOfPreflight(bone), 1)}%`, limit: '95% of pre-flight', ind: bone })
   const level = Math.max(0, ...rows.map(r => r.ind?.standard?.level ?? 0)) as Level
+  // "Ready" needs numbers to stand on: with none of the three measured, say there is nothing to judge yet.
+  const measured = rows.some(r => r.ind && r.ind.value !== null)
   return (
-    <section className={`eva s${level}`}>
+    <section className={`eva ${measured ? `s${level}` : 'nodata'} ${compact ? 'compact' : ''}`}>
       <div className="eva-head">
         <h3>Ready for EVA?</h3>
-        <span className="status"><span className="dot" />{VERDICT[level]}</span>
+        <span className="status"><span className="dot" />{measured ? VERDICT[level] : 'No data yet'}</span>
       </div>
-      {need && (
+      {need && !compact && (
         <p className="small muted">
           At {place.name} NASA asks {need} mL/kg/min of VO2max{place.eva === 'surface' && lim.microgravity ? `, against ${lim.microgravity} for microgravity EVAs, so the same fitness can pass in orbit and fall short here` : ''}.
         </p>
@@ -47,7 +49,7 @@ export default function EvaReadiness({ d, self = true, compact = false }: { d: C
               <span className="dot" style={s ? undefined : { background: 'var(--line-2)' }} />
               <span className="n">{r.name}</span>
               <span className="v num">{r.now}{r.limit && <span className="dim"> · NASA asks {r.limit}</span>}</span>
-              {s && <a className="item" href={s.url} target="_blank" rel="noreferrer" title={s.source}>{s.item}</a>}
+              {s && !compact && <a className="item" href={s.url} target="_blank" rel="noreferrer" title={s.source}>{s.item}</a>}
               {r.note && <span className="small dim eva-note">{r.note}</span>}
               {s && (!compact || s.level > 0) && <span className="small muted eva-note">{s.text}</span>}
             </li>

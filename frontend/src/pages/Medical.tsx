@@ -5,8 +5,9 @@ import { api } from '../api/client'
 import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
 import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
-import { Avatar, Icon, Status, Tabs } from '../components/ui'
-import { allMissing, doseOrigin, DASH, nasaLine, num } from '../lib/health'
+import { Icon, Status, Tabs } from '../components/ui'
+import { MESSAGE_KIND, usePartyName, usePlaceName, useProtocolName } from '../lib/names'
+import { allMissing, doseOrigin, DASH, nasaLine, num, startedText } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
@@ -49,13 +50,13 @@ export default function Medical() {
 function PinGate({ onOk }: { onOk: () => void }) {
   return (
     <div className="page med-gate">
-      <PinPad title="Medical console" subtitle="The crew has no accounts. Only the medical team signs in with a 4-digit PIN." hint="Demo PIN: 1961"
+      <PinPad title="Medical console" subtitle="For the medical team. Enter your 4-digit PIN." hint="Demo PIN: 1961"
         onSubmit={async pin => { await api.medicalSignIn(pin); onOk() }} />
     </div>
   )
 }
 
-const STD_WORD = { in: 'within', near: 'near the limit', limit: 'at the limit' } as const
+const STD_WORD = { in: 'within', near: 'near the NASA limit', limit: 'at the NASA limit' } as const
 const EVA_WORD = { surface: 'surface EVA', microgravity: 'microgravity EVA', none: 'no EVA' } as const
 /** NASA's lines that are the same for everyone; VO2max depends on the place and the EVA role, so it is read from the data. */
 const GENERIC_LIMIT: Record<string, string> = { grip: '80% of pre-flight', bone: '95% of pre-flight' }
@@ -70,8 +71,12 @@ function redRisks(c: Person) {
 }
 
 function Triage({ ov }: { ov: MedicalOverview }) {
-  const inds = Object.keys(ov.crew[0].indicators)
+  const today = useSession().mission?.day ?? 0
   const first = (c: Person) => c.name.split(' ')[0]
+  // A row nobody has a reading for is named once under the table, not drawn as a line of dashes.
+  const anyReading = (k: string) => ov.crew.some(c => c.indicators[k].value !== null || c.indicators[k].last_measured_day !== null)
+  const inds = Object.keys(ov.crew[0].indicators).filter(anyReading)
+  const unread = Object.keys(ov.crew[0].indicators).filter(k => !anyReading(k))
   return (
     <>
       <section>
@@ -79,15 +84,17 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           {ov.crew.map(c => {
             const red = redRisks(c)
             const alerts = c.alerts.filter(a => a.level > 0).slice(0, 2)
+            // "Fit for all duties" needs readings behind it: with none at all, the row says so instead.
+            const empty = allMissing(Object.values(c.indicators))
             return (
               <li key={c.id}>
                 <Link to={`/crew/${c.id}`} className="triage-row" aria-label={`Open ${c.name}`}>
                   <span className="who"><b>{c.name}</b><span className="small muted">{c.role}</span></span>
-                  <Status level={c.ops.level}>{c.ops.label}</Status>
+                  {empty && !c.ops.reason ? <span className="status nodata"><span className="dot" />No data yet</span> : <Status level={c.ops.level}>{c.ops.label}</Status>}
                   <span className="why">
                     {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
-                    {alerts.map(a => <span key={a.id} className={`alert-line s${a.level}`}><span className="dot" />{a.title}{a.since_day !== undefined && <span className="small dim num"> since day {a.since_day}</span>}</span>)}
-                    {!c.ops.reason && !alerts.length && <span className="small dim">{allMissing(Object.values(c.indicators)) ? 'No data yet' : 'Nothing raised'}</span>}
+                    {alerts.map(a => <span key={a.id} className={`alert-line s${a.level}`}><span className="dot" />{a.title}{a.since_day !== undefined && <span className="small dim"> {startedText(a.since_day, today)}</span>}</span>)}
+                    {!c.ops.reason && !alerts.length && !empty && <span className="small dim">Nothing raised</span>}
                   </span>
                   {red ? <span className={`tag s${red.level}`} title={red.title}>{red.text}</span> : <span />}
                 </Link>
@@ -103,7 +110,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
           <ul className="plain">
             {ov.notices.map(n => (
               <li key={`${n.crew_id}${n.alert_id}${n.since_day}`} className="small">
-                <b>{n.name}</b> · {n.title} <span className="muted num">since day {n.since_day} · sent day {n.day} to {n.to_name}</span>
+                <b>{n.name}</b> · {n.title} <span className="muted num">sent day {n.day} to {n.to_name}</span>
               </li>
             ))}
           </ul>
@@ -129,10 +136,10 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                         <span className={i.level ? 'c' : ''}>{i.value === null ? DASH : (k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> {i.z !== null && <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>}
                         {i.value === null && <div className="cell-note small dim">{i.last_measured_day !== null ? `Last measured day ${i.last_measured_day}` : 'No data yet'}</div>}
                         {i.value !== null && i.baseline === null && <div className="cell-note small dim">Learning: {i.baseline_n} of {i.baseline_need ?? 5}</div>}
-                        {(eva || s) && (
+                        {(eva || (s && s.level > 0)) && (
                           <div className="cell-note small">
                             {eva && <div className="dim">{eva}</div>}
-                            {s && <div className={`c s${s.level}`} title={s.text}>{s.item} {STD_WORD[s.status]}</div>}
+                            {s && s.level > 0 && <div className={`c s${s.level}`} title={`${s.text} (${s.item})`}>{STD_WORD[s.status]}</div>}
                           </div>
                         )}
                       </td>
@@ -150,10 +157,11 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                   <div className="cell-note small dim">{num(c.dose.career_pct_of_limit)}%{c.dose.prior_estimate ? ' · est.' : ''}{doseOrigin(c.dose) ? ` · dose ${doseOrigin(c.dose)}` : ''}</div>
                 </td>
               ))}
-              <td className="small muted">{ov.crew[0].dose.career_limit_msv} mSv over a career (V1 4030)</td>
+              <td className="small muted">{ov.crew[0].dose.career_limit_msv} mSv over a career</td>
             </tr>
           </tbody>
         </table></div>
+        {unread.length > 0 && <p className="small muted" style={{ marginTop: 10 }}>No readings yet for anyone: {unread.map(k => ov.crew[0].indicators[k].name).join(', ')}.</p>}
       </section>
     </>
   )
@@ -162,31 +170,30 @@ function Triage({ ov }: { ov: MedicalOverview }) {
 function Briefings({ ov }: { ov: MedicalOverview }) {
   const [who, setWho] = useState(ov.crew[0].id)
   const { data: list, setData } = useApi(() => api.briefings(who), [who])
-  const { data: st } = useApi(() => api.assistantStatus(), [])
   const { bump, toast } = useSession()
   const [b, setB] = useState<Briefing | null>(null)
   const gen = useAction(), approve = useAction()
   useEffect(() => setB(list?.[0] ?? null), [list])
+  const status = (s: string) => (s === 'draft' ? 'Draft' : s === 'queued' ? 'Queued for Earth' : s.charAt(0).toUpperCase() + s.slice(1))
   return (
     <div className="med-cols">
       <section className="col">
         <div className="section-head"><h2>Weekly briefing</h2></div>
-        <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The medical team approves it before it is queued for Earth.</p>
-        <p className="small dim">{st ? (st.configured ? `Model: ${st.provider}` : 'No model connected: template text from the same facts.') : '…'}</p>
+        <p className="small muted">Canary takes the facts from the data; the text cannot add numbers. Approve a draft to queue it for Earth.</p>
         <div className="row wrap">{ov.crew.map(c => <button key={c.id} className={`btn sm ${who === c.id ? 'pri' : ''}`} onClick={() => setWho(c.id)}>{c.name.split(' ')[0]}</button>)}</div>
-        <button className="btn pri" disabled={gen.busy} onClick={() => gen.run(async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) })}>{gen.busy ? 'Generating…' : 'Generate briefing'}</button>
+        <button className="btn pri" disabled={gen.busy} onClick={() => gen.run(async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) })}>{gen.busy ? 'Writing…' : 'Write a briefing'}</button>
         <ActionError error={gen.error} />
-        <div className="list">{(list ?? []).map(x => <button key={x.id} className={`item s${x.status === 'draft' ? 1 : 0}`} onClick={() => setB(x)}><span className="dot" />Day {x.day} · {x.status}<span className="v">{x.bytes} B</span></button>)}</div>
+        <div className="list">{(list ?? []).map(x => <button key={x.id} className={`item s${x.status === 'draft' ? 1 : 0}`} onClick={() => setB(x)}><span className="dot" />Day {x.day} · {status(x.status)}</button>)}</div>
       </section>
       <section className="col">
         {b ? (
           <>
-            <div className="row wrap"><Status level={b.status === 'draft' ? 1 : 0}>{b.status}</Status><span className="small muted num">{b.mode === 'ai' ? 'AI prose' : 'template'} · {b.bytes} bytes</span>
+            <div className="row wrap"><Status level={b.status === 'draft' ? 1 : 0}>{status(b.status)}</Status><span className="small muted num">{b.bytes} bytes for the link</span>
               {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the medical team and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
             <ActionError error={approve.error} />
             <pre className="brief-text">{b.text}</pre>
           </>
-        ) : <p className="muted">Generate a briefing to see it here.</p>}
+        ) : <p className="muted">No briefing for {ov.crew.find(c => c.id === who)?.name.split(' ')[0]} yet.</p>}
       </section>
     </div>
   )
@@ -232,7 +239,8 @@ function Prescribe({ ov }: { ov: MedicalOverview }) {
 }
 
 function Messages() {
-  const { me, catalog, bump } = useSession()
+  const { me, catalog, bump, mission } = useSession()
+  const party = usePartyName()
   const { data } = useApi(() => api.messages(), [])
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
@@ -244,7 +252,8 @@ function Messages() {
   return (
     <div className="grid g2">
       <form className="col" noValidate onSubmit={form.submit}>
-        <div className="section-head"><h2>Messages</h2></div><p className="small muted">It arrives after the real delay for where the crew is (20× faster in the demo).</p>
+        <div className="section-head"><h2>Messages</h2></div>
+        <p className="small muted">{mission && mission.place.reply !== 'Live' ? `Arrives after the signal delay: ${mission.place.reply} each way.` : 'Earth replies live from here.'}</p>
         <Field form={form} name="to" label="To" as="select">
           <option value="mission-control">Mission Control (Earth)</option><option value="crew">Whole crew</option>{catalog?.crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Field>
         <Field form={form} name="text" label="Message" as="textarea" rows={4} hint={`${String(form.values.text).length} of 1000 characters`} />
@@ -252,32 +261,33 @@ function Messages() {
         <SubmitButton form={form} busyLabel="Sending…" className="btn pri start"><Icon name="send" size={15} />Send</SubmitButton>
         <span className="small dim">Signed as flight surgeon{me ? ` · terminal of ${catalog?.crew.find(c => c.id === me)?.name}` : ''}</span>
       </form>
-      <section><div className="section-head"><h2>Link log</h2></div>
+      <section><div className="section-head"><h2>Sent and received</h2></div>
         <ul className="plain link-log">{(data ?? []).map(m => {
           const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
           return (
             <li key={m.id} className="small">
               <span className={`dot s${eta ? 1 : 0}`} />
-              <div className="grow"><b>{m.sender} → {m.recipient}</b> <span className="dim">{m.kind}</span><div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
-              <span className="num dim">{eta ? `in ${eta}s` : 'delivered'}</span>
+              <div className="grow"><b>{party(m.sender)} → {party(m.recipient)}</b>{MESSAGE_KIND[m.kind] && <span className="dim"> · {MESSAGE_KIND[m.kind]}</span>}<div className="muted msg-text">{m.text.slice(0, 220)}</div></div>
+              <span className="num dim">{eta ? `in ${eta}s` : 'Delivered'}</span>
             </li>)
         })}</ul>
-        {!data?.length && <p className="muted">No traffic yet.</p>}
+        {!data?.length && <p className="muted">No messages yet.</p>}
       </section>
     </div>
   )
 }
 
 function Emergencies({ ov }: { ov: MedicalOverview }) {
+  const protocol = useProtocolName(), place = usePlaceName(), party = usePartyName()
   return (
     <section>
       <div className="section-head"><h2>Guided Response log</h2></div>
-      {!ov.emergencies.length && <p className="muted">No emergencies yet. Hold the red button to run one.</p>}
+      {!ov.emergencies.length && <p className="muted">No emergencies yet.</p>}
       <ul className="plain emergencies">{ov.emergencies.map(e => (
         <li key={e.id}>
-          <div className="row wrap"><b>{e.protocol ?? 'triage'}</b><span className="small muted">day {e.day} · {e.location}</span>
-            {e.patient && <span className="row small muted">patient <Avatar initials={e.patient.toUpperCase()} /></span>}
-            <span className="right small">{e.outcome ?? 'open'}</span></div>
+          <div className="row wrap"><b>{protocol(e.protocol)}</b><span className="small muted">day {e.day} · {place(e.location)}</span>
+            {e.patient && <span className="small muted">Patient: {party(e.patient)}</span>}
+            <span className="right small">{e.outcome ? e.outcome.charAt(0).toUpperCase() + e.outcome.slice(1) : 'Open'}</span></div>
           <div className="col small emg-log">{e.log.map(([t, x], i) => <span key={i}><span className="num dim">{String(Math.floor(t / 60)).padStart(2, '0')}:{String(t % 60).padStart(2, '0')}</span> {x}</span>)}</div>
         </li>))}</ul>
     </section>

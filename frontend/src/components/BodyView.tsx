@@ -9,7 +9,7 @@ import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
 import BodyHologram from '../hologram/BodyHologram'
 import type { Lens } from '../hologram/scene'
-import { amslerResult, attention, bonePctOfPreflight, doseOrigin, fmtValue, missingNote, nasaRaises, num } from '../lib/health'
+import { amslerResult, attention, bonePctOfPreflight, doseOrigin, fmtValue, hasOwnNormal, missingNote, nasaRaises, num, startedText } from '../lib/health'
 import { useSession } from '../state/session'
 import EvaReadiness from './EvaReadiness'
 import RadiationBar from './RadiationBar'
@@ -20,11 +20,10 @@ const FACETS = ['sleep', 'react', 'mood', 'stress', 'social']
 const HAZARD_NAME: Record<HazardId, string> = { R: 'Radiation', I: 'Isolation', D: 'Distance', G: 'Gravity', E: 'Environment' }
 const TREND = { rising: 'Rising', stable: 'Stable', falling: 'Falling' } as const
 const DATA = { real: 'Measured data', partial: 'Part measured, part simulated', simulated: 'Simulated data', none: 'No data yet' } as const
-
-/** Letters of the RIDGE hazards that may be factors; a possible factor, never a cause. */
-function Letters({ ids }: { ids: HazardId[] }) {
-  if (!ids.length) return null
-  return <span className="letters" title={`Possible factors: ${ids.map(h => HAZARD_NAME[h]).join(', ')}`}>{ids.map(h => <i key={h}>{h}</i>)}</span>
+/** The button under an alert names the test the alert asks for. */
+const TEST_LABEL: Partial<Record<CheckKind, string>> = {
+  pvt: 'Take the reaction test', mood: 'Do a mood check-in', vitals: 'Enter vital signs', amsler: 'Do the Amsler grid',
+  sleep: 'Log your sleep', kss: 'Rate your sleepiness', tlx: 'Rate your workload', wellbeing: 'Answer the wellbeing check', symptoms: 'Log a symptom',
 }
 
 export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; onCheck?: (k: CheckKind) => void; self?: boolean }) {
@@ -78,14 +77,14 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
 
       {lens === 'physical' ? (
         <section id="sec-physical" key="physical">
-          <div className="section-head rise"><h2>Physical</h2><span className="sub">{d.areas.physical.score !== null && `${d.areas.physical.score} · `}sorted by what needs attention</span></div>
+          <div className="section-head rise"><h2>Physical</h2></div>
           <Tiles count={physical.length}>
             {physical.map((s, i) => <PhysicalTile key={s} d={d} s={s} i={i} on={sel === s} onPick={() => choose(s, true)} />)}
           </Tiles>
         </section>
       ) : (
         <section id="sec-mental" key="mental">
-          <div className="section-head rise"><h2>Mental</h2><span className="sub">{d.areas.mental.score !== null && `${d.areas.mental.score} · `}rest, focus, mood, stress, connection</span></div>
+          <div className="section-head rise"><h2>Mental</h2></div>
           <Tiles count={mental.length}>
             {mental.map((k, i) => {
               const ind = d.indicators[k]
@@ -110,14 +109,16 @@ function Tiles({ count, children }: { count: number; children: React.ReactNode }
   return <div className="tiles" style={{ ['--cols' as string]: cols, ['--last-span' as string]: rest ? cols - rest + 1 : 1 } as CSSProperties}>{children}</div>
 }
 
-/** The number of one indicator, with the population range only when the value is outside it. */
-function Reading({ ind }: { ind: Indicator }) {
+/** The number of one indicator, with the population range only when the value is outside it. `label` names the
+ *  measure when the tile is named after a body system (Blood & immunity shows a temperature). */
+function Reading({ ind, label }: { ind: Indicator; label?: string }) {
   const p = ind.population
-  const note = missingNote(ind)
+  const note = missingNote(ind) ?? (ind.baseline !== null ? `normal ${ind.baseline.toFixed(ind.dp)}` : null)
+  const line = [label, note].filter(Boolean).join(' · ')
   return (
     <div className="tile-body">
       <div className="tv">{fmtValue(ind)}{ind.value !== null && <small>{ind.unit}</small>}</div>
-      {note ? <div className="small dim">{note}</div> : ind.baseline !== null && <div className="small dim">normal {ind.baseline.toFixed(ind.dp)}</div>}
+      {line && <div className="small dim">{line}</div>}
       {p.status !== 'in' && p.status !== 'no_data' && p.low !== null && p.high !== null && <div className="small tile-out">usual range {p.low}–{p.high}</div>}
     </div>
   )
@@ -144,7 +145,7 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
         <div className="small dim">{x.career_pct_of_limit ?? x.pct_of_limit}% of NASA's 600 mSv{doseOrigin(x) && ` · ${doseOrigin(x)}`}</div>
       </div>
     )
-  } else if (ind) body = <Reading ind={ind} />
+  } else if (ind) body = <Reading ind={ind} label={ind.name} />
   else body = <div className="tile-body"><div className="tv">{st.no_data ? '—' : st.status}</div>{st.no_data && <div className="small dim">No data yet</div>}</div>
   return (
     <button className={`tile rise ${st.no_data && st.level === 0 ? 'nodata' : `s${st.level}`} ${on ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={onPick}>
@@ -155,51 +156,65 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
 }
 
 function Verdict({ d, self, onCheck, onPick }: { d: CrewDetail; self: boolean; onCheck?: (k: CheckKind) => void; onPick: (s: SystemId) => void }) {
-  const { setAskOpen } = useSession()
+  const { askAbout } = useSession()
   const nav = useNavigate()
   const top = d.alerts[0]
   const first = d.crew.name.split(' ')[0]
   const learning = d.mission.learning
-  const headline = learning ? 'Learning your normal.' : top ? top.title : `${self ? 'You are' : `${first} is`} within ${self ? 'your' : 'their'} normal.`
-  const why = learning ? 'For the days before launch Canary only records how you sleep, react and feel when you are well. Alerts start at launch.'
-    : top ? top.why : 'Nothing has left the personal range in the last three days.'
-  const list = learning ? [] : attention(d.alerts, d.risks)
+  const known = hasOwnNormal(d)
+  // "Within your normal" needs a normal to be within: with none learned yet, say so instead.
+  const headline = learning ? 'Learning your normal.'
+    : top ? top.title
+      : !known ? 'Not enough readings yet.'
+        : `${self ? 'You are' : `${first} is`} within ${self ? 'your' : 'their'} normal.`
+  const why = learning ? 'Before launch Canary records how you sleep, react and feel when you are well. Alerts start at launch.'
+    : top ? top.why
+      : !known ? `Canary learns ${self ? 'your' : `${first}'s`} normal after 5 readings of each measure.${self ? ' Each test adds one.' : ''}`
+        : `Nothing has left ${self ? 'your' : 'their'} personal range in the last three days.`
+  // The headline already tells the top alert: the list holds the rest.
+  const list = learning ? [] : attention(d.alerts, d.risks).filter(a => !top || a.key !== `a-${top.id}`)
   const care = d.ops.care
+  const test = top?.test as CheckKind | undefined
   return (
     <div className="verdict">
       <div>
         <h1 className="rise">{headline}</h1>
         <p className="why rise">{why}</p>
-        <p className="meta rise">{self ? `Hello, ${first}` : d.crew.name} · {d.mission.day_label} · {d.mission.place.name}</p>
       </div>
       {top && (
         <div className="col rise" style={{ gap: 12, ['--d' as string]: 2 }}>
           <ol className="steps">{top.todo.map(t => <li key={t}>{t}</li>)}</ol>
           <div className="row wrap">
-            {top.test && onCheck && self && <button className="btn pri" onClick={() => onCheck(top.test as CheckKind)}>Take the reaction test</button>}
-            {top.protocol && <button className="btn pri" onClick={() => nav(protocolPath(top.protocol as string))}>Open the radiation protocol</button>}
+            {test && onCheck && self && <button className="btn pri" onClick={() => onCheck(test)}>{TEST_LABEL[test] ?? 'Take the test'}</button>}
+            {top.protocol && <button className="btn pri" onClick={() => nav(protocolPath(top.protocol as string))}>Open the protocol</button>}
             {top.sys && <button className="btn" onClick={() => onPick(top.sys as SystemId)}>Show on the body</button>}
-            {self && <button className="btn ghost" onClick={() => setAskOpen(true)}><Icon name="ask" />Ask why</button>}
+            {self && <button className="btn ghost" onClick={() => askAbout(`Why does Canary say: ${top.title.replace(/\.$/, '')}?`)}><Icon name="ask" />Ask why</button>}
           </div>
         </div>
       )}
-      <div className="attn rise" style={{ ['--d' as string]: 3 }}>
-        <h3>Needs attention</h3>
-        {list.length === 0 ? <p className="muted">Nothing needs attention</p> : (
-          <ul>
-            {list.map(a => (
-              <li key={a.key} className={`s${a.level}`}>
-                <button disabled={!a.sys} onClick={() => a.sys && onPick(a.sys as SystemId)}>
-                  <span className="dot" /><span className="t">{a.title}</span>
-                  {a.since !== undefined && <span className="small dim">since day {a.since}</span>}
-                  <Letters ids={a.hazards} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}. <Link className="link" to={protocolPath(care.protocol)}>Protocol</Link></p>}
-      </div>
+      {!top && !learning && !known && self && (
+        <div className="row rise" style={{ ['--d' as string]: 2 }}><button className="btn pri" onClick={() => nav('/tests')}>Go to Tests</button></div>
+      )}
+      {(list.length > 0 || care) && (
+        <div className="attn rise" style={{ ['--d' as string]: 3 }}>
+          {list.length > 0 && (
+            <>
+              <h3>{top ? 'Also watching' : 'Needs attention'}</h3>
+              <ul>
+                {list.map(a => (
+                  <li key={a.key} className={`s${a.level}`}>
+                    <button disabled={!a.sys} onClick={() => a.sys && onPick(a.sys as SystemId)}>
+                      <span className="dot" /><span className="t">{a.title}</span>
+                      {a.since !== undefined && <span className="small dim">{startedText(a.since, d.mission.day)}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {care && <p className="small muted care-line">Recovering after {care.name} until day {care.until_day}. <Link className="link" to={protocolPath(care.protocol)}>Protocol</Link></p>}
+        </div>
+      )}
       {self && <div className="rise" style={{ ['--d' as string]: 3 }}><EvaReadiness d={d} compact /></div>}
     </div>
   )
@@ -229,7 +244,7 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
           <ol className="steps">{alert.todo.map(t => <li key={t}>{t}</li>)}</ol>
         </div>
       )}
-      {risks.map(r => <RiskBlock key={r.id} r={r} sys={sys} />)}
+      {risks.map(r => <RiskBlock key={r.id} r={r} sys={sys} today={d.mission.day} />)}
       <p className="muted rise" style={{ ['--d' as string]: 4 }}>{info.space}</p>
       {onCheck && (action[sys] || sys === 'brain') && (
         <div className="row wrap rise" style={{ ['--d' as string]: 5 }}>
@@ -246,16 +261,20 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
   )
 }
 
-export function RiskBlock({ r, sys }: { r: Risk; sys?: SystemId }) {
+export function RiskBlock({ r, sys, today }: { r: Risk; sys?: SystemId; today: number }) {
   const lv = (sys && r.system_levels?.[sys]) ?? r.level
+  const started = startedText(r.since_day, today)
   return (
     <div className={`risk rise s${lv}`}>
-      <div className="risk-head"><span className="dot" /><h3>{r.name}</h3><Letters ids={r.hazards} /></div>
+      <div className="risk-head"><span className="dot" /><h3>{r.name}</h3></div>
       <p className="small muted">
-        {r.level === 0 ? 'Nothing raised' : `${TREND[r.trend]}${r.since_day !== null ? `, since day ${r.since_day}` : ''}`} · {DATA[r.data]}
+        {r.level === 0 ? 'Nothing raised' : `${TREND[r.trend]}${started ? `, ${started}` : ''}`} · {DATA[r.data]}
       </p>
       {r.evidence.length > 0 && <ul className="risk-ev small">{r.evidence.map((e, i) => <li key={i}>{e.text}</li>)}</ul>}
-      {r.hazard_links.length > 0 && <p className="small dim">{r.hazard_links.map(h => `${HAZARD_NAME[h.hazard]}: ${h.why}`).join(' ')}</p>}
+      {/* Hazards are possible factors, never a cause: said in words, not as letters. */}
+      {r.hazard_links.length > 0
+        ? <p className="small dim">Possible factors. {r.hazard_links.map(h => `${HAZARD_NAME[h.hazard]}: ${h.why}`).join(' ')}</p>
+        : r.hazards.length > 0 && <p className="small dim">Possible factors: {r.hazards.map(h => HAZARD_NAME[h]).join(', ')}.</p>}
     </div>
   )
 }

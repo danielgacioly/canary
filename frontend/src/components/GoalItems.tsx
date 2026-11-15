@@ -10,7 +10,8 @@ import { Icon } from './ui'
 function goalLine(g: Goal): string {
   const parts: string[] = []
   if (g.adjusted) parts.push(`Lightened for fatigue; your team allows up to ${g.adjusted.max_pct}%`)
-  else parts.push(g.why)
+  // "Added by the alert: ..." says again what the "From an alert" tag already shows.
+  else if (!(g.by === 'alert' && g.why.startsWith('Added by the alert'))) parts.push(g.why)
   if (g.advice) parts.push(g.advice.status === 'pending' ? `Check on day ${g.advice.check_day}` : `Checked on day ${g.advice.check_day}: ${g.advice.status === 'same' ? 'no change' : g.advice.status}`)
   return parts.join(' · ')
 }
@@ -32,7 +33,7 @@ export function GoalRow({ g, crewId, onCheck, readOnly, compact }: { g: Goal; cr
       <button className="chk" onClick={toggle} aria-label={g.done ? 'Mark as not done' : 'Mark as done'} disabled={readOnly || act.busy}><Icon name="check" size={14} /></button>
       <div className="grow">
         <div className="gt">{g.title}</div>
-        {!compact && <div className="small dim quiet">{goalLine(g)}</div>}
+        {!compact && goalLine(g) && <div className="small dim quiet">{goalLine(g)}</div>}
       </div>
       {g.by !== 'routine' && <span className="tag">{g.by === 'medical' ? 'From the doctor' : g.by === 'suggestion' ? 'Your pick' : 'From an alert'}</span>}
     </div>

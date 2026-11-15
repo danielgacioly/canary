@@ -26,6 +26,11 @@ interface Session {
   emergencyPid: string | null
   askOpen: boolean
   setAskOpen: (v: boolean) => void
+  /** Open Ask Canary and ask this question straight away (the "Ask why" of an alert). */
+  askAbout: (q: string) => void
+  /** The question waiting to be asked when the drawer opens; the drawer clears it. */
+  askSeed: string | null
+  clearAskSeed: () => void
   toast: (t: string) => void
   toasts: { id: number; t: string }[]
   /** Profile photos by crew id (data URLs). */
@@ -56,6 +61,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setEmergency = useCallback((v: boolean) => { setEmergencyRaw(v); if (!v) setEmergencyPid(null) }, [])
   const startProtocol = useCallback((id: string | null) => { setEmergencyPid(id); setEmergencyRaw(true) }, [])
   const [askOpen, setAskOpen] = useState(false)
+  const [askSeed, setAskSeed] = useState<string | null>(null)
+  const askAbout = useCallback((q: string) => { setAskSeed(q); setAskOpen(true) }, [])
+  const clearAskSeed = useCallback(() => setAskSeed(null), [])
   const [toasts, setToasts] = useState<{ id: number; t: string }[]>([])
   const tid = useRef(0)
   const [photos, setPhotos] = useState<Record<string, string>>({})
@@ -99,8 +107,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [bump])
   const setLocation = useCallback(async (loc: string | null) => { setMission(await api.setLocation(loc)); bump() }, [bump])
 
-  const value = useMemo(() => ({ catalog, mission, scenes, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, setAskOpen, toast, toasts, photos, prefs, setPref }),
-    [catalog, mission, scenes, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, toast, toasts, photos, prefs, setPref])
+  const value = useMemo(() => ({ catalog, mission, scenes, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, setAskOpen, askAbout, askSeed, clearAskSeed, toast, toasts, photos, prefs, setPref }),
+    [catalog, mission, scenes, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, askAbout, askSeed, clearAskSeed, toast, toasts, photos, prefs, setPref])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

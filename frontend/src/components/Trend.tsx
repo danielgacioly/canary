@@ -58,7 +58,8 @@ export default function Trend({ pts, color, baseline, limit, minSpan = 0, avg, l
   const dom = domain(have.map(p => p[1]).concat(baseline ?? [], limit ?? []), minSpan)
   const x0 = pts[0][0], x1 = pts[pts.length - 1][0]
   const last = have[have.length - 1]
-  const xTicks: Tick[] = [x0, Math.round((x0 + x1) / 2), x1].map(d => ({ x: d, label: `day ${d}` }))
+  // Counted back from the last day shown, so the labels stay short at any mission day ("day -3149" overlapped).
+  const xTicks: Tick[] = [x0, Math.round((x0 + x1) / 2), x1].map(d => ({ x: d, label: d === x1 ? 'today' : `${x1 - d} d ago` }))
   return (
     <Plot x={[x0, x1]} y={dom} xTicks={xTicks} label={label}>
       {(X, Y) => (

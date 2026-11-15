@@ -1,6 +1,6 @@
 // My space: one private page per astronaut. Locked, it only asks "Choose your profile".
-// Inside: Health (numbers), Goals, Suggestions (the AI slot), Patches, Dashboard (the charts)
-// and Settings (photo, PIN, lock).
+// Inside: Health (numbers), Goals (with the patches), Suggestions (the AI slot), Trends (the charts, route
+// /me/dashboard), My information and Settings (photo, PIN, lock).
 import { useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { protocolPath } from './Protocols'
@@ -8,22 +8,22 @@ import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
 import type { Pt } from '../lib/scale'
 import BloodChart from '../components/BloodChart'
-import BodyView, { Guide } from '../components/BodyView'
-import { GoalRow, TeamRow } from '../components/GoalItems'
+import BodyView from '../components/BodyView'
+import { GoalRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import Trend from '../components/Trend'
 import { Icon, Loading, Patch, Tabs, WaitingForData } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
-import { bonePctOfPreflight, learningNote, missingNote, nasaLine, num, ORIGIN } from '../lib/health'
+import { bonePctOfPreflight, learningNote, nasaLine, num, ORIGIN } from '../lib/health'
 import { squareJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
 import { useApi, useSession } from '../state/session'
 
-type Tab = 'health' | 'goals' | 'suggestions' | 'patches' | 'dashboard' | 'info' | 'settings'
-const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['suggestions', 'Suggestions'], ['patches', 'Patches'], ['dashboard', 'Dashboard'], ['info', 'My information'], ['settings', 'Settings']]
+type Tab = 'health' | 'goals' | 'suggestions' | 'dashboard' | 'info' | 'settings'
+const TABS: [Tab, string][] = [['health', 'Health'], ['goals', 'Goals'], ['suggestions', 'Suggestions'], ['dashboard', 'Trends'], ['info', 'My information'], ['settings', 'Settings']]
 
 export default function MySpace() {
   const { me } = useSession()
@@ -47,13 +47,12 @@ function Inside({ me }: { me: string }) {
     <div className="page myspace">
       <div className="space-head rise">
         <Dot p={person} size="md" />
-        <div className="grow"><h1>{person.name}</h1><p className="muted">{person.role} · {d.mission.day_label} · {d.mission.place.name}</p></div>
+        <div className="grow"><h1>{person.name}</h1><p className="muted">{person.role}</p></div>
       </div>
       <Tabs value={tab} options={TABS} onChange={t => nav(t === 'health' ? '/me' : `/me/${t}`)} />
       {tab === 'health' && <BodyView d={d} onCheck={setCheck} />}
       {tab === 'goals' && <GoalsTab me={me} onCheck={setCheck} />}
       {tab === 'suggestions' && <SuggestionsTab me={me} />}
-      {tab === 'patches' && <PatchesTab me={me} />}
       {tab === 'dashboard' && <DashboardTab d={d} me={me} />}
       {tab === 'info' && <InfoTab me={me} />}
       {tab === 'settings' && <SettingsTab d={d} me={me} />}
@@ -73,10 +72,10 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
     <div className="goals-page">
       <p className="goals-summary rise">
         <b>{done} of {data.personal.length}</b> done today
-        <span className="dot-sep" />{p.streak}-day streak
-        <span className="dot-sep" />{p.completion_7d}% over the last 7 days
+        {p.streak > 0 && <><span className="dot-sep" />{p.streak}-day streak</>}
       </p>
       {(['physical', 'mental'] as const).map((a, i) => {
+        // A done goal keeps only its title; the order stays put so a ticked goal does not jump away.
         const list = data.personal.filter(g => g.area === a)
         const n = list.filter(g => g.done).length
         return (
@@ -86,15 +85,32 @@ function GoalsTab({ me, onCheck }: { me: string; onCheck: (k: CheckKind) => void
               <span className="sub">{n} of {list.length}</span>
               <span className="bar-track"><i className={`a-${a}`} style={{ width: `${(100 * n) / Math.max(1, list.length)}%` }} /></span>
             </div>
-            <div className="goal-list">{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} />)}</div>
+            <div className="goal-list">{list.map(g => <GoalRow key={g.id} g={g} crewId={me} onCheck={onCheck} compact={g.done} />)}</div>
           </section>
         )
       })}
-      <section className="rise" style={{ ['--d' as string]: 3 }}>
-        <div className="section-head"><h2>Crew missions this week</h2></div>
-        <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} mine={data.personal} />)}</div>
-      </section>
+      <PatchStrip p={p} />
     </div>
+  )
+}
+
+/** Patches at the foot of Goals: the ones earned and the closest one to earn next. They come from habits, never from health. */
+function PatchStrip({ p }: { p: GoalsResponse['profile'] }) {
+  const earned = p.badges.filter(b => b.earned)
+  const next = p.badges.filter(b => !b.earned).sort((a, b) => b.progress / b.need - a.progress / a.need)[0]
+  const shown = next ? [...earned, next] : earned
+  if (!shown.length) return null
+  return (
+    <section className="rise" style={{ ['--d' as string]: 3 }}>
+      <div className="section-head"><h2>Patches</h2><span className="sub">{p.badges_earned} of {p.badges.length} earned</span></div>
+      <div className="patches">{shown.map(b => (
+        <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}>
+          <Patch id={b.id} earned={b.earned} /><b>{b.name}</b>{!b.earned && <span className="small muted">Next: {b.desc.toLowerCase()}</span>}
+          {!b.earned && (
+            <span className="patch-progress"><span className="bar-track"><i style={{ width: `${(100 * b.progress) / b.need}%` }} /></span><span className="small dim num">{b.progress}/{b.need}</span></span>
+          )}
+        </div>))}</div>
+    </section>
   )
 }
 
@@ -106,7 +122,7 @@ function SuggestionsTab({ me }: { me: string }) {
   const act = useAction('toast')
   if (!data) return <Loading what="suggestions" />
   const accept = (sid: string) => act.run(async () => { setData(await api.acceptSuggestion(me, sid)); bump(); toast('Added to your goals for 7 days') })
-  const skip = (sid: string) => act.run(async () => { setData(await api.dismissSuggestion(me, sid)); toast('Hidden for today. Canary learns from your choices.') })
+  const skip = (sid: string) => act.run(async () => { setData(await api.dismissSuggestion(me, sid)); toast('Hidden for today') })
   const card = (s: Suggestions['items'][number], i: number) => (
     <article key={s.id} className="suggest-card rise" style={{ ['--d' as string]: i + 1 }}>
       <h2 className="suggest-h"><span className={`area-dot a-${s.area === 'mental' ? 'mental' : 'physical'}`} title={s.area === 'mental' ? 'Mental' : 'Physical'} />{s.title}</h2>
@@ -124,17 +140,13 @@ function SuggestionsTab({ me }: { me: string }) {
             ? <span className="status s0"><span className="dot" />In your goals</span>
             : <button className="btn sm" onClick={() => accept(s.id)}><Icon name="plus" />Add to my goals</button>)}
           {!s.accepted && <button className="btn sm ghost" onClick={() => skip(s.id)}>Not now</button>}
-          {Math.abs(s.rank.learned) >= 1 && <span className="small dim">{s.rank.learned > 0 ? 'Higher' : 'Lower'}, from your past choices</span>}
         </div>
       </div>
     </article>
   )
   return (
     <div className="suggest">
-      <p className="small muted rise">
-        {data.mode === 'ai' ? `AI · ${data.provider}. ` : ''}Ranked by what is around you at {data.context.place} and by your own numbers; the ones that speak to both come first.
-        {' '}What you add or skip moves similar ones up or down. Only you see them.
-      </p>
+      <p className="small muted rise">Picked from your own numbers and where you are. Only you see them.</p>
       <div className="suggest-list">{data.items.slice(0, TOP).map(card)}</div>
       {data.items.length > TOP && (
         <details className="suggest-more">
@@ -142,25 +154,6 @@ function SuggestionsTab({ me }: { me: string }) {
           <div className="suggest-list">{data.items.slice(TOP).map((s, i) => card(s, i))}</div>
         </details>
       )}
-    </div>
-  )
-}
-
-/* ---------------------------------------------------------------- patches: their own page */
-function PatchesTab({ me }: { me: string }) {
-  const { data } = useApi<GoalsResponse>(() => api.goals(me), [me])
-  if (!data) return <Loading what="patches" />
-  const p = data.profile
-  return (
-    <div className="col" style={{ gap: 24 }}>
-      <p className="goals-summary rise"><b>{p.badges_earned} of {p.badges.length}</b> patches earned<span className="dot-sep" />They come from habits kept over time, never from health numbers</p>
-      <div className="patches big">{p.badges.map((b, i) => (
-        <div key={b.id} className={`patch rise ${b.earned ? '' : 'off'}`} style={{ ['--d' as string]: i }}>
-          <Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span>
-          {b.earned ? <span className="small gold-text">Earned</span> : (
-            <span className="patch-progress"><span className="bar-track"><i style={{ width: `${(100 * b.progress) / b.need}%` }} /></span><span className="small dim num">{b.progress}/{b.need}</span></span>
-          )}
-        </div>))}</div>
     </div>
   )
 }
@@ -173,17 +166,21 @@ const GROUPS: [string, string[]][] = [
 
 function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
-  const { catalog } = useSession()
-  const guide = catalog?.guide ?? {}
   if (d.no_data) return <WaitingForData self name={d.crew.name.split(' ')[0]} />
+  // A measure with no reading in the window gets no empty chart: it is named once, at the end.
+  const charted = (k: string) => !!d.indicators[k] && (d.trends[k] ?? []).some(([, y]) => y !== null)
+  const unread = GROUPS.flatMap(([, ids]) => ids).filter(k => d.indicators[k] && !charted(k))
   return (
     <>
-      <p className="muted rise">Last 30 days against your own normal. Readings are simulated in this prototype; the blood values are real NASA data.</p>
-      {GROUPS.map(([name, ids], gi) => (
+      <p className="muted rise">The last 30 days, against your own normal.</p>
+      {GROUPS.map(([name, all], gi) => {
+        const ids = all.filter(charted)
+        if (!ids.length) return null
+        return (
         <section key={name} className="rise" style={{ ['--d' as string]: gi + 1 }}>
           <div className="section-head"><h2>{name}</h2></div>
-          <div className="charts" style={chartCols(ids.filter(k => d.indicators[k]).length)}>
-            {ids.filter(k => d.indicators[k]).map(k => {
+          <div className="charts" style={chartCols(ids.length)}>
+            {ids.map(k => {
               const i = d.indicators[k]
               const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
               const pts: Pt[] = bone ? d.trends[k].map(([x, y]): Pt => [x, y === null ? null : 100 + y]) : d.trends[k]
@@ -198,20 +195,25 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
                   </figcaption>
                   <p className="small muted legend">
                     {normal === null ? <span>{learningNote(i) ?? 'No normal of your own yet'}</span> : <span><i className="key normal" />Your normal {bone ? '100 %' : `${num(i.baseline, i.dp)} ${i.unit}`}</span>}
-                    {i.value !== null ? null : <span>{missingNote(i)}</span>}
-                    {lim && <span><i className="key limit" />NASA limit {lim.text} · <a className="item" href={lim.url} target="_blank" rel="noreferrer">{lim.item}</a></span>}
-                    {bone && <span>7-day average over daily values</span>}
+                    {i.value === null && i.last_measured_day !== null && <span>Last reading day {i.last_measured_day}</span>}
+                    {lim && <span><i className="key limit" />NASA limit {lim.text} <a className="item" href={lim.url} target="_blank" rel="noreferrer">source</a></span>}
                   </p>
                   <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal ?? undefined} limit={lim?.y}
                     minSpan={bone ? 4 : i.spread * 4} avg={bone ? 7 : undefined} label={`${i.name}, last ${pts.length} days`} />
                   {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text}</p>}
-                  {guide[k] && <Guide g={guide[k]} />}
                 </figure>
               )
             })}
           </div>
         </section>
-      ))}
+        )
+      })}
+      {unread.length > 0 && (
+        <p className="muted rise unread">
+          No readings yet: {unread.map(k => d.indicators[k].name).join(', ')}.{' '}
+          <Link className="link" to="/tests">Go to Tests</Link>
+        </p>
+      )}
       {g && <GoalsStrip days={g.profile.daily_done} />}
       <section className="rise" style={{ ['--d' as string]: 4 }}>
         <div className="section-head"><h2>Blood</h2></div>
@@ -237,7 +239,7 @@ function GoalsStrip({ days }: { days: [number, number, number][] }) {
     <section className="rise" style={{ ['--d' as string]: 3 }}>
       <div className="section-head"><h2>Goals done, last 14 days</h2></div>
       {days.length < 3 ? (
-        <p className="big-num">{done}<small>{done === 1 ? 'goal' : 'goals'} done{days.length ? ` since day ${days[0][0]}` : ''}</small></p>
+        <p className="big-num">{done}<small>{done === 1 ? 'goal' : 'goals'} done</small></p>
       ) : (
         <div className="day-strip" role="img" aria-label={`${done} goals done in ${days.length} days`}>
           {slots.map((s, i) => (
@@ -271,7 +273,7 @@ function InfoTab({ me }: { me: string }) {
   ]
   return (
     <div className="info">
-      <p className="goals-summary rise">Registered by {r.registered_by} on {r.registered_on}<span className="dot-sep" />Only you and the medical team see it<span className="dot-sep" />To correct something, tell the flight surgeon</p>
+      <p className="goals-summary rise">From {r.registered_by}'s records<span className="dot-sep" />Only you and the medical team see it<span className="dot-sep" />To correct something, tell the flight surgeon</p>
       <div className="info-grid">
         {groups.map(([title, rows], i) => (
           <section key={title} className="info-group rise" style={{ ['--d' as string]: i + 1 }}>
@@ -311,7 +313,7 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
         <h2>Profile photo</h2>
         <div className="set-row">
           <Dot p={d.crew} size="lg" />
-          <div className="grow"><b>Shown to the crew</b><p className="small muted">Like a name badge: it appears on the crew page and in the top bar. Nothing else about you does.</p></div>
+          <div className="grow"><b>Shown to the crew</b><p className="small muted">On the crew page and in the top bar. Nothing else about you is.</p></div>
           <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = '' }} />
           <button className="btn" disabled={photo.busy} onClick={() => file.current?.click()}>{photo.busy ? 'Saving…' : photos[me] ? 'Change photo' : 'Add photo'}</button>
           {photos[me] && <button className="btn ghost" disabled={photo.busy} onClick={() => { setPhotoErr(null); photo.run(async () => { await api.deletePhoto(me); bump() }) }}>Remove</button>}
@@ -332,7 +334,7 @@ function SettingsTab({ d, me }: { d: CrewDetail; me: string }) {
       <section className="set-group rise" style={{ ['--d' as string]: 2 }}>
         <h2>Privacy</h2>
         <div className="set-row">
-          <div className="grow"><b>Who sees your health</b><p className="small muted">Only you and the medical team. The crew sees your goal participation and your photo. Your alerts go to {d.care_by}.</p></div>
+          <div className="grow"><b>Who sees your health</b><p className="small muted">Only you and the medical team. The crew sees your goals done and your photo. Your alerts go to {d.care_by}.</p></div>
         </div>
       </section>
       {pinOpen && <ChangePin me={me} first={first} onClose={() => setPinOpen(false)} onDone={() => { setPinOpen(false); toast('PIN changed. Use the new one next time.') }} />}
