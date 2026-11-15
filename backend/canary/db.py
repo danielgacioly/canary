@@ -157,6 +157,16 @@ def x(sql: str, args: tuple = ()) -> int:
         return cur.lastrowid
 
 
+def write(sql: str, args: tuple = ()) -> int:
+    """Like x(), but returns the number of rows changed: a conditional UPDATE can tell whether it applied."""
+    with _lock:
+        c = connect()
+        cur = c.execute(sql, args)
+        c.commit()
+        _forget()
+        return cur.rowcount
+
+
 def get_setting(key: str, default: Any = None) -> Any:
     rows = q("SELECT value FROM settings WHERE key=?", (key,))
     return json.loads(rows[0]["value"]) if rows else default

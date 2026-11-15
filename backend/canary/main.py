@@ -733,7 +733,7 @@ def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
 def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
-    private = ("advice", "alert", "alert_earth")  # private to the medical officer and the medical team
+    private = ("advice", "alert", "alert_earth", "briefing")  # private to the medical officer and the medical team (and the recipient)
     rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
@@ -831,8 +831,18 @@ def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
 
 
 @app.post("/api/briefings/{bid}/approve", tags=["assistant"])
-def briefing_approve(bid: int):
-    return briefing.approve(bid)
+def briefing_approve(bid: int, v: dict = Depends(viewer)):
+    """The astronaut approves their own briefing, or the medical team does. Only a draft can be approved, once."""
+    b = briefing.get(bid)
+    if b is None:
+        raise HTTPException(404, "no such briefing")
+    require_self(b["crew_id"], v)
+    if b["status"] != "draft":
+        raise HTTPException(409, "this briefing is already approved")
+    done = briefing.approve(bid)
+    if done is None:  # approved by someone else in the meantime
+        raise HTTPException(409, "this briefing is already approved")
+    return done
 
 
 @app.get("/api/briefings/{crew_id}", tags=["assistant"])
