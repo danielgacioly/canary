@@ -225,6 +225,7 @@ export interface AssistantAnswer {
   id: number; mode: AssistantMode; provider: string; provider_error?: string | null
   answer: string; claims: Claim[]; sources: string[]; tools_used: { tool: string; args: Record<string, string> }[]; dropped: number
   question?: string
+  created_at?: number              // when it was asked (history)
   model?: string | null            // model id when the answer came from a provider
   prompt_version?: string          // e.g. system_v2
   status?: AssistantStatusValue
@@ -234,6 +235,7 @@ export interface AssistantAnswer {
   recommended_action?: RecommendedAction | null
   guard?: GuardReport
   source_meta?: Record<string, SourceMeta>   // title, version and excerpt for each kb: id cited this turn
+  asked_by?: 'self' | 'medical'              // who was signed in when the question was asked (history)
 }
 export interface SourceMeta { title: string; version: number | null; text?: string | null }
 // GET /api/medical/assistant-audit (medical token): one row per assistant turn, no answer text.
@@ -241,8 +243,17 @@ export interface AssistantAuditEntry {
   id: number; crew_id: string; question: string; created_at: number
   mode: string; status: string | null; provider: string | null; model: string | null; kb_version: string | null
   tools: string[]; guard_flags: string[]; latency_ms: number | null
+  asked_by: 'self' | 'medical'
 }
-export interface AssistantStatus { provider: string; configured: boolean; available: string[]; warning?: string | null; entries: string[]; rules: string[]; tools: { name: string; description: string }[] }
+// GET /api/assistant/status: which provider and model answer, the loop limits and a warning when the setting is wrong.
+export interface AssistantStatus {
+  provider: string; configured: boolean; available: string[]; entries: string[]; rules: string[]
+  model?: string | null             // the model id a provider would use (null without a provider)
+  selection?: string                // CANARY_LLM_PROVIDER as set: auto, none, gemini, anthropic, local
+  limits?: { max_steps: number; max_tool_calls: number; timeout_s: number }
+  warning?: string | null           // e.g. an unknown CANARY_LLM_PROVIDER: the assistant runs on rules
+  tools: { name: string; description: string }[]
+}
 export interface Briefing { id: number; crew_id: string; day: number; status: string; text: string; mode: string; bytes: number; created_at: number; deliver_at: number | null }
 export interface SpaceWeather {
   mode: string; window: string; sep_events: number; kp_max: number; fast_cmes: number; flares: number

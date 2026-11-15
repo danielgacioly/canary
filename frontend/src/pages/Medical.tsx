@@ -6,6 +6,7 @@ import type { AssistantAuditEntry, Briefing, MedGoal, MedicalOverview } from '..
 import { ActionError, Field, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
+import { modelLine } from '../lib/assistant'
 import { allMissing, doseOrigin, DASH, nasaLine, num } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
@@ -76,7 +77,9 @@ function Triage({ ov }: { ov: MedicalOverview }) {
   const [audit, setAudit] = useState<AssistantAuditEntry[] | null>(null)
   // Any error (404 before the route exists, 401, network) shows the empty state.
   useEffect(() => { api.assistantAudit(30).then(a => setAudit(Array.isArray(a) ? a : [])).catch(() => setAudit([])) }, [rev])
-  const turnsOf = (id: string) => (audit ?? []).filter(t => t.crew_id === id)
+  // Suggestion and briefing builds are logged for the audit, not questions: they are not counted as "recent".
+  const turnsOf = (id: string) => (audit ?? []).filter(t => t.crew_id === id && !isBuild(t))
+  const buildsOf = (id: string) => (audit ?? []).filter(t => t.crew_id === id && isBuild(t)).length
   const first = (c: Person) => c.name.split(' ')[0]
   return (
     <>
@@ -93,6 +96,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                   <span className="why">
                     {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
                     {!!turnsOf(c.id).length && <span className="small dim">Assistant: {turnsOf(c.id).length} recent · {turnsOf(c.id).filter(t => t.guard_flags.length).length} flagged</span>}
+                    {!!buildsOf(c.id) && <span className="small dim">{buildsOf(c.id)} suggestion {buildsOf(c.id) === 1 ? 'build' : 'builds'} (not counted)</span>}
                     {alerts.map(a => <span key={a.id} className={`alert-line s${a.level}`}><span className="dot" />{a.title}{a.since_day !== undefined && <span className="small dim num"> since day {a.since_day}</span>}</span>)}
                     {!c.ops.reason && !alerts.length && <span className="small dim">{allMissing(Object.values(c.indicators)) ? 'No data yet' : 'Nothing raised'}</span>}
                   </span>
@@ -166,27 +170,34 @@ function Triage({ ov }: { ov: MedicalOverview }) {
   )
 }
 
+/** Logged builds (suggestions, briefing drafts) are audit rows with no question of their own. */
+const isBuild = (t: AssistantAuditEntry) => t.question === 'suggestions' || t.question === 'briefing'
+
 function AssistantAudit({ ov }: { ov: MedicalOverview }) {
   const { rev } = useSession()
   const [audit, setAudit] = useState<AssistantAuditEntry[] | null>(null)
   // Any error (404 before the route exists, 401, network) shows the empty state.
   useEffect(() => { api.assistantAudit(30).then(a => setAudit(Array.isArray(a) ? a : [])).catch(() => setAudit([])) }, [rev])
   const name = (id: string) => ov.crew.find(c => c.id === id)?.name.split(' ')[0] ?? id
+  const questions = (audit ?? []).filter(t => !isBuild(t))
+  const builds = (audit ?? []).length - questions.length
   return (
     <section>
       <div className="section-head"><h2>Assistant audit</h2><span className="sub">recent questions · tools used · guard flags</span></div>
-      {audit === null ? <span className="lbl">Loading…</span> : !audit.length ? (
+      {audit === null ? <span className="lbl">Loading…</span> : !questions.length ? (
         <p className="muted">No assistant turns recorded yet.</p>
       ) : (
-        <div className="audit-list">{audit.map(t => (
+        <div className="audit-list">{questions.map(t => (
           <div key={t.id} className="audit-row small">
-            <span className="q"><b>{name(t.crew_id)}</b> <span className="muted">{t.question}</span></span>
+            <span className="q"><b>{name(t.crew_id)}</b> <span className="muted">{t.question}</span>
+              {t.asked_by === 'medical' && <span className="tag"> asked by the medical team</span>}</span>
             <span className="num dim">{new Date(t.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             <span className="dim">{t.mode}{t.status ? ` · ${t.status.replace(/_/g, ' ')}` : ''}{t.provider ? ` · ${t.provider}` : ''}{t.kb_version ? ` · kb ${t.kb_version.slice(0, 8)}` : ''}{t.latency_ms != null ? ` · ${t.latency_ms} ms` : ''}</span>
             <span className="dim">{t.tools.length ? t.tools.join(', ') : 'no tools'}</span>
             {!!t.guard_flags.length && <div className="audit-flags">{t.guard_flags.map(f => <span key={f} className="audit-flag">{f}</span>)}</div>}
           </div>))}</div>
       )}
+      {!!builds && <p className="small dim">{builds} suggestion or briefing {builds === 1 ? 'build' : 'builds'} logged (metadata only, not listed here).</p>}
     </section>
   )
 }
@@ -203,8 +214,9 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
     <div className="med-cols">
       <section className="col">
         <div className="section-head"><h2>Weekly briefing</h2></div>
-        <p className="small muted">Code computes the facts; a model, once connected, only writes the prose and cannot add numbers. The crew member approves it before it is queued for Earth.</p>
-        <p className="small dim">{st ? (st.configured ? `Model: ${st.provider}` : 'No model connected: template text from the same facts.') : '…'}</p>
+        <p className="small muted">Code computes the facts. A connected model only writes the prose and cannot add numbers; without one, the template is used. The crew member approves it before it is queued for Earth.</p>
+        <p className="small dim">{modelLine(st)}{st && !st.configured ? ': template text from the same facts' : ''}</p>
+        {st?.warning && <p className="small err" role="alert">{st.warning}</p>}
         <div className="row wrap">{ov.crew.map(c => <button key={c.id} className={`btn sm ${who === c.id ? 'pri' : ''}`} onClick={() => setWho(c.id)}>{c.name.split(' ')[0]}</button>)}</div>
         <button className="btn pri" disabled={gen.busy} onClick={() => gen.run(async () => { const nb = await api.briefing(who); setData([nb, ...(list ?? [])]); setB(nb) })}>{gen.busy ? 'Generating…' : 'Generate briefing'}</button>
         <ActionError error={gen.error} />
@@ -214,7 +226,7 @@ function Briefings({ ov }: { ov: MedicalOverview }) {
         {b ? (
           <>
             <div className="row wrap"><Status level={b.status === 'draft' ? 1 : 0}>{b.status}</Status><span className="small muted num">{b.mode === 'ai' ? 'AI prose' : 'template'} · {b.bytes} bytes</span>
-              {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the crew member and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
+              {b.status === 'draft' && <button className="btn sm pri right" disabled={approve.busy} onClick={() => approve.run(async () => { const nb = await api.approveBriefing(b.id); setB(nb); bump(); toast('Approved by the medical team and queued for Earth.') })}>{approve.busy ? 'Approving…' : 'Approve and queue'}</button>}</div>
             <ActionError error={approve.error} />
             <pre className="brief-text">{b.text}</pre>
           </>

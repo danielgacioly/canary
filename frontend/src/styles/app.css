@@ -1359,3 +1359,9 @@ button.prow { width: 100%; text-align: left; }
 .suggest-more summary { cursor: pointer; color: var(--muted); font-weight: 500; padding: 12px 0; }
 .suggest-more[open] summary { margin-bottom: 14px; }
 @media (max-width: 760px) { .leg-facts { flex-direction: column; } .leg-facts > span + span::before { display: none; } }
+
+/* ---------- briefings in My space (Health tab) and the assistant's disclosure line ---------- */
+.briefings .briefing-row { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.briefings .briefing-row .brief-text { font-size: 12px; }
+.ask-who { align-self: flex-end; margin-bottom: -6px; }
+.ask-disclosure { padding: 0 2px 10px; }
