@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  CheckinResult, ControlDemo, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
+  CheckinResult, ControlDemo, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -33,6 +33,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (controlToken) headers['X-Canary-Control'] = controlToken
   const sent = viewerToken
   if (sent) headers['X-Canary-Viewer'] = sent
+  if (init?.body instanceof FormData) delete headers['Content-Type']
   let r: Response
   try {
     r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
@@ -163,6 +164,19 @@ export const api = {
   controlOverview: () => req<ControlOverview>('/control/overview'),
   controlDemo: () => req<ControlDemo>('/control/demo'),
   controlRegister: (crew: SeatForm[], mission: MissionForm) => req<ControlOverview>('/control/register', { method: 'POST', ...body({ crew, mission }) }),
+  controlDataStatus: () => req<DataStatus>('/control/data-status'),
+  controlSpaceEvents: () => req<{ events: SpaceEvent[] }>('/control/space-events'),
+  controlAddSpaceEvent: (e: NewSpaceEvent) => req<SpaceEvent>('/control/space-events', { method: 'POST', ...body(e) }),
+  /** Date and time of a simulated mission clock, or `{ real: true }` to follow today's date in UTC. */
+  controlSetClock: (c: { date: string; time?: string } | { real: true }) => req<Mission>('/control/clock', { method: 'PUT', ...body(c) }),
+  /** A bundled mission package by name, or files (a .zip, or CSV files named like the package files) the person chose. */
+  controlImport: (what: { package: string } | { files: File[] }) => {
+    if ('package' in what) return req<ImportResult>('/control/import', { method: 'POST', ...body(what) })
+    const form = new FormData()
+    for (const f of what.files) form.append('file', f, f.name)
+    // req leaves the Content-Type out for a FormData body: the browser adds the multipart boundary
+    return req<ImportResult>('/control/import', { method: 'POST', body: form, })
+  },
   controlClear: () => req<ControlOverview>('/control/clear', { method: 'POST' }),
   medicalOverview: () => req<MedicalOverview>('/medical/overview'),
   setThresholds: (watch: number, act: number) => req<{ watch: number; act: number }>('/medical/thresholds', { method: 'PUT', ...body({ watch, act }) }),

@@ -240,7 +240,8 @@ export interface ControlOverview {
   warnings: { title: string; todo: string[] }[]; dose: Dose; emergencies: Emergency[]
 }
 export interface SeatForm {
-  seat: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
+  /** the person's id; left out, the server gives s1 to s6 in order */
+  seat?: string; name: string; role: string; home: string; pin: string; dob: string; sex: string; nationality: string; languages: string[]
   agency: string; flights: number; days_in_space: number; height_cm: number; weight_kg: number; blood_type: string; skin_type: string
   handedness: string; vision: string; allergies: string[]; medications: string[]; conditions: string[]; diet: string; vaccinations: string; emergency_contact: string
   /** EVA role (surface, microgravity, none) and the dose from earlier flights in mSv; empty means "estimated from days in space". */
@@ -252,4 +253,22 @@ export interface ControlDemo {
   /** Profiles that can carry a rover leg, the station's daily dose (the prior-dose estimate) and each profile's legs. */
   rover_presets: string[]; iss_dose_msv_per_day: number
   itineraries: Record<string, { rover: Leg[]; plain: Leg[] }>
+}
+
+/** GET /api/control/data-status: counts and dates only, never a value. */
+export interface DataStatus {
+  ingest_configured: boolean; package: string | null
+  counts: { observations: number; goal_entries: number; events: number; scenes: number }
+  readings: { crew_id: string; indicator: string; last_day: number; last_received_at: string; count: number }[]
+}
+export interface SpaceEvent {
+  id: string; kind: 'sep' | 'mars'; start_day: number; end_day: number; locations: string[]; extra_dose_msv: number
+  origin: 'real' | 'simulated' | 'donki'; source: string; note: string
+}
+export interface NewSpaceEvent { kind: string; start_day: number; end_day: number; locations: string[]; extra_dose_msv: number; origin: string; note?: string }
+/** What an import stored; `errors` is empty on success (a failed import answers 422 and writes nothing). */
+export interface ImportResult {
+  accepted: { mission: number; legs: number; crew: number; observations: number; space_events: number; goal_log: number; scenes: number }
+  duplicates: { observations: number }
+  errors: { field: string; message: string }[]
 }
