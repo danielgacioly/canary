@@ -8,6 +8,7 @@ PYTHON ?= $(shell for p in python3.13 python3.12 python3.11 python3 python; do c
 setup:            ## install backend and frontend dependencies (recreates backend/.venv)
 	cd backend && rm -rf .venv && $(PYTHON) -m venv .venv && $(VENV_BIN)/pip install -r requirements.txt
 	cd frontend && npm install
+	$(MAKE) index
 
 api:              ## API on http://localhost:8000 (docs at /docs)
 	cd backend && $(VENV_BIN)/uvicorn canary.main:app --reload --port 8000
@@ -31,5 +32,5 @@ dataset:          ## rebuild data/observations.csv and data/DATASET.md from data
 build:            ## production build of the web app into frontend/dist
 	cd frontend && npm run build
 
-serve: build      ## one process serves API and built app on http://localhost:8000
+serve: build index  ## one process serves API and built app on http://localhost:8000
 	cd backend && $(VENV_BIN)/uvicorn canary.main:app --port 8000

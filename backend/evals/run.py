@@ -552,7 +552,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     order = {k: i for i, k in enumerate(C.SCENARIOS)}
     selected = sorted(selected, key=lambda c: order[c["scenario"]])   # stable: case order within a scenario
     rows, total_in, total_out = [], 0, 0
+    from canary.assistant import limits as _limits
     for case in selected:
+        # Each case is an independent question: the per-minute quota (assistant/limits.py) must not decide an eval result.
+        _limits.LIMITS = _limits.Limiter()
         setup_errs = s.setup(case["scenario"], C.SCENARIOS[case["scenario"]]) if s.scenario != case["scenario"] else []
         ScriptedEvalProvider.current = case
         ScriptedEvalProvider.calls = []

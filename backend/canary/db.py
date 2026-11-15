@@ -77,6 +77,7 @@ ADDED_COLUMNS = {
     "assistant_log": [
         ("provider", "TEXT"), ("model", "TEXT"), ("kb_version", "TEXT"), ("outcome", "TEXT"),
         ("guard_flags", "TEXT"), ("latency_ms", "INTEGER"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER"),
+        ("asked_by", "TEXT"),  # "self" (the astronaut) or "medical" (the medical team asked about them); NULL for older rows
     ],
 }
 

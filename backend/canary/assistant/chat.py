@@ -29,12 +29,13 @@ from .contracts import MEDICAL_VIEWER, ToolContext, is_data_source
 from .providers import GUARD_EXITS, ProviderRequest, ProviderResult, get_provider
 
 PROMPTS = pathlib.Path(__file__).resolve().parent / "prompts"
-PROMPT_VERSION = "system_v2"
+PROMPT_VERSION = "system_v3"
 SYSTEM_PROMPT = (PROMPTS / f"{PROMPT_VERSION}.md").read_text()
 
 UNKNOWN = ("I don't know that from the data on board. The crew medical officer can help, "
            "and I can prepare a message for the flight surgeon.")
 GROUNDED_LIMITATION = "Built from rules over your data, without the AI model."
+NO_MATCH_LIMITATION = "No approved knowledge or data on board matched this question."
 
 SUGGESTIONS_LOG = "suggestions"  # assistant_log.question of a suggestions build (not a chat turn)
 BRIEFING_LOG = "briefing"        # assistant_log.question of a briefing draft build (not a chat turn)
@@ -104,6 +105,7 @@ def _grounded(results: List[dict]) -> List[dict]:
         d, src = r["result"]["data"], r["result"]["sources"]
         if r["tool"] == "get_status":
             a = d["areas"]
+            claims += _duty_claims(d, src)  # a restriction comes first: readiness scores never read as "all clear"
             if a["physical"]["score"] is None and a["mental"]["score"] is None:
                 claims.append({"text": "There is no data for this person yet, so there is no readiness to report.", "source_ids": src[:1]})
             else:
@@ -151,6 +153,26 @@ def _grounded(results: List[dict]) -> List[dict]:
             if left:
                 claims.append({"text": "Still open today: " + "; ".join(left) + ".", "source_ids": src})
     return claims
+
+
+DUTY_PHRASE = {"rest": "off critical tasks", "limited": "fit for duty but not for EVA"}
+
+
+def _duty_claims(d: dict, src: List[str]) -> List[dict]:
+    """The operational status when it is restricted, with the care window that caused it, citing the status and the emergency."""
+    duty = d.get("duty") or {}
+    if duty.get("key") in (None, "full") or duty["key"] not in DUTY_PHRASE:
+        return []
+    status_id = next((s for s in src if s.startswith("status:")), None)
+    cite = [s for s in (status_id, (d.get("care") or {}).get("source")) if s]
+    if not cite:
+        return []
+    phrase = DUTY_PHRASE[duty["key"]]
+    if "until_day" in duty and duty.get("care"):
+        c = duty["care"]
+        return [{"text": f"You are {phrase} until day {duty['until_day']} because of the Guided Response ({c['name']}) on day {c['day']}.",
+                 "source_ids": cite}]
+    return [{"text": f"You are {phrase} because of your current alerts.", "source_ids": cite}]
 
 
 def _dose_and_eva_claims(d: dict, src: List[str]) -> List[dict]:
@@ -252,11 +274,15 @@ def ask(crew_id: str, question: str, viewer: Optional[dict] = None) -> dict:
             "claims": [], "sources": [], "tools_used": [], "dropped": 0, "observations": [], "explanations": [],
             "limitations": [], "recommended_action": None, "source_meta": {}}
 
-    pre = guard.precheck(question)
+    pre = guard.precheck(question, medical=bool(viewer and viewer.get("medical")))
     if pre:
         rid = pre.get("rule_id")
+        # An emergency answer opens the protocol its words matched, so the astronaut lands on the right page.
+        action = _action(f"protocol:{pre['protocol']}", [], ctx.mission["location"]) if pre.get("protocol") else None
+        if pre.get("answer_key") in ("dosing", "diagnosis"):  # the refusal offers the message the medical officer will read
+            action = _action("send_briefing", [], ctx.mission["location"])
         resp = {**base, "mode": pre["mode"], "answer": pre["answer"], "status": "out_of_scope",
-                "guard": _guard(rid, [rid] if rid else [])}
+                "recommended_action": action, "guard": _guard(rid, [rid] if rid else [])}
         return _log(ctx, question, resp, provider, None, t0, flags=[rid] if rid else [])
 
     try:
@@ -295,6 +321,26 @@ def ask(crew_id: str, question: str, viewer: Optional[dict] = None) -> dict:
     return _fallback(ctx, question, base, provider, out, t0, flags, report)
 
 
+def _top_alert_action(ctx: ToolContext, results: List[dict]) -> Optional[dict]:
+    """The action of the top alert in this answer: its first goal (goal:<id>), else its protocol. Only when the allow-list
+    allows it for this viewer (today's goals, no suggestion goal for the medical team; protocols from the bank)."""
+    st = next((r for r in results if r["tool"] == "get_status"), None)
+    alerts = (st["result"]["data"].get("alerts") or []) if st else []
+    if not alerts:
+        return None
+    goals = _goals(ctx)
+    goal_ids = [g["id"] for g in goals]
+    top = alerts[0]
+    action_id = None
+    if top.get("goal") in goal_ids:
+        action_id = f"goal:{top['goal']}"
+    elif top.get("protocol"):
+        action_id = f"protocol:{top['protocol']}"
+    if action_id is None or action_id not in guard._allowed_actions(goal_ids, protocols.resolve(ctx.mission["location"])["protocols"].keys(), ctx.medical):
+        return None
+    return _action(action_id, goals, ctx.mission["location"])
+
+
 def _fallback(ctx: ToolContext, question: str, base: dict, provider: Any, out: ProviderResult, t0: float,
               flags: List[str], report: dict, mode: str = "fallback") -> dict:
     """Grounded answer from route() (the deterministic tools), never from the model's text."""
@@ -307,7 +353,8 @@ def _fallback(ctx: ToolContext, question: str, base: dict, provider: Any, out: P
             "answer": " ".join(c["text"] for c in claims) if claims else UNKNOWN,
             "status": "supported" if claims else "insufficient_evidence", "claims": claims, "sources": used,
             "tools_used": [{"tool": r["tool"], "args": r["args"]} for r in results], **_split(claims),
-            "limitations": [GROUNDED_LIMITATION] if claims else [UNKNOWN], "guard": report}
+            "limitations": [GROUNDED_LIMITATION] if claims else [NO_MATCH_LIMITATION],
+            "recommended_action": _top_alert_action(ctx, results) if claims else None, "guard": report}
     return _log(ctx, question, resp, provider, out, t0, flags=flags)
 
 
@@ -315,8 +362,10 @@ def _log(ctx: ToolContext, question: str, resp: dict, provider: Any, out: Option
          flags: List[str]) -> dict:
     model = (out.model if out and out.model else None) if provider.name != "none" else None
     resp["model"] = model
+    asked_by = "medical" if ctx.viewer == MEDICAL_VIEWER else "self"
+    resp["asked_by"] = asked_by
     resp["id"] = record(ctx.crew_id, question, resp, provider.name, model, resp["mode"], flags, t0,
-                        out.input_tokens if out else 0, out.output_tokens if out else 0)
+                        out.input_tokens if out else 0, out.output_tokens if out else 0, asked_by=asked_by)
     for t in (out.turns if out else []):
         db.x("INSERT INTO assistant_turns(log_id,step,tool,args,sources,ok) VALUES(?,?,?,?,?,?)",
              (resp["id"], t["step"], t["tool"], json.dumps(t["args"], default=str), json.dumps(t["sources"]),
@@ -325,28 +374,30 @@ def _log(ctx: ToolContext, question: str, resp: dict, provider: Any, out: Option
 
 
 def record(crew_id: str, question: str, stored: dict, provider: str, model: Optional[str], outcome: str,
-           flags: List[str], t0: float, input_tokens: int = 0, output_tokens: int = 0) -> int:
-    """One assistant_log row. Shared by chat and suggestions (which stores metadata only in `stored`)."""
+           flags: List[str], t0: float, input_tokens: int = 0, output_tokens: int = 0, asked_by: Optional[str] = None) -> int:
+    """One assistant_log row. Shared by chat and suggestions (which stores metadata only in `stored`). `asked_by` is set for
+    a chat question: "self" or "medical" (who was signed in), so the astronaut can see when the medical team asked."""
     flags = list(dict.fromkeys(f for f in flags if f))
     return db.x(
         "INSERT INTO assistant_log(crew_id,question,response,created_at,provider,model,kb_version,outcome,guard_flags,"
-        "latency_ms,input_tokens,output_tokens) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "latency_ms,input_tokens,output_tokens,asked_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (crew_id, question, json.dumps(stored, ensure_ascii=False, default=str), time.time(), provider, model,
-         kb_version(), outcome, json.dumps(flags), int((time.monotonic() - t0) * 1000), input_tokens, output_tokens))
+         kb_version(), outcome, json.dumps(flags), int((time.monotonic() - t0) * 1000), input_tokens, output_tokens, asked_by))
 
 
 # ---------------------------------------------------------------- reading the log
 
 def history(crew_id: str, limit: int = 20) -> List[dict]:
-    rows = db.q("SELECT id,question,response,created_at FROM assistant_log WHERE crew_id=? AND question NOT IN (?,?) "
+    rows = db.q("SELECT id,question,response,created_at,asked_by FROM assistant_log WHERE crew_id=? AND question NOT IN (?,?) "
                 "ORDER BY id DESC LIMIT ?", (crew_id, SUGGESTIONS_LOG, BRIEFING_LOG, limit))
-    return [{"id": r["id"], "question": r["question"], "created_at": r["created_at"], **json.loads(r["response"])} for r in rows][::-1]
+    return [{"id": r["id"], "question": r["question"], "created_at": r["created_at"], "asked_by": r["asked_by"] or "self",
+             **json.loads(r["response"])} for r in rows][::-1]
 
 
 def audit(limit: int = 30) -> List[dict]:
     """AssistantAuditEntry[] for the medical team (plan.md W1-4), newest first."""
     limit = max(1, min(int(limit), 200))
-    rows = db.q("SELECT id,crew_id,question,response,created_at,provider,model,kb_version,outcome,guard_flags,latency_ms "
+    rows = db.q("SELECT id,crew_id,question,response,created_at,provider,model,kb_version,outcome,guard_flags,latency_ms,asked_by "
                 "FROM assistant_log ORDER BY id DESC LIMIT ?", (limit,))
     out = []
     for r in rows:
@@ -360,8 +411,11 @@ def audit(limit: int = 30) -> List[dict]:
             flags = json.loads(r["guard_flags"]) if r["guard_flags"] else []
         except (TypeError, ValueError):
             flags = []
+        # what the row is: a chat question, a suggestions build or a briefing draft build (the UI tells them apart by this)
+        kind = {SUGGESTIONS_LOG: "suggestions", BRIEFING_LOG: "briefing"}.get(r["question"], "chat")
         out.append({"id": r["id"], "crew_id": r["crew_id"], "question": r["question"], "created_at": r["created_at"],
-                    "mode": r["outcome"] or resp.get("mode"), "status": resp.get("status"),
+                    "kind": kind, "mode": r["outcome"] or resp.get("mode"), "status": resp.get("status"),
                     "provider": r["provider"] or resp.get("provider"), "model": r["model"], "kb_version": r["kb_version"],
-                    "tools": names, "guard_flags": [str(f) for f in flags], "latency_ms": r["latency_ms"]})
+                    "tools": names, "guard_flags": [str(f) for f in flags], "latency_ms": r["latency_ms"],
+                    "asked_by": r["asked_by"] or "self"})
     return out

@@ -77,13 +77,23 @@ def _ms(ctx: ToolContext) -> dict:
 # ---------------------------------------------------------------- the tools (crew_id always from ctx)
 
 def get_status(ctx: ToolContext) -> ToolResult:
+    """Readiness, the top alerts, and (for the person and the medical team) the operational status and any care window."""
     ms = _ms(ctx)
     s = health.snapshot(ctx.crew_id, ms)
     top = s["alerts"][:3]
+    # goal and protocol: the action the top alert points to (the answer offers it only when the allow-list allows it)
     data = {"areas": s["areas"],
-            "alerts": [{"title": a["title"], "level": a["level"], "todo": a["todo"]} for a in top]}
+            "alerts": [{"title": a["title"], "level": a["level"], "todo": a["todo"],
+                        "goal": next((g["id"] for g in a.get("goals", []) if g.get("id")), None), "protocol": a.get("protocol")}
+                       for a in top]}
     sources = [src for a in top for src in a.get("sources", [])] or [f"status:{ctx.crew_id}:day{ms['day']}"]
-    return ToolResult(data=data, sources=sources)
+    if ctx.medical or ctx.viewer == ctx.crew_id:
+        duty = privacy.duty_facts(s)
+        data.update(duty)
+        sources.append(f"status:{ctx.crew_id}:day{ms['day']}")
+        if duty["care"]:
+            sources.append(duty["care"]["source"])
+    return ToolResult(data=data, sources=list(dict.fromkeys(sources)))
 
 
 def get_indicator(ctx: ToolContext, ind: str) -> ToolResult:
@@ -139,15 +149,9 @@ _VITALS_KEYS = tuple(selftests.VITALS_LIMITS)
 
 
 def _checkin_values(kind: str, p: dict) -> dict:
-    """What a check-in may tell the model. Journal: line count only. Wellbeing: the two scale totals only.
-    Vitals: the allow-listed numbers only."""
-    if kind == "vitals":
-        return {k: p[k] for k in _VITALS_KEYS if k in p}
-    if kind == "journal":
-        return {"lines": int(p.get("lines", 0) or 0)}
-    if kind == "wellbeing":
-        return {k: p[k] for k in ("phq2", "gad2") if k in p}
-    return {k: v for k, v in p.items() if k not in ("text", "answers")}
+    """What a check-in may tell the model: the allow-listed numeric and enum answers per kind (selftests.MODEL_KEYS).
+    Free text (notes, titles, the journal's words) and any extra key are dropped."""
+    return selftests.model_values(kind, p)
 
 
 def get_checkins(ctx: ToolContext, kind: str, days: int) -> ToolResult:
@@ -168,10 +172,9 @@ def get_checkins(ctx: ToolContext, kind: str, days: int) -> ToolResult:
         except (TypeError, ValueError):
             p = {}
         src = f"checkin:{ctx.crew_id}:{r['kind']}:day{r['day']}"
-        if r["kind"] == "vitals":  # the summary lists every payload key: give it the allow-listed numbers only
-            p = _checkin_values("vitals", p)
-        items.append({"kind": r["kind"], "day": r["day"], "summary": selftests.summary(r["kind"], p),
-                      "values": _checkin_values(r["kind"], p), "source": src})
+        values = _checkin_values(r["kind"], p)  # the summary is built from these values only, never from the raw payload
+        items.append({"kind": r["kind"], "day": r["day"], "summary": selftests.summary(r["kind"], values),
+                      "values": values, "source": src})
         if src not in sources:
             sources.append(src)
     return ToolResult(data={"kind": kind, "days": days, "from_day": today - days + 1, "to_day": today,
@@ -479,6 +482,7 @@ _PROTO_WORDS = {"seizure": r"seizure|convuls", "choke": r"chok", "bleed": r"blee
 
 
 _DOSE_EVA_WORDS = r"\beva\b|\bevas\b|space ?walk|extravehicular|\bdose\b|radiation|sievert|\bmsv\b"
+_STATUS_WORDS = r"what (should|do) i do|what now|today|how am i|status|overall|overview|\b(hi|hello|hey)\b|good (morning|evening|afternoon)"
 
 
 def _bind(crew_id: str) -> ToolContext:
@@ -508,7 +512,9 @@ def route(crew_id: str, question: str, ctx: Optional[ToolContext] = None) -> Lis
             calls.append(("get_protocol", {"pid": pid}))
     if re.search(_DOSE_EVA_WORDS, q):
         calls.append(("get_dose_and_eva", {}))
-    if re.search(r"what (should|do) i do|what now|today|how am i|status|overall", q) or not calls:
+    # Greetings and status questions get the readiness overview. Anything no intent matches gets no tool at all:
+    # a grounded answer built from get_status would look supported for "tell me a joke".
+    if re.search(_STATUS_WORDS, q):
         calls.insert(0, ("get_status", {}))
     if re.search(r"risk|fatigue|exhaust|burn ?out|worn out|radiation|vision|sans|nutrition|kidney|immun|heart|cardio|bone|muscle|hazard|ridge|why", q):
         calls.append(("get_risks", {}))

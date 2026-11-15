@@ -42,6 +42,17 @@ def offline_provider_environment(monkeypatch):
     monkeypatch.setattr(settings, 'llm_timeout_s', 15.0)
 
 
+@pytest.fixture(autouse=True)
+def fresh_suggestions_cache(monkeypatch):
+    """The suggestions build is cached per crew member in memory, and the assistant's rate limits are counted per process:
+    each test starts with no cached build and full quotas, so a fake provider of one test never answers for another."""
+    from canary.assistant import limits, suggestions
+    suggestions._cache.clear()
+    monkeypatch.setattr(limits, 'LIMITS', limits.Limiter())
+    yield
+    suggestions._cache.clear()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def reuse_the_loaded_package():
     from canary import db  # imported now: the test modules have set CANARY_DB by the time the first test runs

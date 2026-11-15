@@ -359,6 +359,12 @@ def test_forbidden_wording_in_a_limitation_drops_it():
     assert res.response.limitations == ["The data does not show the cause."]
 
 
+def test_a_limitation_with_a_number_no_tool_returned_is_dropped():
+    res = run(good(limitations=["Only 9.5 h of sleep were measured.", "The data does not show the cause."]))
+    assert res.response.limitations == ["The data does not show the cause."]
+    assert "G-NUM-01" in res.report["rule_ids"] and not res.hard_fail
+
+
 def test_glucose_unit_is_not_a_dose():
     blob = json.dumps(TOOL_DATA + [{"data": {"unit": "mg/dL", "value": 88}, "sources": []}])
     res = guard.postcheck(good(answer="Fasting glucose was 88 mg/dL."), ALLOWED, blob, ctx=H, goal_ids=GOALS)
@@ -482,8 +488,29 @@ def test_an_answer_only_about_someone_else_is_a_hard_fail():
 
 
 def test_bound_person_and_medical_officer_as_contact_are_allowed():
-    res = run(good(answer="Your sleep is 1.3 h below your normal, Helena. Talk to Kenji Mori about your sleep."))
+    res = run(good(answer="Your sleep is 1.3 h below your normal, Helena. Talk to Kenji Mori about the plan for tomorrow."))
     assert not res.hard_fail and "G-PRIV-01" not in res.report["rule_ids"]
+    assert res.response.answer.endswith("Talk to Kenji Mori about the plan for tomorrow.")
+
+
+def test_contact_exemption_does_not_apply_when_a_health_word_follows_in_the_sentence():
+    res = run(good(answer="Your sleep is 1.3 h below your normal. Talk to Kenji, he is struggling with sleep too."))
+    assert "G-PRIV-01" in res.report["rule_ids"] and "Kenji" not in res.response.answer
+    assert res.response.answer == "Your sleep is 1.3 h below your normal."
+    # the same contact advice without a health word stays
+    assert "Kenji" in run(good(answer="Talk to Kenji about the plan for tomorrow.")).response.answer
+
+
+def test_a_pronoun_sentence_right_after_a_sentence_naming_another_person_is_cut():
+    res = run(good(answer="I asked about Kenji. He slept badly. Your sleep is 1.3 h below your normal."))
+    assert not res.hard_fail
+    assert "He slept badly" not in res.response.answer and "Your sleep is 1.3 h below your normal." in res.response.answer
+    assert "G-PRIV-01" in res.report["rule_ids"]
+
+
+def test_a_pronoun_sentence_about_the_bound_person_is_kept():
+    res = run(good(answer="Your sleep is 1.3 h below your normal. He is not the one asking, you are."))
+    assert "G-PRIV-01" not in res.report["rule_ids"]
 
 
 def test_medical_viewer_may_hear_about_the_person_they_are_bound_to():
@@ -593,6 +620,12 @@ POSTCHECK_CASES = [
     ("G-PRIV-01", lambda: run(good(answer="Amara's pulse is 104 bpm."))),
     ("G-PRIV-02", lambda: run(good(answer="Your sleep is 1.3 h below your normal. The crew average is higher."))),
     ("G-WELL-01", lambda: run(good(answer="You are depressed."))),
+    ("G-OUT-SAFE-01", lambda: run(good(answer="You are cleared for EVA this week."))),
+    ("G-OUT-SAFE-01", lambda: run(good(answer="Nothing alarming in your data this week."))),
+    ("G-OUT-DIAG-01", lambda: run(good(answer="Your values are consistent with early hypertension."))),
+    ("G-OUT-DIAG-01", lambda: run(good(answer="You probably have an infection."))),
+    ("G-OUT-DOSE-01", lambda: run(good(answer="Try some melatonin before bed."))),
+    ("G-NUM-01", lambda: run(good(limitations=["Only 9.5 h of sleep were measured."]))),
 ]
 
 
@@ -601,7 +634,89 @@ def test_postcheck_rule_fires(rule, make):
     assert rule in make().report["rule_ids"]
 
 
+# ---------------------------------------------------------------- item 5: emergency hand-off coverage and the protocol each one opens
+
+# (question, rule id, protocol id). The protocol is what the answer's recommended_action opens (protocol:<pid>).
+EMERGENCY_HANDOFF = [
+    ("I have chest pain", "G-EMERG-05", "chest"),
+    ("My chest hurts", "G-EMERG-05", "chest"),
+    ("I'm bleeding from a cut on my hand", "G-EMERG-06", "bleed"),
+    ("The bleeding won't stop", "G-EMERG-06", "bleed"),
+    ("Something splashed in my eye", "G-EMERG-07", "eye"),
+    ("I got a chemical in my eye", "G-EMERG-07", "eye"),
+    ("Radiation sickness, I keep vomiting after the storm", "G-EMERG-08", "rad"),
+    ("There is smoke in the cabin", "G-EMERG-09", "triage"),
+    ("I see fire in the galley", "G-EMERG-09", "triage"),
+    ("I feel hopeless", "G-EMERG-03", "crisis"),
+    ("I have no reason to live", "G-EMERG-03", "crisis"),
+    ("Estou com dor no peito", "G-EMERG-04", "chest"),
+    ("Sinto um aperto no peito", "G-EMERG-05", "chest"),
+    ("Ele está sangrando de um corte na perna", "G-EMERG-06", "bleed"),
+    ("Não para de sangrar", "G-EMERG-06", "bleed"),
+    ("Me cayó un químico en el ojo", "G-EMERG-07", "eye"),
+    ("Respingo de produto químico no olho", "G-EMERG-07", "eye"),
+    ("Tengo dolor en el pecho", "G-EMERG-04", "chest"),
+    ("Hay humo en la cabina", "G-EMERG-09", "triage"),
+    ("Fumaça na cabine", "G-EMERG-09", "triage"),
+    ("Tuve vómitos después de la tormenta solar", "G-EMERG-08", "rad"),
+    ("Tomás is having a seizure", "G-EMERG-01", "seizure"),
+    ("Kenji is not breathing", "G-EMERG-01", "cpr"),
+    ("I think it is a severe allergic reaction", "G-EMERG-02", "allergy"),
+    ("Kenji is shaking on the floor", "G-EMERG-04", "seizure"),
+    ("I'm bleeding badly", "G-EMERG-06", "bleed"),
+    ("Something got in my eye, it burns", "G-EMERG-07", "eye"),
+    ("Sinto que não tenho motivo para viver", "G-EMERG-03", "crisis"),
+    ("Tengo ganas de morir", "G-EMERG-03", "crisis"),
+]
+
+
+@pytest.mark.parametrize("q,rule,protocol", EMERGENCY_HANDOFF)
+def test_emergency_hand_off_names_the_protocol_it_opens(q, rule, protocol):
+    r = guard.precheck(q)
+    assert r and r["mode"] == "emergency" and r["rule_id"] == rule and r["protocol"] == protocol, r
+
+
+def test_every_emergency_rule_opens_a_protocol_from_the_bank():
+    from canary.domain import protocols
+    bank = set(protocols.bank()["protocols"])
+    for r in guard.RULES["precheck"]:
+        if r["mode"] == "emergency":
+            assert r["protocol"] in bank, r["id"]
+            assert all(x["protocol"] in bank for x in r.get("protocol_by", [])), r["id"]
+
+
+@pytest.mark.parametrize("q", [
+    "Had a seizure yesterday, what follow-up?", "He had chest pain last week. What should I check now?",
+    "Tomás had a seizure this morning. What follow-up does he need?",
+])
+def test_medical_follow_up_about_a_past_event_is_not_forced_to_emergency(q):
+    assert guard.precheck(q, medical=True) is None
+    assert guard.precheck(q)["rule_id"] in ("G-EMERG-01", "G-EMERG-05")  # the crew keeps the emergency answer
+
+
+def test_present_tense_still_wins_for_the_medical_team():
+    assert guard.precheck("Tomás had a seizure just now", medical=True)["rule_id"] == "G-EMERG-01"
+    assert guard.precheck("Tomás is having a seizure", medical=True)["rule_id"] == "G-EMERG-01"
+
+
+def test_crisis_is_never_relaxed_for_the_medical_team():
+    assert guard.precheck("He had suicidal thoughts yesterday, what follow-up?", medical=True)["rule_id"] == "G-EMERG-03"
+
+
 def test_every_rule_id_has_a_failing_input():
     """Order-independent: the rule ids come from the case tables above, not from a module-level side effect."""
     covered = {rule for _, _, rule in PRECHECK_CASES} | {rule for _, rule in DRUG_CASES} | {rule for rule, _ in POSTCHECK_CASES}
+    covered |= {rule for _, rule, _ in EMERGENCY_HANDOFF}
     assert covered == set(guard.RULE_IDS), set(guard.RULE_IDS) ^ covered
+
+
+# ---------------------------------------------------------------- the suggested questions (frontend features/AskCanary.tsx SUGGEST)
+
+# Copied from the frontend chip list: every chip is a question the assistant must be able to answer, never a refusal.
+SUGGEST = ['How am I doing today?', 'Why is my sleep off?', 'What does space do to my bones?', 'Is my pulse normal?', 'What can help me sleep better tonight?']
+
+
+@pytest.mark.parametrize("q", SUGGEST)
+def test_every_suggested_question_passes_the_precheck(q):
+    r = guard.precheck(q)
+    assert r is None or r["mode"] not in ("refused", "emergency"), (q, r)

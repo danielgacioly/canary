@@ -10,7 +10,39 @@
       "description": "Acute emergencies go to Guided Response, never to a chat answer.",
       "patterns": [
         "\\b(seizure|convuls\\w*|not breathing|unconscious|passed out|choking|can'?t breathe|heavy bleeding|bleeding (heavily|a lot)|chest pain (now|right now)|having a heart attack|anaphyla\\w*)\\b"
-      ]
+      ],
+      "protocol": "triage",
+      "protocol_by": [
+        {
+          "pattern": "\\b(seizure|convuls\\w*)\\b",
+          "protocol": "seizure"
+        },
+        {
+          "pattern": "\\bchoking\\b",
+          "protocol": "choke"
+        },
+        {
+          "pattern": "\\b(not breathing|can'?t breathe)\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\b(heavy bleeding|bleeding (heavily|a lot))\\b",
+          "protocol": "bleed"
+        },
+        {
+          "pattern": "\\b(chest pain|having a heart attack)\\b",
+          "protocol": "chest"
+        },
+        {
+          "pattern": "\\banaphyla\\w*\\b",
+          "protocol": "allergy"
+        },
+        {
+          "pattern": "\\b(unconscious|passed out)\\b",
+          "protocol": "cpr"
+        }
+      ],
+      "past_ok_for_medical": true
     },
     {
       "id": "G-EMERG-02",
@@ -23,7 +55,19 @@
         "\\b(fainted|fainting|collapsed|collapsing|unresponsive|not responding|won'?t (answer|respond))\\b",
         "\\bsevere(ly)? allergic\\b",
         "\\boverdos\\w*\\b"
-      ]
+      ],
+      "protocol": "cpr",
+      "protocol_by": [
+        {
+          "pattern": "\\bsevere(ly)? allergic\\b",
+          "protocol": "allergy"
+        },
+        {
+          "pattern": "\\boverdos\\w*\\b",
+          "protocol": "triage"
+        }
+      ],
+      "past_ok_for_medical": true
     },
     {
       "id": "G-EMERG-03",
@@ -46,8 +90,14 @@
         "\\bquero acabar com (a )?minha vida\\b",
         "\\bending it all\\b",
         "\\bend it all\\b",
-        "\\bfeel(ing)? like ending (it|my life|everything)\\b"
-      ]
+        "\\bfeel(ing)? like ending (it|my life|everything)\\b",
+        "\\bno reason (for me )?to (live|go on)\\b",
+        "\\bfeel(ing)? hopeless\\b|\\bi am hopeless\\b|\\bi'?m hopeless\\b",
+        "\\bsem (nenhum )?motivo para viver\\b|\\bsem razao para viver\\b|\\bsin (ninguna )?razon para vivir\\b",
+        "\\bnao (tenho|tem|vejo) (mais )?(motivo|razao|sentido) para (viver|continuar|seguir)\\b|\\bsem (mais )?motivo para viver\\b",
+        "\\bno (tengo|tiene|veo) (ningun |ningún |ningun )?(motivo|razon|sentido) para (vivir|seguir)\\b|\\btengo ganas de morir\\b|\\bquiero morir\\b|\\bme quiero morir\\b"
+      ],
+      "protocol": "crisis"
     },
     {
       "id": "G-EMERG-04",
@@ -63,6 +113,104 @@
         "\\bdesmai\\w*\\b|\\bdesmay\\w*\\b|\\bse desmayo\\b",
         "\\b(sangramento|sangrado|sangrando|sangra|sangre|hemorragia)\\s+(forte|intenso|intensa|grave|muito|bastante|mucho|fuerte|severo|abundante|sem parar)\\b|\\b(sangrando|sangra|sangre) (muito|mucho)\\b",
         "\\bshaking on the (floor|ground)\\b|\\b(convulsing|jerking) on the (floor|ground)\\b"
+      ],
+      "protocol": "triage",
+      "protocol_by": [
+        {
+          "pattern": "\\b(dor|dói|doi|dolor)\\b.{0,20}\\b(peito|pecho)\\b|\\b(dor|dolor) (no peito|de peito|forte no peito|en el pecho|de pecho)\\b",
+          "protocol": "chest"
+        },
+        {
+          "pattern": "\\bdesmai\\w*\\b|\\bdesmay\\w*\\b|\\bse desmayo\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\b(sangr\\w*|sangre|hemorragia)\\b",
+          "protocol": "bleed"
+        },
+        {
+          "pattern": "\\b(respir\\w*|respira)\\b",
+          "protocol": "cpr"
+        },
+        {
+          "pattern": "\\bshaking on the|convulsing|jerking on the",
+          "protocol": "seizure"
+        }
+      ],
+      "past_ok_for_medical": true
+    },
+    {
+      "id": "G-EMERG-05",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "chest",
+      "past_ok_for_medical": true,
+      "description": "Chest pain, chest pressure or a tight chest in any wording (Guided Response: chest pain).",
+      "patterns": [
+        "\\bchest (pain|pains|hurts?|ache|aches|aching|pressure|tightness|tight)\\b",
+        "\\bpain (in|across|under) (my|his|her|their|the) chest\\b",
+        "\\b(dor|doi|pressao|aperto) (no|do|de) peito\\b",
+        "\\b(dolor|presion|opresion) (en|de|del) (el )?pecho\\b|\\bme duele el pecho\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-06",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "bleed",
+      "past_ok_for_medical": true,
+      "description": "Bleeding from a cut or wound, or bleeding that will not stop (Guided Response: heavy bleeding).",
+      "patterns": [
+        "\\bbleeding (from|off)\\b",
+        "\\b(won'?t|will not|doesn'?t|does not|can'?t|cannot|isn'?t|is not) stop(ping)? bleeding\\b|\\bcan'?t stop the bleeding\\b|\\bbleed\\w*\\b.{0,20}\\b(won'?t|will not|doesn'?t|does not|can'?t|cannot) stop\\b",
+        "\\b(nao|no) para de sangrar\\b",
+        "\\b(sangr\\w*|sangre)\\b.{0,25}\\b(corte|cortadura|ferida|herida|ferimento)\\b",
+        "\\b(corte|cortadura|ferida|herida|ferimento)\\b.{0,25}\\b(sangr\\w*|sangre)\\b",
+        "\\b(i'?m|i am|is|am|are|was|got) bleeding\\b|\\bbleeding (badly|heavily|a lot|profusely)\\b|\\bbleed\\w*\\b.{0,20}\\b(badly|heavily|a lot|profusely)\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-07",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "eye",
+      "past_ok_for_medical": true,
+      "description": "Something splashed into an eye, or a chemical in an eye (Guided Response: eye injury).",
+      "patterns": [
+        "\\b(splash\\w*|chemical\\w*|acid|bleach|spray\\w*)\\b.{0,40}\\beyes?\\b",
+        "\\beyes?\\b.{0,30}\\b(chemical\\w*|splash\\w*|acid|bleach)\\b",
+        "\\b(respin\\w*|salpic\\w*|quimic\\w*|produto quimico|liquido)\\b.{0,40}\\b(olhos?|ojos?)\\b",
+        "\\b(olhos?|ojos?)\\b.{0,30}\\b(quimic\\w*|respin\\w*|salpic\\w*)\\b",
+        "\\b(in|into) (my|his|her|their|the|one|both) eyes?\\b.{0,30}\\b(burn\\w*|sting\\w*|hurt\\w*|blind\\w*|stings?)\\b|\\b(burn\\w*|sting\\w*)\\b.{0,20}\\b(my|his|her|their|the|one|both) eyes?\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-08",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "rad",
+      "past_ok_for_medical": true,
+      "description": "Radiation sickness: vomiting, nausea or weakness after a storm or a radiation exposure (Guided Response: radiation storm).",
+      "patterns": [
+        "\\bradiation sickness\\b|\\bsick (from|after|because of) (the )?(radiation|storm)\\b",
+        "\\b(vomit\\w*|throwing up|throw up|threw up|nause\\w*)\\b.{0,30}\\b(after|since|following) (the |a |an )?(storm|radiation|solar|flare|particle)\\b",
+        "\\b(enjoo|vomit\\w*|nausea)\\b.{0,30}\\b(depois da (tempestade|radiacao)|apos a (tempestade|radiacao))\\b",
+        "\\b(mal|enfermedad|enfermo|nausea|vomito|vomitos)\\b.{0,30}\\b(despues de la (tormenta|radiacion)|tras la (tormenta|radiacion))\\b|\\bmal de radiacion\\b|\\bmal por radiacion\\b"
+      ]
+    },
+    {
+      "id": "G-EMERG-09",
+      "mode": "emergency",
+      "answer": "emergency",
+      "protocol": "triage",
+      "past_ok_for_medical": true,
+      "description": "Smoke or fire on board. There is no fire protocol: triage is the first step, and the crew sees the same emergency alarm.",
+      "patterns": [
+        "\\bsmoke\\b.{0,30}\\b(cabin|module|station|galley|lab|air|room|shelter|airlock)\\b",
+        "\\b(cabin|module|station|galley|lab|room|shelter|airlock)\\b.{0,30}\\b(smoke|on fire|fire|flames?|burning)\\b",
+        "\\b(there is|there'?s|i see|see|smell|smelling) (a |some |the )?(fire|smoke|flames?|burning)\\b|\\bon fire\\b|\\bcatching fire\\b",
+        "\\b(fumaca|humo|incendio|fuego|fogo)\\b.{0,30}\\b(cabine|cabina|modulo|estacion|estacao|cocina|cozinha|laboratorio|lab|sala|quarto)\\b",
+        "\\b(tem|hay|ha) (fumaca|humo|fogo|fuego|incendio)\\b"
       ]
     },
     {
@@ -269,7 +417,8 @@
         "\\btake (a |an |one |two |three |half a |\\d+ )?(more )?(tablets?|pills?|capsules?|drops?|puffs?)\\b",
         "\\b(increase|reduce|double|lower|raise|skip|stop|change) (your|the) (medication|medicine|meds)\\b",
         "\\b(you should|you can|you could|it is ok to|it's ok to) take (some |more )?(ibuprofen|paracetamol|acetaminophen|aspirin|melatonin|modafinil|zolpidem|an? antihistamine|promethazine|scopolamine|codeine|morphine|antibiotics?|a painkiller|a sleeping pill|potassium iodide)\\b",
-        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(him|her|them|me|us|someone|the crew|a |an |some |more |another |extra |\\d+ )*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b"
+        "\\b(give|giving|offer|prescribe|take|taking|use)\\s+(him|her|them|me|us|someone|the crew|a |an |some |more |another |extra |\\d+ )*(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill)\\b",
+        "\\btry (some |a |an |more |another |extra )?(melatonin|ibuprofen|paracetamol|acetaminophen|aspirin|modafinil|zolpidem|antihistamines?|promethazine|scopolamine|codeine|morphine|antibiotics?|benzodiazepines?|potassium iodide|steroids?|opioids?|sedatives?|sleeping aids?|a painkiller|a sleeping pill|sleep meds?)\\b"
       ],
       "gated": [
         {
@@ -298,7 +447,9 @@
         "\\byou (have|'ve got|have got|are suffering from|suffer from|are showing signs of) (an? )?([\\w-]+ ){0,2}(disease|disorder|infection|syndrome|cancer|tumou?r|stroke|condition|illness|concussion|diabetes|hypertension|arrhythmia|anemia|anaemia|pneumonia|fracture)\\b",
         "\\b(this|it|that) (is|looks like|sounds like|could be|might be|is probably|is likely) (an? )?(sign of (an? )?)?([\\w-]+ ){0,2}(stroke|heart attack|tumou?r|cancer|infection|disease|disorder|syndrome|concussion|fracture|arrhythmia)\\b",
         "\\b(diagnosed with|the diagnosis is|my diagnosis|i diagnose)\\b",
-        "\\b(has|have|having|suffers? from|suffering from|likely has|probably has|may have|might have)\\s+(an?\\s+|the\\s+|early\\s+|mild\\s+|severe\\s+|clinical\\s+|major\\s+|chronic\\s+)*(depression|anxiety( disorder)?|ptsd|bipolar( disorder)?|burn-?out|panic disorder|disorder|syndrome|infection|tumou?r|cancer|stroke|diabetes|arrhythmia|concussion|fracture)\\b"
+        "\\b(has|have|having|suffers? from|suffering from|likely has|probably has|may have|might have)\\s+(an?\\s+|the\\s+|early\\s+|mild\\s+|severe\\s+|clinical\\s+|major\\s+|chronic\\s+)*(depression|anxiety( disorder)?|ptsd|bipolar( disorder)?|burn-?out|panic disorder|disorder|syndrome|infection|tumou?r|cancer|stroke|diabetes|arrhythmia|concussion|fracture)\\b",
+        "\\bconsistent with (an? |early |mild |severe |chronic |clinical |major )*(hypertension|infection|disease|disorder|syndrome|cancer|tumou?r|stroke|diabetes|anemia|anaemia|arrhythmia|concussion|fracture|depression|anxiety|ptsd|pneumonia|sepsis)\\b",
+        "\\byou (probably|likely|may|might|could) (have|has) (an? )?([\\w-]+ ){0,2}(disease|disorder|infection|syndrome|cancer|tumou?r|stroke|condition|illness|concussion|diabetes|hypertension|arrhythmia|anemia|anaemia|pneumonia|fracture|depression|anxiety)\\b"
       ]
     },
     {
@@ -312,7 +463,9 @@
         "\\bnothing to worry about\\b",
         "\\bno need to (worry|see|contact|talk to|tell) ",
         "\\byou('re| are) (perfectly |completely )?(fine|healthy|safe|okay|ok)\\b",
-        "\\bnot (dangerous|a concern)\\b"
+        "\\bnot (dangerous|a concern)\\b",
+        "\\b(cleared|clear) for (eva|evas|a spacewalk|spacewalks?|duty|surgery)\\b",
+        "\\bnothing (alarming|concerning|to be concerned about|to worry about)\\b"
       ]
     },
     {
@@ -376,6 +529,12 @@
       "\\b(career|mission|lifetime|cumulative) (dose|doses|limit)\\b",
       "\\b(evas?|space ?walks?|extravehicular)\\b",
       "\\b(radiacao|radiacion|radiac\\w*|sievert\\w*|dosimetro\\w*)\\b"
+    ],
+    "past": [
+      "\\b(yesterday|last (night|week|day|time|month)|earlier (today|this week)?|two days ago|this morning|(had|has had) (a |an |some )?\\w+|\\w+ ago|ontem|semana passada|ayer|la semana pasada)\\b"
+    ],
+    "now": [
+      "\\b(right now|just now|at the moment|currently|still|is happening|happening now|going on|ahora|agora|neste momento)\\b"
     ]
   }
 }

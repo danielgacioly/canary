@@ -87,6 +87,9 @@ def _gated_hit(gated: Iterable[_Gated], folded: str) -> bool:
 
 
 _PRE: List[Tuple[dict, List[re.Pattern], List[_Gated]]] = [(r, _compile(r["patterns"]), _gated(r)) for r in RULES["precheck"]]
+# An emergency rule may open a protocol chosen by its own words (protocol_by, first match wins), else its `protocol`.
+_PROTO_BY: Dict[str, List[Tuple[re.Pattern, str]]] = {
+    r["id"]: [(re.compile(x["pattern"], re.I), x["protocol"]) for x in r.get("protocol_by", [])] for r in RULES["precheck"]}
 _POST: Dict[str, dict] = {r["id"]: r for r in RULES["postcheck"]}
 _POST_RE: Dict[str, List[re.Pattern]] = {rid: _compile(r.get("patterns", [])) for rid, r in _POST.items()}
 _POST_GATED: Dict[str, List[_Gated]] = {rid: _gated(r) for rid, r in _POST.items()}
@@ -103,15 +106,31 @@ def _matches(patterns: Iterable[re.Pattern], text: str) -> bool:
 
 # ---------------------------------------------------------------- before the model
 
-def precheck(question: str) -> Optional[dict]:
+def _protocol_of(rule: dict, folded: str) -> Optional[str]:
+    for pat, pid in _PROTO_BY[rule["id"]]:
+        if pat.search(folded):
+            return pid
+    return rule.get("protocol")
+
+
+def precheck(question: str, *, medical: bool = False) -> Optional[dict]:
     """None when the question may go to the tools and the model; otherwise the fixed answer.
 
     Rules run in file order: emergencies first (a question that also tries to bypass the rules still gets
-    Guided Response), then ignore-the-rules attempts, dosing and diagnosis."""
+    Guided Response), then ignore-the-rules attempts, dosing and diagnosis. An emergency answer names the Guided Response
+    protocol it opens (`protocol`). For the medical team a question about something that already happened ("had a seizure
+    yesterday, what follow-up?") is a follow-up, not an emergency, unless a present-tense word says it is happening now
+    (rules marked past_ok_for_medical). Crisis rules are never relaxed."""
     folded = _fold(question)
+    past = medical and _context("past", folded) and not _context("now", folded)
     for rule, pats, gated in _PRE:
+        if past and rule.get("past_ok_for_medical"):
+            continue
         if any(p.search(folded) for p in pats) or _gated_hit(gated, folded):
-            return {"mode": rule["mode"], "answer": RULES["answers"][rule["answer"]], "rule_id": rule["id"]}
+            out = {"mode": rule["mode"], "answer": RULES["answers"][rule["answer"]], "rule_id": rule["id"], "answer_key": rule["answer"]}
+            if rule["mode"] == "emergency":
+                out["protocol"] = _protocol_of(rule, folded)
+            return out
     return None
 
 
@@ -289,17 +308,27 @@ def _other_people(bound: str) -> List[Tuple[str, re.Pattern]]:
 
 
 def _mentions_other_health(text: str, others: List[Tuple[str, re.Pattern]]) -> bool:
+    """A name of another crew member next to a health word. "Talk to Kenji Mori" names a contact, not a patient, unless a
+    health word follows in the same sentence ("Talk to Kenji, he is struggling with sleep too")."""
     folded = _fold(text)
     for _, name in others:
         hits = list(name.finditer(folded))
         if not hits:
             continue
-        # "talk to Kenji Mori" names the medical officer as a contact, not as a patient
-        if all(any(c.search(folded[:h.start()]) for c in _CONTACT_RE) for h in hits):
+        if all(any(c.search(folded[:h.start()]) for c in _CONTACT_RE) and not any(p.search(folded[h.end():]) for p in _HEALTH_RE)
+               for h in hits):
             continue
         if any(p.search(folded) for p in _HEALTH_RE):
             return True
     return False
+
+
+def _names_other(text: str, others: List[Tuple[str, re.Pattern]]) -> bool:
+    folded = _fold(text)
+    return any(name.search(folded) for _, name in others)
+
+
+_PRONOUN_START = re.compile(r"^(he|she|they|him|her|them|his|hers|their)\b")
 
 
 def _foreign_source(source_id: str, bound: str) -> bool:
@@ -475,7 +504,7 @@ def postcheck(response: Union[AssistantResponse, dict, str],
     limitations = []
     for text in resp.limitations:
         rid = _wording_rule(text) or _privacy_rule(text, others) or (
-            "G-WELL-01" if _matches(_POST_RE["G-WELL-01"], text) else None)
+            "G-WELL-01" if _matches(_POST_RE["G-WELL-01"], text) else None) or ("G-NUM-01" if _unknown(text, blob) else None)
         if rid:
             drop("limitations", text, rid)
         else:
@@ -483,12 +512,19 @@ def postcheck(response: Union[AssistantResponse, dict, str],
 
     # answer: cut sentences about other people (8), then hard checks on what is left (4, 5, 9)
     kept = []
+    named_other = False  # the sentence before named another crew member
     for sentence in _SENTENCE.split(resp.answer.strip()):
-        rid = _privacy_rule(sentence, others) if sentence else None
+        if not sentence:
+            continue
+        rid = _privacy_rule(sentence, others)
+        # "I asked about Kenji. He slept badly.": a pronoun sentence right after a name is about that name
+        if not rid and named_other and _PRONOUN_START.match(_fold(sentence)):
+            rid = "G-PRIV-01"
         if rid:
             drop("answer", sentence, rid)
-        elif sentence:
+        else:
             kept.append(sentence)
+        named_other = _names_other(sentence, others)
     answer = " ".join(kept)
     if resp.answer.strip() and not answer:
         return fail(hits[-1], f"{hits[-1]}: the whole answer was about another crew member or the crew")

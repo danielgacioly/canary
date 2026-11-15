@@ -43824,7 +43824,7 @@
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -43966,7 +43966,7 @@
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -44108,7 +44108,7 @@
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"
@@ -44250,7 +44250,7 @@
      "Keep the book where you sleep",
      "Log it on the Tests page"
     ],
-    "title": "Read more, for yourself",
+    "title": "Keep reading, for yourself",
     "verify": {
      "after_days": 7,
      "indicator": "mood"

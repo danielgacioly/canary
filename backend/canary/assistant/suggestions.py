@@ -16,13 +16,15 @@ rewritten and, when the model was not used or only partly used, why (`fallback_r
 rule text is shown as it is. Every build is logged in assistant_log with metadata only: the medical audit
 sees that suggestions were built and how, never what they say.
 """
+import copy
+import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 from .. import db
-from ..domain import advice, goals, health, mission, plan, privacy, protocol_pages, risk, telemetry
+from ..domain import advice, goals, health, mission, plan, privacy, protocol_pages, risk, selftests, telemetry
 from ..domain.catalog import CREW, CREW_BY_ID, EXERCISE_BY_PLACE, LOCATIONS, RECORDS
 from . import chat, guard
 from .providers import ProviderRequest, get_provider
@@ -69,6 +71,12 @@ def _week_counts(crew_id: str, today: int) -> Dict[str, int]:
     return counts
 
 
+def _checkin_fact(crew_id: str, kind: str, day: int, window: int) -> Optional[dict]:
+    """The latest check-in of a kind as a fact: its allow-listed numbers only (no note, no reading title)."""
+    row = health.latest_checkin(crew_id, kind, day, window=window)
+    return None if row is None else {**selftests.model_values(kind, row), "day": row["day"]}
+
+
 def facts(crew_id: str) -> dict:
     ms = mission.state()
     snap = health.snapshot(crew_id, ms)
@@ -86,6 +94,7 @@ def facts(crew_id: str) -> dict:
                "isolation": {"level": iso["level"], "label": iso["label"], "here": iso["here"]},
                "in_force": [i["id"] for i in protocol_pages.in_force(ms, dose)]}
     return {
+        **privacy.duty_facts(snap),  # the operational status and the active care window (the person's own facts)
         "outside": outside, "career": {"msv": mine["career_msv"], "pct": mine["career_pct_of_limit"]},
         "crew_id": crew_id, "name": CREW_BY_ID[crew_id]["name"].split(" ")[0], "day": ms["day"], "learning": ms["learning"],
         "location": ms["location"], "gravity_key": place["gravity_key"], "reply": place["reply"],
@@ -98,9 +107,9 @@ def facts(crew_id: str) -> dict:
         "exercise_target": EXERCISE_BY_PLACE[ms["location"]][1],
         "next_leg": {"location": nxt["location"], "label": nxt.get("label") or LOCATIONS[nxt["location"]]["name"],
                      "in_days": leg["days_to_next"], "gravity_key": LOCATIONS[nxt["location"]]["gravity_key"]} if nxt else None,
-        "reading": health.latest_checkin(crew_id, "reading", ms["day"], window=14),
-        "kss": health.latest_checkin(crew_id, "kss", ms["day"], window=1),
-        "wellbeing": health.latest_checkin(crew_id, "wellbeing", ms["day"], window=14),
+        "reading": _checkin_fact(crew_id, "reading", ms["day"], 14),
+        "kss": _checkin_fact(crew_id, "kss", ms["day"], 1),
+        "wellbeing": _checkin_fact(crew_id, "wellbeing", ms["day"], 14),
     }
 
 
@@ -245,9 +254,8 @@ def candidates(f: dict) -> List[dict]:
 
     r = f["reading"]
     if w.get("read", 0) <= 3 or r:
-        title = r.get("title") if r else None
-        add("read", "mental", 60, f"Keep going with {title}" if title else "Read more, for yourself",
-            (f"You last logged {r.get('minutes')} min of {title}. " if title else "") + f"You met the reading goal on {w.get('read', 0)} of the last 7 days.",
+        add("read", "mental", 60, "Keep reading, for yourself",  # the title of a book is free text: never in a fact or a rewrite
+            (f"You last logged {r.get('minutes')} min of reading. " if r else "") + f"You met the reading goal on {w.get('read', 0)} of the last 7 days.",
             ["20 minutes before lights out", "Keep the book where you sleep", "Log it on the Tests page"],
             "Read 20 minutes before lights out", [f"checkin:{f['crew_id']}:reading:day{r['day']}"] if r else [],
             inside=f"You met the reading goal on {w.get('read', 0)} of the last 7 days")
@@ -381,11 +389,42 @@ def _rewrite(provider, f: dict, items: List[dict]) -> Tuple[Dict[str, str], Opti
     return accepted, reason, list(dict.fromkeys(rejected)), out, list(dict.fromkeys(rules))
 
 
-def build(crew_id: str) -> dict:
+class Busy(Exception):
+    """A suggestions build the rate limit refused (main answers 429). `wait` is the whole seconds to wait."""
+    def __init__(self, wait: int):
+        super().__init__(f"wait {wait} seconds")
+        self.wait = wait
+
+
+# The last build per crew member. A build is reused while its inputs are the same: the mission day, the facts, the feedback
+# (accepted and dismissed suggestions), the goals already taken from suggestions and the provider. Nothing else is read.
+_cache: Dict[str, dict] = {}
+
+
+def _key(crew_id: str, f: dict, provider_name: str) -> str:
+    taken = sorted(g["id"] for g in goals.suggested(crew_id, f["day"]))
+    feedback = db.q("SELECT sid, action, day FROM suggestion_feedback WHERE crew_id=? ORDER BY id", (crew_id,))
+    raw = json.dumps({"crew": crew_id, "day": f["day"], "facts": f, "taken": taken, "feedback": feedback, "provider": provider_name},
+                     sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def build(crew_id: str, admit: Optional[Callable[[], Optional[int]]] = None) -> dict:
+    """The suggestions for today. Cached per crew member (see _cache): a repeat with the same inputs returns the last build,
+    with no model call and no new assistant_log row. `admit` is asked only before a real build: it returns None to allow it
+    or the seconds to wait; a refusal raises Busy."""
     t0 = time.monotonic()
     f = facts(crew_id)
-    items = ranked(crew_id, f)
     provider = get_provider()
+    key = _key(crew_id, f, provider.name)
+    hit = _cache.get(crew_id)
+    if hit and hit["key"] == key:
+        return copy.deepcopy(hit["result"])
+    if admit is not None:
+        wait = admit()
+        if wait is not None:
+            raise Busy(wait)
+    items = ranked(crew_id, f)
     configured = bool(getattr(provider, "configured", False))
     rewrites, reason, rejected, out, rules = _rewrite(provider, f, items)
     for s in items:
@@ -406,9 +445,11 @@ def build(crew_id: str) -> dict:
                  "rewritten": n, "total": len(items), "fallback_reason": reason, "rejected_rules": rules},
                 provider.name, model, mode, flags, t0,
                 out.input_tokens if out else 0, out.output_tokens if out else 0)
-    return {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
-            "fallback_reason": reason, "rejected_numbers": rejected, "rejected_rules": rules, "day": f["day"], "items": items,
-            "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
+    result = {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
+              "fallback_reason": reason, "rejected_numbers": rejected, "rejected_rules": rules, "day": f["day"], "items": items,
+              "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
+    _cache[crew_id] = {"key": key, "result": result}
+    return copy.deepcopy(result)
 
 
 def dismiss(crew_id: str, sid: str) -> dict:

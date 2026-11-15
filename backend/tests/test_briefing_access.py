@@ -117,3 +117,16 @@ def test_approved_briefing_is_not_public_in_the_message_feed():
 def test_medical_team_sees_the_approved_briefing_in_the_feed():
     text, _ = _approved_text()
     assert any(m["kind"] == "briefing" for m in client.get("/api/messages", headers=medical()).json())
+
+
+def test_owner_sees_their_own_approved_briefing_in_the_feed():
+    text, _ = _approved_text()
+    feed = client.get("/api/messages", headers=as_("h")).json()
+    assert [m["text"] for m in feed if m["kind"] == "briefing"] == [text]
+
+
+def test_owner_sees_the_briefing_only_when_signed_in_as_them():
+    _approved_text()
+    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages", headers=as_("k")).json())
+    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages", headers=control()).json())
+    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages").json())

@@ -77,6 +77,15 @@ def operational(snap: dict) -> dict:
     return out
 
 
+def duty_facts(snap: dict) -> dict:
+    """The operational status and the active care window of one person, for the person and the medical team only:
+    `duty` (key, label and, inside a care window, reason and until_day) and `care` (the window itself, or None)."""
+    ops = operational(snap)
+    w = care.active(snap["crew_id"], snap["day"]) if snap.get("day") is not None else None
+    return {"duty": {k: ops[k] for k in ("key", "label", "reason", "until_day", "care") if k in ops},
+            "care": None if w is None else {k: w[k] for k in ("emergency_id", "protocol", "name", "outcome", "day", "until_day", "ops", "source")}}
+
+
 def alerts_to(crew_id: str) -> Optional[str]:
     """Id of who receives this person's alerts on board: the medical officer, or the substitute for the officer's own.
     With no medical officer on board, the substitute (the commander, else the first other person, else the person)."""

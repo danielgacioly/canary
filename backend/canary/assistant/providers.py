@@ -287,9 +287,11 @@ class ToolCallingProvider:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return self._fail(out, "loop:timeout")
+            # The last round the loop allows is sent without tools: the model must answer with the results it has.
+            last_round = out.steps + 1 >= settings.llm_max_steps
             out.steps += 1
             try:
-                msg = self._call(req, messages, with_tools=True, timeout=remaining)
+                msg = self._call(req, messages, with_tools=not last_round, timeout=remaining)
             except Exception as e:  # noqa: BLE001 - only transport errors are swallowed, see _api_error
                 err = self._api_error(e)
                 if err is None:

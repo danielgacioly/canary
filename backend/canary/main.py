@@ -23,7 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
-from .assistant import briefing, chat, protocol_match, providers, suggestions, tools
+from .assistant import briefing, chat, limits, protocol_match, providers, suggestions, tools
+from .assistant.kb import freshness
 from .config import settings
 from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
 from .domain import simdata
@@ -65,6 +66,8 @@ async def lifespan(_app):
     except validation.ValidationFailure as e:  # a broken or missing package must not stop the API from starting
         print("mission package not loaded:", "; ".join(x["message"] for x in e.errors[:3]))
     stop = threading.Event()
+    # The knowledge base must be built from the corpus this code ships: rebuilt in the background when it is not (assistant/kb/freshness.py).
+    threading.Thread(target=freshness.check_at_startup, args=(settings.kb_path,), name="canary-kb", daemon=True).start()
     if settings.warm_cache:
         threading.Thread(target=_warm_story, name="canary-warm", daemon=True).start()
     if settings.day_sync:
@@ -124,6 +127,12 @@ def _friendly(err: dict) -> str:
 
 def _unprocessable(errors: list) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": errors})
+
+
+def _too_busy(field: str, wait: int) -> JSONResponse:
+    """429 for the assistant's per-person limits (assistant/limits.py), in the same {field, message} shape."""
+    return JSONResponse(status_code=429, headers={"Retry-After": str(wait)},
+                        content={"detail": [{"field": field, "message": f"Too many requests. Wait {wait} seconds and try again."}]})
 
 
 @app.exception_handler(RequestValidationError)
@@ -734,7 +743,9 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
     private = ("advice", "alert", "alert_earth", "briefing")  # private to the medical officer and the medical team (and the recipient)
-    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]))]
+    # A briefing is about the astronaut who sent it: that person may read their own approved briefing, nobody else.
+    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]
+                                                              or (r["kind"] == "briefing" and v["id"] == r["sender"])))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
     for r in rows:
@@ -776,6 +787,9 @@ def assistant_status():
 def assistant_ask(body: AskIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
     require_self(body.crew_id, v)
+    wait = limits.LIMITS.allow("ask", body.crew_id)
+    if wait is not None:
+        return _too_busy("question", wait)
     return chat.ask(body.crew_id, body.question, viewer=v)
 
 
@@ -796,7 +810,10 @@ def suggestions_for(crew_id: str, v: dict = Depends(viewer)):
     _crew(crew_id)
     if v["id"] != crew_id:
         raise HTTPException(403, "suggestions are for the astronaut only")
-    return suggestions.build(crew_id)
+    try:  # a repeat with the same inputs is served from the last build (no model call, no new log row, no token spent)
+        return suggestions.build(crew_id, admit=lambda: limits.LIMITS.allow("suggestions", crew_id))
+    except suggestions.Busy as e:
+        return _too_busy("suggestions", e.wait)
 
 
 @app.post("/api/suggestions/{crew_id}/{sid}/accept", tags=["assistant"])
@@ -827,6 +844,9 @@ def suggestion_dismiss(crew_id: str, sid: str, v: dict = Depends(viewer)):
 def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
     _crew(body.crew_id)
     require_self(body.crew_id, v)
+    wait = limits.LIMITS.allow("briefing", body.crew_id)
+    if wait is not None:
+        return _too_busy("briefing", wait)
     return briefing.build(body.crew_id)
 
 

@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from .. import db
 from ..config import settings
-from ..domain import goals, health, mission
+from ..domain import goals, health, mission, privacy
 from ..domain.catalog import CREW_BY_ID, LOCATIONS
 from . import chat, guard
 from .contracts import BriefingDraft
@@ -39,6 +39,7 @@ def facts(crew_id: str) -> dict:
     for r in db.q("SELECT protocol,day,outcome FROM emergencies WHERE patient=? AND day>?", (crew_id, ms["day"] - 7)):
         tried.append(f"day {r['day']}: guided response ({r['protocol']}), {r['outcome'] or 'open'}")
     return {
+        **privacy.duty_facts(snap),  # the operational status and the active care window (the person and the medical team only)
         "crew": CREW_BY_ID[crew_id]["name"], "day": ms["day"], "day_label": ms["day_label"], "place": LOCATIONS[ms["location"]]["name"],
         "physical": snap["areas"]["physical"], "mental": snap["areas"]["mental"],
         "alerts": [{"title": a["title"], "level": a["level"]} for a in snap["alerts"]],
@@ -69,9 +70,11 @@ def template(f: dict) -> str:
 def allowed_sources(crew_id: str, f: dict) -> List[str]:
     """Source ids a briefing line may cite: the weekly summary and this person's indicators and alerts."""
     snap = health.snapshot(crew_id, mission.state())
-    ids = [f"summary:{crew_id}:day{f['day']}:7d"]
+    ids = [f"summary:{crew_id}:day{f['day']}:7d", f"status:{crew_id}:day{f['day']}"]
     ids += [i["source"] for i in snap["indicators"].values() if i.get("source")]
     ids += [s for a in snap["alerts"] for s in a.get("sources", [])]
+    if f.get("care"):
+        ids.append(f["care"]["source"])
     return list(dict.fromkeys(ids))
 
 
