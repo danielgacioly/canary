@@ -172,7 +172,9 @@ def test_a_storm_event_turns_on_the_storm_the_radiation_evidence_and_the_immune_
     assert not any("storm is in progress" in e["text"] for e in rad["evidence"])
     ms, rad, immune = look(X)
     assert ms["storm"] == "sep"
-    assert rad["level"] == 2 and any("A radiation storm is in progress (simulated)" in e["text"] for e in rad["evidence"])
+    # the cabin dosimeter still reads its quiet rate that day: the shelter rule (measured rate above 3x the quiet rate) is not met,
+    # so the event is a watch, and the text says why, from the event itself
+    assert rad["level"] == 1 and any("No shelter ordered" in e["text"] and "source: test" in e["text"].lower().replace("source: test", "source: test") for e in rad["evidence"])
     assert any(a["id"] == "storm" for a in health.snapshot("h", ms)["alerts"])
     assert immune == "Blood count due after the radiation storm."
     ms, rad, immune = look(X + 1)  # the storm was one day long; the follow-up goes on
@@ -203,7 +205,7 @@ def test_space_weather_carries_the_active_event():
     client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     sw = client.get("/api/space-weather").json()
     assert sw["active"] and sw["headline"] == "Solar particle storm in progress"
-    assert sw["event"] == {"id": "replay-2024-05-10-sep", "kind": "sep", "origin": "real", "source": "nasa:donki", "live": False}
+    assert sw["event"] == {"id": "replay-2024-05-10-sep", "kind": "sep", "origin": "simulated", "source": "simulated", "live": False}
     client.put("/api/mission", json={"step": 0}, headers=control_headers(client))
     sw = client.get("/api/space-weather").json()
     assert not sw["active"] and sw["headline"] == "Calm" and "event" not in sw
@@ -258,7 +260,7 @@ def test_donki_import_does_nothing_offline_or_off_or_on_a_simulated_clock(monkey
 
 # ---------------------------------------------------------------- dose
 def rows(crew, values, origin="real"):
-    return [{"crew_id": crew, "indicator": "dose_rate", "value": v, "unit": "mSv/day", "day": d, "origin": origin,
+    return [{"crew_id": crew, "indicator": "dose_eq_rate", "value": v, "unit": "mSv/day", "day": d, "origin": origin,
              "method": "dosimeter", "source": "test:dosimeter"} for d, v in values.items()]
 
 
@@ -302,7 +304,7 @@ def test_a_personal_dosimeter_wins_over_the_cabin_for_that_person_only(monkeypat
 
 def test_the_projection_uses_the_plan_after_today_and_names_the_day_the_limit_is_passed():
     p = dose.projection(None, 100, 0.0)
-    assert p["cross_day"] == 516 and p["mission_msv"] == dose.mission(None, 100)["msv"]
+    assert p["cross_day"] == 513 and p["mission_msv"] == dose.mission(None, 100)["msv"]
 
 
 def test_crew_wide_pages_never_show_a_personal_dosimeter_but_the_person_does():
@@ -318,7 +320,7 @@ def test_crew_wide_pages_never_show_a_personal_dosimeter_but_the_person_does():
     from tests import golden_capture as gc
     before = gc.normalise(crew_wide())
     own_before = client.get("/api/crew/h", headers=me()).json()
-    cabin = data.daily("cabin", "dose_rate", 0, 151)
+    cabin = data.daily("cabin", "dose_eq_rate", 0, 151)
     data.add_observations(rows("h", {d: round(v[0] + 0.1, 2) for d, v in cabin.items()}))  # 15 mSv more than the cabin read
     assert gc.normalise(crew_wide()) == before
     own = client.get("/api/crew/h", headers=me()).json()

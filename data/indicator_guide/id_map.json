@@ -1,7 +1,7 @@
 {
   "about": "Maps each id of indicadores.json (Portuguese, written before the v1 integration) to the id Canary uses. kind: 'indicator' (catalog.INDICATORS), 'lab' (a blood or urine row in data/recipes.json, read by the risks), 'risk' (a risk in risk.py, no indicator of its own), 'none' (Canary has nothing for it yet). Only the texts of the guide are meant for the app (como_medir, efeito_no_espaco, acoes); every number Canary uses comes from reference.py and standards.py.",
   "map": {
-    "pa_sistolica": {"v1": "bp", "kind": "indicator", "note": "Canary's bp is the systolic pressure."},
+    "pa_sistolica": {"v1": "sbp", "kind": "indicator", "note": "Canary's sbp is the systolic pressure (the old bp)."},
     "pa_diastolica": {"v1": null, "kind": "none", "note": "No diastolic pressure in Canary."},
     "fc_repouso": {"v1": "hr", "kind": "indicator", "note": ""},
     "temperatura": {"v1": "temp", "kind": "indicator", "note": ""},

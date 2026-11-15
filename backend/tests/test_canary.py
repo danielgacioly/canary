@@ -202,14 +202,14 @@ def test_custom_plan_is_validated_and_used():
     assert any(p["variant"] for p in client.get("/api/protocols").json()["protocols"]["rad"]["steps"])
 
 
-def test_bone_loss_depends_on_gravity_in_the_plan():
+def test_bone_loss_estimate_depends_on_gravity_in_the_plan():
+    """Bone density cannot be scanned on board: the estimate follows the days in each gravity (the plan), and is labelled one."""
     plan_preset("mars")
     at(2)
-    mars = health.indicator("t", "bone", mission.state())["value"]
+    mars = health.bone_estimate("t", 30)["loss_pct"]
     plan_preset("moon")
-    # the moon package ends on day 120 (back on Earth after a short trip): the last day with a current reading
-    moon = health.indicator("t", "bone", {**mission.state(), "day": 120, "location": plan_mod.location_at(120), "learning": False})["value"]
-    assert mars < moon
+    moon = health.bone_estimate("t", 30)["loss_pct"]  # days 5 to 19 on the Moon (1/6 g) instead of in 0 g
+    assert mars > moon > 0
 
 
 def test_crew_overview_hides_private_health():
@@ -345,9 +345,10 @@ def test_ridge_hazards_follow_place_and_storm():
 
 def test_plan_conditions_project_the_dose():
     c = client.get("/api/plan/conditions").json()
-    assert [l["location"] for l in c["legs"]] == ["earth", "rocket", "transit", "mars", "mars_rover", "mars"]
+    assert [l["location"] for l in c["legs"]] == ["earth", "rocket", "transit", "mars", "mars_rover", "mars", "transit", "earth"]
     doses = [v for _, v in c["dose"]["series"]]
     assert doses == sorted(doses) and c["dose"]["end_msv"] > c["dose"]["limit_msv"] * 0.5
+    assert c["dose"]["origin"] == "estimated" and c["dose"]["crew_exceeding"] == len(catalog.CREW)  # the return leg takes every demo crew past 600 mSv
 
 
 def test_tests_page_saves_results_privately_and_completes_goals():
@@ -605,21 +606,23 @@ def test_the_committed_file_is_what_the_generator_writes_and_is_small():
     assert simdata.csv_text(rows) == simdata.csv_text(simdata.Generator(plan_mod.PRESETS["mars"]["legs"], rec, simdata.REAL_DIR).observations())
 
 
-def test_osd569_rows_are_real_and_keep_the_original_label():
+def test_osd569_rows_are_modelled_simulated_and_keep_the_original_label():
     from canary.domain import nasa, simdata
-    real = [r for r in simdata.read_csv(simdata.OBS_FILE) if r["origin"] == "real"]
-    assert {r["source"] for r in real} == {"nasa:osd569", "nasa:osd575"}
-    assert len([r for r in real if r["source"] == "nasa:osd575"]) == 4 * 4 * 7  # creatinine, potassium, calcium, crp
-    rows = [r for r in real if r["source"] == "nasa:osd569"]
+    rows_all = simdata.read_csv(simdata.OBS_FILE)
+    assert not [r for r in rows_all if r["origin"] == "real"]  # nothing in the demo is a real person's measurement
+    lab = [r for r in rows_all if "Inspiration4" in r["note"]]
+    assert {r["origin"] for r in lab} == {"simulated"}
+    assert {r["source"] for r in lab} == {"modelled on Inspiration4 (NASA OSDR OSD-569)", "modelled on Inspiration4 (NASA OSDR OSD-575)"}
+    assert len([r for r in lab if "OSD-575" in r["source"]]) == 4 * 4 * 7  # creatinine, potassium, calcium, crp
+    rows = [r for r in lab if "OSD-569" in r["source"]]
     assert len(rows) == 4 * 7 * 7
     h_lym = {r["note"].split()[0]: float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym"}
-    shown = nasa.blood("h", "F")  # built from h's own real observations in the loaded package, not from a subject id
-    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == shown["lymphocytes"] and shown["subject"] == "C002"
+    shown = nasa.blood("h", "F")
+    assert [h_lym[t] for t in nasa.snapshot()["cbc"]["tp"]] == shown["lymphocytes"] and shown["subject"] == "C002" and shown["origin"] == "simulated"
     assert set(h_lym) == {"L-92", "L-44", "L-3", "R+1", "R+45", "R+82", "R+194"}
-    # pre-flight collections set the baseline of the simulated rows
+    # pre-flight collections set the baseline of the other simulated rows
     pre = [float(r["value"]) for r in rows if r["crew_id"] == "h" and r["indicator"] == "lym" and int(r["day"]) < 0]
-    sim = [float(r["value"]) for r in simdata.read_csv(simdata.OBS_FILE)
-           if r["crew_id"] == "h" and r["indicator"] == "lym" and r["origin"] == "simulated"]
+    sim = [float(r["value"]) for r in rows_all if r["crew_id"] == "h" and r["indicator"] == "lym"]
     assert abs(sum(sim) / len(sim) - sum(pre) / len(pre)) < 600
 
 
@@ -650,21 +653,29 @@ def _day(d):
     return client.put("/api/mission", json={"day": d}, headers=control_headers(client)).json()
 
 
+def _no_device(cid, inds, days=(99, 100)):
+    """Drop the simulated instrument rows of these indicators so a self-report on those days is the only reading (an instrument
+    reading takes precedence over a self-report, by design)."""
+    from canary.domain import data
+    with data._transaction() as c:
+        for i in ([inds] if isinstance(inds, str) else inds):
+            c.execute("DELETE FROM observations WHERE crew_id=? AND indicator=? AND method!='manual' AND day BETWEEN ? AND ?", (cid, i, days[0], days[-1]))
+
+
 def _checkin(cid, kind, payload):
     return client.post("/api/checkins", json={"crew_id": cid, "kind": kind, "payload": payload}, headers=as_(cid))
 
 
-def test_a_pvt_checkin_shows_in_the_series_and_weighs_on_the_next_two_days():
+def test_a_pvt_checkin_is_the_days_own_value_and_is_not_smoothed():
     from canary.domain import telemetry
     _day(100)
-    before = {d: telemetry.current("a", "react", d) for d in (100, 101, 102, 103)}
+    stored = {d: telemetry.observation("a", "react", d)["value"] for d in (101, 102)}
     assert _checkin("a", "pvt", {"ms": 600}).status_code == 200
     assert dict(telemetry.series("a", "react", 100, 5))[100] == 600
     assert dict(telemetry.series("a", "react", 102, 5))[100] == 600  # still there in later charts
-    assert telemetry.current("a", "react", 100) == pytest.approx(before[100] + 0.6 * (600 - telemetry.SOURCE.value("a", "react", 100)))
-    assert telemetry.current("a", "react", 101) > before[101] + 0.25 * 200
-    assert telemetry.current("a", "react", 102) > before[102] + 0.15 * 200
-    assert telemetry.current("a", "react", 103) == pytest.approx(before[103])
+    assert health.indicator("a", "react", mission.state())["value"] == 600  # the day's own value, no weighting with earlier days
+    for d in (101, 102):  # the next days read their own readings: the check-in does not bleed into them
+        assert telemetry.observation("a", "react", d)["value"] == stored[d]
 
 
 @pytest.mark.parametrize("kind,payload,ind,value", [("dsst", {"correct": 10}, "dsst", 10), ("span", {"span": 3}, "span", 3),
@@ -672,14 +683,14 @@ def test_a_pvt_checkin_shows_in_the_series_and_weighs_on_the_next_two_days():
 def test_cognitive_and_self_report_tests_feed_their_indicator(kind, payload, ind, value):
     _day(100)
     before = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
-    assert before["origin"] == "simulated" and before["age_days"] is None
+    assert before["origin"] == "simulated" and before["last_measured_day"] <= 100
     r = _checkin("a", kind, payload).json()["snapshot"]["indicators"][ind]
     assert r["origin"] == "user" and r["age_days"] == 0 and r["last_measured_day"] == 100
     assert r["value"] != before["value"] and r["bad"] > before["bad"]
     assert dict(client.get("/api/crew/a", headers=as_("a")).json()["trends"][ind])[100] == value
     _day(103)
     later = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
-    assert later["origin"] != "user" and later["age_days"] == 3
+    assert later["origin"] != "user" and later["last_measured_day"] <= 103
 
 
 def test_crew_detail_has_the_four_new_indicators_with_origin_and_age():
@@ -741,14 +752,14 @@ def selftests_limits_are_not_clinical():
 
 
 # ---------------------------------------------------------------- Prompt 2: two references (population safety limit + personal baseline)
-STORY_ALERTS = {  # scene step -> crew -> (alert id, level), as before the population ranges and the computed baseline
+STORY_ALERTS = {  # scene step -> crew -> (alert id, level). Bone density is no longer measured on board (no ind_bone alert), levels
+    # need two readings in a row, and a pulse or pressure is read against the in-flight re-baseline from flight day 15.
     1: {"t": [("sickness", 1)]},
-    2: {"h": [("behaviour", 2), ("missing_mood", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
-    3: {"h": [("storm", 2), ("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("storm", 2), ("ind_bone", 1)],
-        "a": [("storm", 2)], "t": [("storm", 2), ("ind_bone", 1), ("ind_vo2", 1)]},
-    4: {"h": [("behaviour", 2), ("missing_mood", 1), ("ind_bone", 1)], "k": [("ind_bone", 1)], "t": [("ind_bone", 1), ("ind_vo2", 1)]},
-    5: {"h": [("storm", 2), ("regravity", 1), ("ind_bone", 1)], "k": [("storm", 2), ("regravity", 1), ("ind_grip", 1), ("ind_bone", 1)],
-        "a": [("storm", 2), ("ind_hr", 2), ("ind_grip", 1), ("ind_bone", 1)], "t": [("storm", 2), ("ind_hr", 1), ("ind_bone", 1)]},
+    2: {"h": [("behaviour", 2), ("missing_mood", 1)]},
+    3: {"h": [("storm", 2), ("behaviour", 2), ("missing_mood", 1)], "k": [("storm", 2)], "a": [("storm", 2)], "t": [("storm", 2)]},
+    4: {"h": [("behaviour", 2), ("missing_mood", 1)]},
+    5: {"h": [("storm", 2), ("regravity", 1)], "k": [("storm", 2), ("regravity", 1), ("ind_grip", 1)],
+        "a": [("storm", 2), ("regravity", 1), ("ind_grip", 1)], "t": [("storm", 2), ("regravity", 1)]},
 }
 
 
@@ -763,6 +774,7 @@ def test_story_scenes_keep_the_same_alerts(step):
 def test_a_critical_reading_is_level_two_even_while_learning():
     ms = _day(-30)
     assert ms["learning"]
+    _no_device("a", "spo2", (-30, -30))
     assert _checkin("a", "vitals", {"spo2": 85}).status_code == 200
     s = health.snapshot("a", ms)
     i = s["indicators"]["spo2"]
@@ -773,17 +785,23 @@ def test_a_critical_reading_is_level_two_even_while_learning():
 
 
 def test_outside_the_normal_range_is_at_least_level_one_after_launch():
-    ms = _day(100)
+    _no_device("a", "temp")
+    _day(99)
     assert _checkin("a", "vitals", {"temp": 37.9}).status_code == 200  # fever range, not critical
+    ms = _day(100)
+    assert health.snapshot("a", ms)["indicators"]["temp"]["level"] == 0  # one reading is not yet a finding (persistence)
+    assert _checkin("a", "vitals", {"temp": 37.9}).status_code == 200
     i = health.snapshot("a", ms)["indicators"]["temp"]
-    assert i["population"]["status"] == "out" and i["level"] >= 1
-    assert _checkin("a", "vitals", {"temp": 41}).status_code == 200
+    assert i["population"]["status"] == "out" and i["level"] >= 1  # two in a row
+    assert _checkin("a", "vitals", {"temp": 41}).status_code == 200  # critical: at once
     assert health.snapshot("a", ms)["indicators"]["temp"]["level"] == 2
 
 
 def test_inside_the_population_range_the_personal_baseline_still_raises_level_two():
-    ms = _day(100)
+    _day(99)
     assert _checkin("a", "pvt", {"ms": 450}).status_code == 200  # inside 150 to 500 ms, far from her own 250
+    ms = _day(100)
+    assert _checkin("a", "pvt", {"ms": 450}).status_code == 200  # two days in a row
     i = health.snapshot("a", ms)["indicators"]["react"]
     assert i["population"]["status"] == "in" and i["z"] >= 2.5 and i["level"] == 2
 
@@ -795,7 +813,10 @@ def test_the_baseline_is_computed_from_the_preflight_days_and_stays_close_to_the
         assert "base" not in c
         for ind, B in health.baselines(c["id"]).items():
             sd = catalog.INDICATORS[ind]["sd"]
-            assert B["from"] == "preflight" and B["n"] >= health.MIN_PREFLIGHT, (c["id"], ind)
+            need = catalog.INDICATORS[ind].get("min_baseline", health.MIN_PREFLIGHT)
+            assert B["from"] == "preflight" and B["n"] >= need and B["confidence"] in ("low", "moderate", "high"), (c["id"], ind)
+            if ind == "bone":  # a DXA scan: two before launch, no seed to compare with
+                continue
             assert abs(B["mean"] - seeds[c["id"]]["base"][ind]) <= 0.35 * sd + 0.5 * 10 ** -catalog.INDICATORS[ind]["dp"], (c["id"], ind)
             assert B["sd"] >= sd  # the floor
     _day(100)
@@ -860,8 +881,8 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
 
 def test_the_blood_count_returns_every_analyte_with_range_and_status_and_raises_no_alert():
     from canary.domain import nasa
-    b = nasa.blood("k", "M")  # k's own real blood observations in the demo package
-    assert b["origin"] == "real" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
+    b = nasa.blood("k", "M")  # k's own blood observations in the demo package (simulated on the Inspiration4 pattern)
+    assert b["origin"] == "simulated" and set(b["analytes"]) == {"wbc", "lym", "neu", "hgb", "hct", "plt", "rbc",
                                                             "creatinine", "potassium", "calcium", "crp"}
     for k, a in b["analytes"].items():
         assert len(a["status"]) == len(b["timepoints"]) == len(a["values"]) and set(a["status"]) <= {"in", "out", None}
@@ -902,8 +923,11 @@ def test_the_behaviour_alert_comes_from_the_fatigue_risk_and_keeps_its_shape():
 
 
 def test_one_bad_night_or_two_tired_check_ins_stay_at_level_one_at_most():
+    _day(99)
+    assert _checkin("a", "kss", {"level": 8}).status_code == 200
+    assert _checkin("a", "tlx", {"raw": 92}).status_code == 200
     _day(100)
-    assert _fatigue("a")["level"] == 0
+    assert _fatigue("a")["level"] == 0  # one day of readings is not yet a finding
     assert _checkin("a", "kss", {"level": 8}).status_code == 200
     assert _checkin("a", "tlx", {"raw": 92}).status_code == 200
     r = _fatigue("a")
@@ -934,6 +958,9 @@ def test_drift_flags_a_slow_slide_that_will_cross_the_limit_and_ignores_a_flat_l
 def test_the_brain_stays_red_for_helena_and_a_lone_indicator_never_makes_a_system_red():
     s = health.snapshot("h", at(2))
     assert s["systems"]["brain"]["level"] == 2 and s["systems"]["brain"]["risks"] == ["fatigue"]
+    _no_device("a", "hr")
+    _day(99)
+    assert _checkin("a", "vitals", {"hr": 100}).status_code == 200
     _day(100)
     assert _checkin("a", "vitals", {"hr": 100}).status_code == 200
     s = health.snapshot("a", mission.state())
@@ -1187,19 +1214,26 @@ def test_the_report_to_earth_keeps_the_delay_of_the_place():
 
 def test_inside_the_window_thresholds_tighten_for_the_patient_only():
     _day(153)
-    bad = health.indicator("t", "bone", mission.state())["bad"]
-    watch = round(bad * 1.1, 2)  # just above what Tomás has today: level 0 by the normal rule
-    client.put("/api/medical/thresholds", json={"watch": watch, "act": 5}, headers=_med())
     ms = mission.state()
-    before = {c: health.indicator(c, "bone", ms) for c in "hkat"}
-    assert all(i["level"] == 0 and "sensitive_until" not in i for i in before.values())
+    prev = {**ms, "day": 152, "location": plan_mod.location_at(152)}
+    # the indicator Tomás is furthest from his normal on both of the last two days (a level needs two readings in a row)
+    score = {}
+    for i in catalog.INDICATORS:
+        x, y = health.indicator("t", i, ms), health.indicator("t", i, prev)
+        if x["bad"] is not None and y["bad"] is not None and x["measured_today"] and y["measured_today"]:
+            score[i] = min(x["bad"], y["bad"])
+    ind = max(score, key=score.get)
+    watch = round(score[ind] * 1.1, 2)  # just above what he has today: level 0 by the normal rule
+    client.put("/api/medical/thresholds", json={"watch": watch, "act": 5}, headers=_med())
+    before = {c: health.indicator(c, ind, ms) for c in "hkat"}
+    assert before["t"]["level"] == 0 and all("sensitive_until" not in i for i in before.values())
     _close("seizure", "t")
-    after = {c: health.indicator(c, "bone", ms) for c in "hkat"}
+    after = {c: health.indicator(c, ind, ms) for c in "hkat"}
     assert after["t"]["level"] == 1 and after["t"]["sensitive_until"] == 156
     assert all(after[c]["level"] == before[c]["level"] and "sensitive_until" not in after[c] for c in "hka")
     _day(157)  # back to normal alone
-    t = health.indicator("t", "bone", mission.state())
-    assert t["level"] == 0 and "sensitive_until" not in t
+    t = health.indicator("t", ind, mission.state())
+    assert "sensitive_until" not in t
     assert client.put("/api/medical/care-sensitivity", json={"factor": 1.0}, headers=_med()).json()["factor"] == 1.0
     assert client.put("/api/medical/care-sensitivity", json={"factor": 0.2}, headers=_med()).status_code == 422
     assert client.get("/api/medical/care-sensitivity").status_code == 401
@@ -1227,6 +1261,7 @@ def test_a_critical_alert_reaches_the_medical_officer_once_per_episode():
 def test_a_critical_alert_of_the_medical_officer_goes_to_the_substitute():
     _day(100)
     assert _alert_msgs() == []
+    _no_device("k", "spo2", (100, 100))
     assert _checkin("k", "vitals", {"spo2": 85}).status_code == 200
     msgs = _alert_msgs()
     assert [m["recipient"] for m in msgs] == ["h"] and "Kenji" in msgs[0]["text"]
@@ -1238,6 +1273,7 @@ def test_a_critical_alert_of_the_medical_officer_goes_to_the_substitute():
 def test_alerts_and_windows_are_private_to_the_medical_team():
     _day(147)
     _close("seizure", "t")
+    _no_device("k", "spo2", (147, 147))
     _checkin("k", "vitals", {"spo2": 85})
     assert client.get("/api/medical/overview").status_code == 401
     ov = client.get("/api/medical/overview", headers=_med()).json()
@@ -1280,27 +1316,40 @@ def _risk(cid, rid, day=None, ms=None):
 
 @pytest.fixture
 def shift(monkeypatch):
-    """Move indicators away from a person's normal by some personal spreads, to build a level on purpose."""
+    """Move indicators away from a person's normal by some personal spreads on every flight day, to build a level on purpose
+    (the baseline, read from the pre-flight days, stays where it was)."""
     from canary.domain import risk, telemetry
     shifts = {}
-    orig = telemetry.current
+    orig_obs, orig_dr = telemetry.observation, telemetry.day_readings
 
-    def cur(crew, ind, day):
-        v = orig(crew, ind, day)
+    def delta(crew, ind):
+        I = catalog.INDICATORS[ind]
+        return (-1 if I["dir"] == "low" else 1) * shifts[(crew, ind)] * max(I["sd"], health.baselines(crew)[ind]["sd"])
+
+    def obs(crew, ind, day, uv=None):
+        o = orig_obs(crew, ind, day, uv)
+        if (crew, ind) in shifts and o["value"] is not None and (o["day"] or 0) >= 0:
+            o = {**o, "value": o["value"] + delta(crew, ind)}
+        return o
+
+    def dr(crew, ind, d0, d1):
+        out = orig_dr(crew, ind, d0, d1)
         if (crew, ind) in shifts:
-            I = catalog.INDICATORS[ind]
-            v += (-1 if I["dir"] == "low" else 1) * shifts[(crew, ind)] * max(I["sd"], health.baselines(crew)[ind]["sd"])
-        return v
+            out = {d: ({**r, "value": r["value"] + delta(crew, ind)} if d >= 0 else r) for d, r in out.items()}
+        return out
 
-    monkeypatch.setattr(telemetry, "current", cur)
+    monkeypatch.setattr(telemetry, "observation", obs)
+    monkeypatch.setattr(telemetry, "day_readings", dr)
 
     def go(crew, ind, spreads):
         shifts[(crew, ind)] = spreads
         risk.clear_cache()
         health._alert_cache.clear()
+        health._scache.clear()
     yield go
     risk.clear_cache()
     health._alert_cache.clear()
+    health._scache.clear()
 
 
 @pytest.fixture
@@ -1338,19 +1387,19 @@ def test_there_are_eight_risks_and_four_are_nasas_red_ones():
 def test_radiation_is_level_one_from_half_the_limit_and_names_the_day_the_plan_passes_it():
     from canary.domain import dose, risk
     curve = dose.curve(None, -1)  # the projection: the plan's rates and the storm events
-    assert all(abs(curve[d] - dose.mission(None, d)["msv"]) < 0.11 for d in (0, 5, 100, 152, 153, 300, 516))  # the cabin dosimeter says the same
-    assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 516
+    assert all(abs(curve[d] - dose.mission(None, d)["msv"]) < 0.11 for d in (0, 5, 100, 152, 153, 300, 513))  # the cabin dosimeter says the same
+    assert next(d for d, v in enumerate(curve) if v > catalog.CAREER_LIMIT_MSV) == 513
     _day(100)
     assert _risk("a", "radiation")["level"] == 0
     _day(156)
     assert _risk("a", "radiation")["level"] == 0
     _day(157)
     r = _risk("a", "radiation")
-    assert r["level"] == 1 and any("projected to pass it on day 516" in e["text"] for e in r["evidence"])
-    assert r["dose"]["same_for_everyone"] and r["dose"]["cross_day"] == 516 and r["data"] == "simulated"
+    assert r["level"] == 1 and any("projected to pass it on day 513" in e["text"] for e in r["evidence"])
+    assert r["dose"]["same_for_everyone"] and r["dose"]["cross_day"] == 513 and r["data"] == "simulated"
     assert r["dose"]["prior_msv"] == 0 and r["dose"]["now_msv"] == r["dose"]["mission_msv"]
     assert {_risk(c, "radiation")["dose"]["mission_msv"] for c in "hkat"} == {r["dose"]["mission_msv"]}  # one mission dose for the crew
-    _day(516)
+    _day(513)
     assert _risk("a", "radiation")["level"] == 2 and "past NASA's 600 mSv limit" in _risk("a", "radiation")["evidence"][0]["text"]
 
 
@@ -1362,9 +1411,8 @@ def test_radiation_is_level_two_in_both_storm_scenes_and_the_storm_alert_carries
         for c in "hkat":
             r = _risk(c, "radiation", ms=ms)
             assert r["level"] == 2 and r["nasa_red"] and r["hazards"] == ["R"]
-            # the storm is NASA's record; the dose adds a simulated number once the career dose passes half the limit
-            # (from the second storm on, or earlier for those who have flown before)
-            assert r["data"] == ("partial" if r["dose"]["pct"] >= 50 else "real"), (step, c, r["data"])
+            # the demo storms are simulated replays and the cabin dosimeter is simulated: the data is labelled simulated
+            assert r["data"] == "simulated", (step, c, r["data"])
             assert r["dose"]["prior_msv"] == standards.prior_dose(c)["msv"]
         storm = next(a for a in health.snapshot("h", ms)["alerts"] if a["id"] == "storm")
         assert storm["risk"] == "radiation" and storm["hazards"] == ["R"]
@@ -1528,7 +1576,7 @@ def test_every_alert_keeps_its_id_and_gains_a_risk_and_hazards():
                 seen.add(a["id"])
                 if a["id"].startswith("ind_"):
                     assert a["risk"] in ("fatigue", "cardio", "bone_muscle", "nutrition", "renal", "immune")
-    assert {"storm", "behaviour", "missing_mood", "ind_bone", "regravity", "sickness"} <= seen
+    assert {"storm", "behaviour", "missing_mood", "regravity", "sickness"} <= seen
 
 
 def test_the_hazard_matrix_is_the_teams_with_a_source_on_every_link():
@@ -1567,7 +1615,7 @@ def test_the_blood_files_are_corrected_and_each_seat_reads_a_subject_of_its_own_
 def test_real_metabolic_panel_rows_feed_the_kidney_heart_and_immune_risks(exam):
     from canary.domain import telemetry
     o = telemetry.last_observation("h", "creatinine", -3)
-    assert o["origin"] == "real" and o["source"] == "nasa:osd575"
+    assert o["origin"] == "simulated" and o["source"] == "modelled on Inspiration4 (NASA OSDR OSD-575)"
     _day(100)
     exam("t", "potassium", 6.2)  # above the laboratory range (3.5 to 5.3)
     assert any(e["key"] == "potassium" and e["points"] for e in _risk("t", "cardio")["evidence"])
@@ -1591,8 +1639,9 @@ def test_the_aerobic_limit_depends_on_the_place_and_on_the_persons_eva_role():
 def test_strength_and_bone_have_nasa_floors_and_the_risk_and_system_follow_them():
     from canary.domain import standards
     assert standards.check("grip", "h", "mars", 26.0, 34.0)["level"] == 2 and standards.check("grip", "h", "mars", 30.0, 34.0)["level"] == 1
-    assert standards.check("bone", "h", "transit", -5.2, 0)["level"] == 2 and standards.check("bone", "h", "transit", -3.5, 0)["verified"] is False
-    assert standards.check("bone", "h", "transit", -1.0, 0)["level"] == 0
+    assert standards.check("bone", "h", "transit", 0.90, 1.0)["level"] == 2 and standards.check("bone", "h", "transit", 0.965, 1.0)["verified"] is False
+    assert standards.check("bone", "h", "transit", 0.99, 1.0)["level"] == 0
+    assert standards.check("bone", "h", "transit", 0.90, None)["status"] == "not_assessable"  # no pre-flight scan: never an in-flight baseline
     assert standards.check("sleep", "h", "transit", 5.0, 7.4) is None  # V1 6001 plans a sleep period, it is not a measured limit
 
 
@@ -1611,7 +1660,7 @@ def test_the_career_dose_counts_earlier_flights():
 def test_a_rover_traverse_is_a_place_of_its_own_on_the_mars_plan():
     from canary.domain import goals as goals_mod, privacy, protocols
     ms = _day(305)
-    assert ms["location"] == "mars_rover" and ms["day_label"] == "Sol 95"  # the sol count keeps running from landing
+    assert ms["location"] == "mars_rover" and ms["day_label"] == "Sol 92"  # the sol count keeps running from landing, with the real 88,775.244 s sol
     assert ms["place"]["eva"] == "surface" and ms["place"]["body"] == "mars"
     assert goals_mod._title({"id": "exercise"}, "mars_rover").startswith("30 min")
     assert {h["id"] for h in privacy.ridge("mars_rover", None, 305)} == {"R", "I", "D", "G", "E"}
@@ -1862,11 +1911,11 @@ def test_the_medical_overview_carries_career_dose_and_red_risks():
 
 def test_the_catalog_carries_the_indicator_guide_with_its_sources():
     g = client.get("/api/catalog").json()["guide"]
-    assert {"bp", "hr", "temp", "spo2", "gluc", "exer", "sleep", "mood", "vo2", "grip", "bone", "radiation"} <= set(g)
+    assert {"sbp", "hr", "temp", "spo2", "gluc", "exer", "sleep", "mood", "vo2", "grip", "bone", "radiation"} <= set(g)
     for k, e in g.items():
         assert e["how"] and e["effect"] and set(e["actions"]) == {"green", "amber", "red"}, k
         assert not any(w in str(e).lower() for w in ("manguito", "sem gravidade")), k  # English only
-    assert g["bp"]["sources"]["how"] is None and g["vo2"]["sources"]["actions"]  # no source listed -> the app says so
+    assert g["sbp"]["sources"]["how"] is None and g["vo2"]["sources"]["actions"]  # no source listed -> the app says so
 
 
 # ---------------------------------------------------------------- C2: photo of the display kept with a vitals check-in

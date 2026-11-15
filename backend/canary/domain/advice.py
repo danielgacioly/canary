@@ -15,11 +15,12 @@ import time
 from typing import Dict, List, Optional
 
 from .. import db
+from . import assumptions as A
 from . import risk, telemetry
 from .catalog import CREW_BY_ID
 
 # Prototype assumptions (no published rule says how much a number must move for an advice to have "worked").
-MARGIN = 0.5  # personal spreads: the average deviation must move by at least this much to count as improved / worse: bad moves by at least this much = improved / worse, less = same
+MARGIN = A.value("advice.margin")  # personal spreads: the average deviation must move by at least this much to count as improved or worse
 SOURCE = {"source": "prototype assumption", "verified": False}
 
 ALTERNATIVES: Dict[str, List[dict]] = {

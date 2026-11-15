@@ -103,7 +103,7 @@ def table() -> simdata.Table:
             else:  # only a day was sent: it counts on that day, after the timed readings of the 08:00 stamps it ties with
                 d = r[1]
                 at = (t0 + timedelta(days=d)).isoformat() + "T08:00:00Z"
-            stamped.append((at, r[10], (r[0], d, r[2], r[3], r[4], ENGINE_ORIGIN.get(r[5], "real"), r[6], r[7], r[8])))
+            stamped.append((at, r[10], (r[0], d, r[2], r[3], r[4], ENGINE_ORIGIN.get(r[5], "real"), "manual" if r[5] == "manual" and r[6] == "sensor" else r[6], r[7], r[8])))
         stamped.sort(key=lambda t: (t[0], t[1]))
         out = [t[2] for t in stamped]
         _state.update(key=key, table=simdata.Table(out), launch=launch)

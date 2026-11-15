@@ -179,7 +179,7 @@ def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatc
     add("h", "sleep", 99, 7.6)
     add("h", "sleep", 100, 7.4)
     b = health.baselines("h")["sleep"]
-    assert b == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT}
+    assert b == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT, "confidence": "low"}
     ms = day(100)
     d = health.indicator("h", "sleep", ms)
     assert d["learning"] is True and d["z"] is None and d["baseline"] is None and d["bad"] is None and d["value"] == pytest.approx(7.45, abs=0.2)
@@ -197,7 +197,8 @@ def test_after_enough_preflight_readings_the_baseline_is_the_persons_own(monkeyp
     b = health.baselines("h")["sleep"]
     assert b["from"] == "preflight" and b["n"] == 5 and b["mean"] == 7.0 and b["sd"] >= catalog.INDICATORS["sleep"]["sd"]
     ms = {**day(100), "day": 50, "location": plan.location_at(50), "learning": False}
-    add("h", "sleep", 50, 3.0)  # far below their own normal
+    add("h", "sleep", 49, 3.0)  # far below their own normal, two days in a row
+    add("h", "sleep", 50, 3.0)
     d = health.indicator("h", "sleep", ms)
     assert d["learning"] is False and d["baseline"] == 7.0 and d["z"] < -2.5 and d["level"] == 2
 
@@ -239,12 +240,12 @@ def test_a_reading_older_than_max_age_is_stale_and_a_recent_one_is_current(monke
     add("h", "sleep", 10, 3.0)  # sleep: max_age 3 days
     o = telemetry.observation("h", "sleep", 13)
     assert o["value"] == 3.0 and o["age_days"] == 3 and o["stale"] is False  # carried forward, within max_age: still current
-    assert telemetry.current("h", "sleep", 13) == pytest.approx(3.0)
+    assert telemetry.current("h", "sleep", 13) is None  # display smoothing counts only days with a reading of their own
     o = telemetry.observation("h", "sleep", 14)
     assert o["value"] == 3.0 and o["age_days"] == 4 and o["stale"] is True  # kept to show "last measured", never counted
-    assert telemetry.current("h", "sleep", 14) == pytest.approx(3.0)  # today is stale, but the two days before still count
     assert telemetry.current("h", "sleep", 16) is None  # all three days are stale
-    assert telemetry.observation("h", "sleep", 5) == {"value": None, "origin": "none", "source": None, "day": None, "age_days": None, "stale": False}
+    none = telemetry.observation("h", "sleep", 5)
+    assert none["value"] is None and none["origin"] == "none" and none["day"] is None and none["age_days"] is None and none["stale"] is False
     ser = dict(telemetry.series("h", "sleep", 16, 7))  # days 10..16: current, then a gap, never a repeated old value
     assert ser[10] == 3.0 and ser[13] == 3.0 and ser[14] is None and ser[15] is None and ser[16] is None
     assert [v for _d, v in telemetry.series("k", "sleep", 16, 7)] == [None] * 7  # nobody measured: no line
@@ -284,7 +285,7 @@ def test_a_stale_reading_raises_no_alert_and_the_system_says_no_data(monkeypatch
 @pytest.mark.parametrize("inds", [
     ("sleep", "mood", "react", "stress", "social"),                  # the whole fatigue picture
     ("bone", "grip", "exer", "vo2", "water", "gluc"),               # bones, muscles, kidneys, gut
-    ("hr", "bp", "spo2", "temp", "dsst", "span", "kss", "tlx"),     # the rest
+    ("hr", "sbp", "dbp", "spo2", "temp", "dsst", "span", "kss", "tlx"),     # the rest
 ])
 @pytest.mark.parametrize("d", [0, 152, 222])
 def test_missing_some_indicators_breaks_nothing_and_alerts_nothing_for_them(monkeypatch, inds, d):

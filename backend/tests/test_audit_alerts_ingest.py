@@ -496,6 +496,16 @@ def test_a_body_over_two_megabytes_is_refused_before_it_is_parsed():
 
 
 def test_a_package_that_says_real_is_mapped_to_lab_or_device_at_import():
+    """The demo package is all `simulated` (the blood is modelled on Inspiration4); a package that still says `real` is mapped
+    at import: a laboratory method becomes `lab`, anything else `device`; the engine reads both as measured."""
+    csv_ = ("crew_id,day,indicator,value,unit,origin,method,source,note,measured_at\n"
+            "h,-40,hgb,13.9,g/dL,real,blood,lab:test,,2035-04-22T08:00:00Z\n"
+            "h,-40,hr,60,bpm,real,wearable,test:band,,2035-04-22T08:00:00Z\n")
+    r = client.post("/api/control/import", headers=ctl(), files=[("file", ("observations.csv", csv_.encode(), "text/csv"))])
+    assert r.status_code == 200, r.text
     origins = {r["origin"] for r in db.q("SELECT DISTINCT origin FROM observations")}
-    assert origins <= {"device", "manual", "lab", "simulated"} and "lab" in origins and "real" not in origins
-    assert db.q("SELECT 1 FROM observations WHERE origin='lab' AND method='blood' LIMIT 1")
+    assert origins <= {"device", "manual", "lab", "simulated"} and "real" not in origins
+    assert db.q("SELECT 1 FROM observations WHERE origin='lab' AND method='blood' AND source='lab:test'")
+    assert db.q("SELECT 1 FROM observations WHERE origin='device' AND method='wearable' AND source='test:band'")
+    from canary.domain import data as _data
+    assert {o["origin"] for o in _data.table().rows_on("h", "hgb", -40)} == {"real"}  # the engine's word for measured

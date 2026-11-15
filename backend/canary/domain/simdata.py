@@ -15,6 +15,7 @@ import io
 import json
 import math
 import pathlib
+import re
 import statistics
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -24,7 +25,9 @@ _HERE = pathlib.Path(__file__).resolve()
 DATA_DIR = _HERE.parents[3] / "data"                       # recipes, real data, report (repository root)
 RECIPES_FILE = DATA_DIR / "recipes.json"
 DEMO_CREW_FILE = DATA_DIR / "demo_crew.json"              # the demo crew's seeds, for the sheet generator only
-REAL_DIR = DATA_DIR / "real"
+REAL_DIR = DATA_DIR / "real"                               # genuinely real rows (none ship with the demo)
+MODELLED_DIR = DATA_DIR / "modelled"                       # Inspiration4-moulded blood values for the demo crew: origin simulated
+I4_SOURCE = {"cbc": "modelled on Inspiration4 (NASA OSDR OSD-569)", "cmp": "modelled on Inspiration4 (NASA OSDR OSD-575)"}
 REPORT_FILE = DATA_DIR / "DATASET.md"
 OBS_FILE = _HERE.parents[1] / "data" / "observations.csv"  # the generated table the backend reads
 SNAPSHOT_FILE = _HERE.parents[1] / "data" / "nasa_snapshot.json"
@@ -118,10 +121,11 @@ def read_csv(path_or_text) -> List[dict]:
     return list(csv.DictReader(io.StringIO(path_or_text)))
 
 
-def read_real(real_dir: Optional[pathlib.Path], recipes: dict) -> Dict[Tuple[str, int, str], Row]:
+def read_real(real_dir: Optional[pathlib.Path], recipes: dict, origin: str = "real") -> Dict[Tuple[str, int, str], Row]:
     """Rows from every CSV in `real_dir` (same columns; only crew_id, day, indicator and value are required).
 
-    They always enter with origin "real". Missing unit and method come from the recipe.
+    They always enter with the given origin ("real" for genuine measurements; "simulated" for the Inspiration4-moulded demo
+    values in MODELLED_DIR). Missing unit and method come from the recipe.
     """
     out: Dict[Tuple[str, int, str], Row] = {}
     if real_dir is None or not pathlib.Path(real_dir).is_dir():
@@ -131,7 +135,7 @@ def read_real(real_dir: Optional[pathlib.Path], recipes: dict) -> Dict[Tuple[str
             ind = r["indicator"].strip()
             rec = recipes["indicators"].get(ind, {})
             row = (r["crew_id"].strip(), int(r["day"]), ind, r["value"].strip(),
-                   (r.get("unit") or rec.get("unit", "")).strip(), "real",
+                   (r.get("unit") or rec.get("unit", "")).strip(), origin,
                    (r.get("method") or rec.get("method", "manual")).strip(),
                    (r.get("source") or f"real:{f.stem}").strip(), (r.get("note") or "").strip())
             out[(row[0], row[1], row[2])] = row
@@ -154,7 +158,9 @@ def lab_range(snapshot: dict, ind: str, sex: str) -> Optional[Tuple[Optional[flo
 
 
 def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str, crew: Optional[Sequence[dict]] = None) -> List[Row]:
-    """Real Inspiration4 lab values in the observation format. Built from the snapshot, not typed.
+    """Inspiration4 lab values moulded onto the demo crew, in the observation format. Built from the snapshot, not typed.
+    The values are the Inspiration4 subject's, but they are not this fictional person's measurements: origin "simulated",
+    source "modelled on Inspiration4 (...)".
 
     Collection labels (L-92 ... R+194) are relative to launch; day 0 is launch, so L-N is day -N
     and R+N is day N + 3 (the flight lasted 3 days). The original label stays in `note`.
@@ -170,30 +176,33 @@ def _lab_rows(snapshot: dict, recipes: dict, section: str, source: str, crew: Op
                 if v is None:
                     continue
                 day = -int(label[2:]) if label.startswith("L-") else int(label[2:]) + 3
-                out.append((c["id"], day, ind, _num(v), rec["unit"], "real", "blood", source,
+                out.append((c["id"], day, ind, _num(v), rec["unit"], "simulated", "blood", I4_SOURCE[section],
                             f"{label} Inspiration4 {subject}"))
     return sorted(out, key=lambda r: (r[0], r[1], r[2]))
 
 
 def osd569_rows(snapshot: dict, recipes: dict, crew: Optional[Sequence[dict]] = None) -> List[Row]:
-    """The real Inspiration4 blood counts (OSD-569)."""
+    """The Inspiration4 blood counts (OSD-569) as the pattern of the simulated crew blood."""
     return _lab_rows(snapshot, recipes, "cbc", "nasa:osd569", crew)
 
 
 def osd575_rows(snapshot: dict, recipes: dict, crew: Optional[Sequence[dict]] = None) -> List[Row]:
-    """The real Inspiration4 metabolic panel and C-reactive protein (OSD-575): creatinine, potassium, calcium, crp."""
+    """The Inspiration4 metabolic panel and C-reactive protein (OSD-575) as the pattern of the simulated crew: creatinine, potassium, calcium, crp."""
     return _lab_rows(snapshot, recipes, "cmp", "nasa:osd575", crew)
 
 
 # ---------------------------------------------------------------- generator
 class Generator:
     def __init__(self, legs: Sequence[dict], recipes: Optional[dict] = None, real_dir=REAL_DIR,
-                 snapshot: Optional[dict] = None, crew: Optional[Sequence[dict]] = None):
+                 snapshot: Optional[dict] = None, crew: Optional[Sequence[dict]] = None, modelled_dir=MODELLED_DIR):
         """`crew`: the people to generate for, each with `id`, `sex`, `cbc_subject` and `base` (default: the demo crew)."""
         self.people = {c["id"]: c for c in (crew if crew is not None else load_demo_crew()["crew"])}
         self.legs = list(legs)
         self.r = recipes or load_recipes()
         self.real = read_real(real_dir, self.r)
+        self.modelled = read_real(modelled_dir, self.r, "simulated")
+        self.lab = {**self.modelled, **self.real}  # the pre-flight blood values that seed the simulated rows
+        self.landing = self._landing()
         self.snap = snapshot or load_snapshot()
         self.first = min(l["start"] for l in self.legs)
         self.last = max(l["end"] for l in self.legs)
@@ -244,7 +253,7 @@ class Generator:
         """Mean and spread of the real measurements before launch, if there are any."""
         key = (crew, ind)
         if key not in self._pre:
-            vals = [float(r[3]) for (c, d, i), r in sorted(self.real.items()) if c == crew and i == ind and d < 0]
+            vals = [float(r[3]) for (c, d, i), r in sorted(self.lab.items()) if c == crew and i == ind and d < 0]
             if not vals:  # no real file for it (another real_dir): the pre-flight collections of the snapshot itself
                 subject = self.people[crew]["cbc_subject"]
                 for section in ("cbc", "cmp"):
@@ -294,8 +303,11 @@ class Generator:
         rec = self.r["indicators"][ind]
         sd = rec["sd_pre"] if day <= 0 and "sd_pre" in rec else self.sd(crew, ind)
         key = rec.get("noise_key", "{crew}{ind}{day}").format(crew=crew, ind=ind, day=day)
-        v = self.baseline(crew, ind, day) + (h01(key) - 0.5) * 1.6 * sd
-        for st, w in rec.get("states", {}).items():
+        base = self.baseline(crew, ind, day)
+        v = base + (h01(key) - 0.5) * 1.6 * sd
+        if rec.get("relative"):  # a percentage state moves the value in proportion to the baseline (bone density)
+            v = base * (1 - self.state(crew, rec["relative"], day) / 100.0) + (h01(key) - 0.5) * 1.6 * sd
+        for st, w in ({} if rec.get("relative") else rec.get("states", {})).items():
             v += w * self.state(crew, st, day)
         v += self._slow_drift(ind, rec, day)
         rg = rec.get("regravity")
@@ -310,6 +322,22 @@ class Generator:
             v = min(rec["clamp"][1], max(rec["clamp"][0], v))
         return v
 
+    def _landing(self) -> Optional[int]:
+        """First day on Earth after the last leg away from it (the landing), or None when the plan does not come back."""
+        legs = sorted(self.legs, key=lambda l: l["start"])
+        away = [i for i, l in enumerate(legs) if l["location"] != "earth" and l["start"] >= 0]
+        if not away or away[-1] + 1 >= len(legs) or legs[away[-1] + 1]["location"] != "earth":
+            return None
+        return legs[away[-1] + 1]["start"]
+
+    def schedule_days(self, rec: dict) -> List[int]:
+        """The days of an indicator measured on a fixed schedule: before launch (absolute days) and after landing (days after it)."""
+        sch = rec["schedule"]
+        days = [d for d in sch.get("preflight", []) if self.first <= d < 0]
+        if self.landing is not None:
+            days += [self.landing + o for o in sch.get("postflight", []) if self.landing + o <= self.last]
+        return days
+
     # --- the table
     def observations(self) -> List[Row]:
         rows: Dict[Tuple[str, int, str], Row] = {}
@@ -317,16 +345,19 @@ class Generator:
             crews = [CABIN] if rec.get("subject") == CABIN else list(self.people)
             every = rec["frequency"]["every"]
             panel = rec.get("panel", ind)
+            note = with_context(rec.get("row_note", ""), **rec.get("context", {}))
             for crew in crews:
                 offset = int(h01(f"off:{crew}:{panel}") * every) if every > 1 else 0
-                for day in range(self.first, self.last + 1):
-                    if every > 1 and (day + offset) % every:
-                        continue
-                    if h01(f"gap:{crew}:{panel}:{day}") < rec["gaps"]:
-                        continue  # a missed measurement, on purpose
+                for day in (self.schedule_days(rec) if "schedule" in rec else range(self.first, self.last + 1)):
+                    if "schedule" not in rec:
+                        if every > 1 and (day + offset) % every:
+                            continue
+                        if h01(f"gap:{crew}:{panel}:{day}") < rec["gaps"]:
+                            continue  # a missed measurement, on purpose
                     rows[(crew, day, ind)] = (crew, day, ind, format_value(self.value(crew, ind, day), rec["decimals"]),
-                                              rec["unit"], "simulated", rec["method"], f"recipe:{ind}", rec.get("row_note", ""))
-        rows.update(self.real)
+                                              rec["unit"], "simulated", rec["method"],
+                                              rec["source"] if rec["source"].startswith("modelled on") else f"recipe:{ind}", note)
+        rows.update(self.lab)
         return sorted(rows.values(), key=lambda r: (r[0], r[1], r[2]))
 
 
@@ -341,13 +372,43 @@ def _interp(points: Sequence[Sequence[float]], day: float) -> float:
 
 
 # ---------------------------------------------------------------- reading the table
+ALIAS = {"bp": "sbp"}  # the legacy name of the systolic pressure
+# `method` of the readings made by an instrument; anything else ("manual") is self-reported. On the same day an instrument
+# reading takes precedence over a self-report (telemetry.pick); every reading of the day is kept.
+DEVICE_METHODS = frozenset({"wearable", "test", "blood", "urine", "environment", "dosimeter", "device", "sensor"})  # "sensor" is the API default for a device-keyed sender
+_CTX = re.compile(r"\[ctx ([^\]]*)\]")
+
+
+def parse_context(note: str) -> Dict[str, str]:
+    """The context of a reading (heart rate: activity=rest|exercise; pressure: position=seated|supine|standing), carried in
+    the `note` as `[ctx activity=rest]`. {} when there is none."""
+    m = _CTX.search(note or "")
+    if not m:
+        return {}
+    return {k.strip(): v.strip() for k, _, v in (p.partition("=") for p in m.group(1).split(";")) if k.strip()}
+
+
+def with_context(note: str, **ctx: str) -> str:
+    """`note` with the context added: with_context("morning", position="seated") == "morning [ctx position=seated]"."""
+    base = _CTX.sub("", note or "").strip()
+    tag = "[ctx " + ";".join(f"{k}={v}" for k, v in ctx.items() if v) + "]" if any(ctx.values()) else ""
+    return (base + " " + tag).strip()
+
+
+def _row(t: tuple) -> dict:
+    d, v, origin, method, source, note, unit = t
+    return {"day": d, "value": v, "origin": origin, "method": method, "source": source, "note": note, "unit": unit,
+            "device": method in DEVICE_METHODS, "context": parse_context(note)}
+
+
 class Table:
-    """Rows indexed by (crew_id, indicator) with the days sorted, for 'last observation up to day D'."""
+    """Rows indexed by (crew_id, indicator) with the days sorted, for 'last observation up to day D'. Every row of a day is
+    kept (`rows_on`); `last` picks the one the engine reads (instrument before self-report, then the latest)."""
 
     def __init__(self, rows: Iterable[Sequence]):
         by: Dict[Tuple[str, str], List[tuple]] = {}
         for r in rows:
-            by.setdefault((r[0], r[2]), []).append((int(r[1]), float(r[3]), r[5], r[6], r[7], r[8]))
+            by.setdefault((r[0], ALIAS.get(r[2], r[2])), []).append((int(r[1]), float(r[3]), r[5], r[6], r[7], r[8], r[4]))
         self.days: Dict[Tuple[str, str], List[int]] = {}
         self.obs: Dict[Tuple[str, str], List[tuple]] = {}
         for k, lst in by.items():
@@ -355,15 +416,31 @@ class Table:
             self.obs[k] = lst
             self.days[k] = [t[0] for t in lst]
 
-    def last(self, crew: str, ind: str, day: int) -> Optional[dict]:
+    def rows_on(self, crew: str, ind: str, day: int) -> List[dict]:
+        """Every stored reading of one day, in the order they were stored."""
         days = self.days.get((crew, ind))
         if not days:
-            return None
+            return []
+        lo, hi = bisect.bisect_left(days, day), bisect.bisect_right(days, day)
+        return [_row(t) for t in self.obs[(crew, ind)][lo:hi]]
+
+    def days_back(self, crew: str, ind: str, day: int, limit: int = 10 ** 6):
+        """Yield (day, [readings]) for the days up to `day` that have any, newest first."""
+        days = self.days.get((crew, ind)) or []
         i = bisect.bisect_right(days, day) - 1
-        if i < 0:
-            return None
-        d, v, origin, method, source, note = self.obs[(crew, ind)][i]
-        return {"day": d, "value": v, "age": day - d, "origin": origin, "method": method, "source": source, "note": note}
+        n = 0
+        while i >= 0 and n < limit:
+            d = days[i]
+            lo = bisect.bisect_left(days, d, 0, i + 1)
+            yield d, [_row(t) for t in self.obs[(crew, ind)][lo:i + 1]]
+            i, n = lo - 1, n + 1
+
+    def last(self, crew: str, ind: str, day: int) -> Optional[dict]:
+        for d, rows in self.days_back(crew, ind, day, 1):
+            r = next((x for x in reversed(rows) if x["device"]), rows[-1])  # an instrument reading of the day first
+            return {"day": d, "value": r["value"], "age": day - d, "origin": r["origin"], "method": r["method"], "source": r["source"],
+                    "note": r["note"]}
+        return None
 
     def first(self, crew: str, ind: str) -> Optional[float]:
         o = self.obs.get((crew, ind))
@@ -385,7 +462,7 @@ def report(rows: Sequence[Sequence], recipes: dict, plan_name: str = "Mars refer
          "Generated by `python data/generate_dataset.py`. Do not edit by hand: change `data/recipes.json` or add real files to `data/real/`, then run the script again.", "",
          f"- Plan: {plan_name}. File: `backend/canary/data/observations.csv`, {len(rows):,} rows.",
          "- One row per measurement: `crew_id, day, indicator, value, unit, origin, method, source, note`.",
-         "- `origin` is `simulated` or `real`. `method` is `wearable`, `manual`, `test`, `blood`, `urine` or `environment`. `source` is the recipe (`recipe:<indicator>`) or the real dataset. Cabin measures use the crew id `cabin`.",
+         "- `origin` is `simulated` or `real` (no real row ships with the demo). `method` is `wearable`, `manual`, `test`, `blood`, `urine` or `environment`. `source` is the recipe (`recipe:<indicator>`) or the real dataset. Cabin measures use the crew id `cabin`.",
          "- Day 0 is launch. A day without a row means nothing was measured: the app shows the last observation and its age.",
          "- Real rows replace the simulated row with the same (crew_id, day, indicator), or are added when there is none.", "",
          "## Indicators", "",
@@ -415,14 +492,17 @@ def report(rows: Sequence[Sequence], recipes: dict, plan_name: str = "Mars refer
         if not e["verified"]:
             L.append(f"- event `{e['id']}`: {e['assumption']} (source: {e['source']})")
     L += ["", "## What is real today", "",
-          "- Complete blood count (`wbc, lym, neu, hgb, hct, plt, rbc`): real Inspiration4 data from NASA OSDR OSD-569, 4 crew and 7 collections, converted from `backend/canary/data/nasa_snapshot.json` into `data/real/osd569_cbc.csv`. Collections keep their original label in `note` (L-92, L-44, L-3, R+1, R+45, R+82, R+194). The pre-flight ones set each person's baseline and spread for the simulated rows.",
-          "- Metabolic panel and inflammation (`creatinine, potassium, calcium, crp`): real Inspiration4 data from NASA OSDR OSD-575, same crew and collections, in `data/real/osd575_cmp.csv`. C-reactive protein comes from the cardiovascular multiplex panel, converted from pg/mL to mg/L; it has no reference range there, so it is read only against the person's own pre-flight values.",
+          "Nothing in the demo is a measurement of a real person: every row of the demo crew is `origin = simulated`. The blood values follow a real pattern, and that is all they share with it.", "",
+          "- Complete blood count (`wbc, lym, neu, hgb, hct, plt, rbc`): simulated on the pattern of the Inspiration4 crew (NASA OSDR OSD-569; Costes et al. 2024, npj Microgravity), 4 subjects and 7 collections, converted from `backend/canary/data/nasa_snapshot.json` into `data/modelled/osd569_cbc.csv`. Source `modelled on Inspiration4 (NASA OSDR OSD-569)`, origin `simulated`. Collections keep their original label in `note` (L-92, L-44, L-3, R+1, R+45, R+82, R+194). The pre-flight ones set each person's baseline and spread for the other simulated rows.",
+          "- Metabolic panel and inflammation (`creatinine, potassium, calcium, crp`): simulated on the pattern of the Inspiration4 crew (NASA OSDR OSD-575), same subjects and collections, in `data/modelled/osd575_cmp.csv`, source `modelled on Inspiration4 (NASA OSDR OSD-575)`, origin `simulated`. C-reactive protein comes from the cardiovascular multiplex panel, converted from pg/mL to mg/L; it has no reference range there, so it is read only against the person's own pre-flight values.",
           "- Each seat reads the Inspiration4 subject of the same sex (`cbc_subject` in `data/demo_crew.json`, a seed of the sheet generator only), and every range is the one of that sex. `data/prepare_blood.py` rebuilds both sections from the OSDR files and documents three corrections: C003's L-92 blood count sat one row down from MCH on (realigned and checked by arithmetic), C003's pre-flight rows carry male ranges (each sex takes the range most of its rows carry), and haemoglobin is labelled `percent` in OSD-569 (it is g/dL).",
           "- Glucose from the metabolic panel is not imported: three of four crew read 36 to 44 mg/dL on the same day (R+45) with every other collection normal, the pattern of a sample processed late. The ship's `gluc` stays the fingerstick indicator.",
           "- Open real data also exists for more cytokines and for dose by place. Not imported yet; see below.",
-          "- Everything else (vital signs, sleep, cognition, weight, vision, bone, hormones, urine, cabin air) is simulated.", "",
+          "- Bone density (`bone`) is a DXA scan: two before launch and two after landing, never on board. In flight the engine infers it from exercise and time in microgravity and labels it an estimate.",
+          "- Blood pressure is split into `sbp` and `dbp` (seated); pulse readings carry the context `activity=rest` (in the `note`, as `[ctx activity=rest]`).",
+          "- Everything else (vital signs, sleep, cognition, weight, vision, hormones, urine, cabin air) is simulated.", "",
           "## Replacing simulated data with real data", "",
-          "1. Put a CSV with the same columns in `data/real/` (only `crew_id, day, indicator, value` are required; `unit` and `method` default to the recipe's).",
+          "1. Put a CSV with the same columns in `data/real/` (only `crew_id, day, indicator, value` are required; `unit` and `method` default to the recipe's). Only genuine measurements belong there; the Inspiration4-moulded demo values live in `data/modelled/` and stay simulated.",
           "2. Run `python data/generate_dataset.py`. Rows enter with `origin = real` and replace the simulated row of the same key.",
           "3. No code changes. Commit `observations.csv` and this file.", "",
           "## How each method would be collected on a real mission", ""]
