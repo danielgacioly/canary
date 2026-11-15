@@ -406,6 +406,18 @@ def test_mission_control_registers_from_zero_and_reset_restores_the_demo():
     assert client.get("/api/catalog").json()["crew"][0]["name"] == "Helena Duarte"
 
 
+def test_mission_control_brings_back_the_demo_data_after_a_clear():
+    assert client.post("/api/control/demo-data").status_code == 401
+    c = {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    before = client.get("/api/control/data-status", headers=c).json()["counts"]
+    assert client.post("/api/control/clear", headers=c).json()["registered"] is False
+    o = client.post("/api/control/demo-data", headers=c).json()
+    assert o["registered"] and o["overview"]["callsign"] == "Odyssey 1" and len(o["people"]) == 4
+    assert client.get("/api/control/data-status", headers=c).json()["counts"] == before
+    assert client.get("/api/scenes").json()  # the demo story is back
+    assert client.get("/api/control/overview", headers=c).status_code == 200  # Mission Control stays signed in
+
+
 def _register(c, **mission):
     demo = client.get("/api/control/demo", headers=c).json()
     return client.post("/api/control/register", headers=c, json={"crew": demo["crew"], "mission": {**demo["mission"], **mission}})

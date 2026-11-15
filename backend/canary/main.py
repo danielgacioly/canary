@@ -276,16 +276,24 @@ def put_mission(body: MissionIn):
 def demo_reset():
     """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
     An empty setting starts with no data at all."""
+    _start_over(settings.mission_package)
+    return mission.state()
+
+
+DEMO_PACKAGE = "odyssey1-mars"
+
+
+def _start_over(package: Optional[str]) -> None:
+    """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named."""
     db.reset()
     plan.reset_cache()
     registry.load()
     auth.clear_failures()
-    if settings.mission_package:
+    if package:
         try:
-            data.import_named(settings.mission_package)
+            data.import_named(package)
         except validation.ValidationFailure as e:
             raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
-    return mission.state()
 
 
 # ---------------------------------------------------------------- mission plan (itinerary)
@@ -1180,6 +1188,14 @@ def control_register(body: RegisterIn):
     plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
     if first:
         mission.set_day(first[0]["day"])
+    return control_overview()
+
+
+@app.post("/api/control/demo-data", tags=["control"], dependencies=[Depends(require_control)])
+def control_demo_data():
+    """Use the demo data: replace everything with the bundled demo mission (crew, itinerary, readings, goal history,
+    space events and the demo story), the same state as a fresh start. Crew terminals sign in again."""
+    _start_over(settings.mission_package or DEMO_PACKAGE)
     return control_overview()
 
 

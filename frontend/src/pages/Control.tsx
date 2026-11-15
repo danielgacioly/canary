@@ -64,6 +64,7 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   useEffect(() => { api.controlOverview().then(o => { setOv(o); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
   if (!ov || !tab) return <div className="control"><Loading what="Canary Control" /></div>
   const refresh = (o: ControlOverview) => { setOv(o); bump() }
+  const loadDemoData = async () => { refresh(await api.controlDemoData()); setTab('dashboard') }
   return (
     <div className="control">
       <header className="control-top">
@@ -76,8 +77,9 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
       </header>
       <div className="control-page">
         <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
-        {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }} onRegister={() => setTab('register')} />}
-        {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} />}
+        {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }}
+          onDemo={loadDemoData} onRegister={() => setTab('register')} />}
+        {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} onDemo={loadDemoData} />}
         {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
@@ -86,15 +88,20 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
 }
 
 /* ---------------------------------------------------------------- dashboard */
-function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: () => Promise<void>; onRegister: () => void }) {
-  const [confirm, setConfirm] = useState(false)
+function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; onClear: () => Promise<void>; onDemo: () => Promise<void>; onRegister: () => void }) {
+  const [confirm, setConfirm] = useState<'clear' | 'demo' | null>(null)
   const clear = useAction()
+  const demo = useAction()
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
         <h2>Nothing registered</h2>
-        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission to bring Canary to life.</p>
-        <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
+        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission, or fill everything with the demo mission.</p>
+        <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+          <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
+          <button className="btn" disabled={demo.busy} onClick={() => demo.run(onDemo)}>{demo.busy ? 'Loading…' : 'Use demo data'}</button>
+        </div>
+        <ActionError error={demo.error} />
       </div>
     )
   }
@@ -139,10 +146,18 @@ function Dashboard({ ov, onClear, onRegister }: { ov: ControlOverview; onClear: 
       </section>
 
       <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
-        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again.</p></div>
-        {confirm
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(false)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
-          : <button className="btn" onClick={() => setConfirm(true)}>Clear crew and mission</button>}
+        <div className="grow"><b>Use demo data</b><p className="small muted">Replace everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
+        {confirm === 'demo'
+          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn pri" disabled={demo.busy} onClick={() => demo.run(async () => { await onDemo(); setConfirm(null) })}>{demo.busy ? 'Loading…' : 'Replace with demo data'}</button></div>
+          : <button className="btn" onClick={() => setConfirm('demo')}>Use demo data</button>}
+        <ActionError error={demo.error} />
+      </section>
+
+      <section className="danger-zone rise" style={{ ['--d' as string]: 5 }}>
+        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again or use the demo data.</p></div>
+        {confirm === 'clear'
+          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
+          : <button className="btn" onClick={() => setConfirm('clear')}>Clear crew and mission</button>}
         <ActionError error={clear.error} />
       </section>
     </>
@@ -217,7 +232,8 @@ function validateRegister(f: Values, n: number, presets: string[], roverPresets:
   return e
 }
 
-function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: ControlOverview) => void }) {
+function Register({ registered, onSaved, onDemo }: { registered: boolean; onSaved: (o: ControlOverview) => void; onDemo: () => Promise<void> }) {
+  const loadDemo = useAction()
   const [step, setStep] = useState(0)
   const [count, setCount] = useState(1)
   const [open, setOpen] = useState(0)
@@ -275,6 +291,13 @@ function Register({ registered, onSaved }: { registered: boolean; onSaved: (o: C
         ))}</div>
       </div>
       {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
+      {!registered && step === 0 && (
+        <div className="set-row rise">
+          <div className="grow"><b>Use demo data</b><p className="small muted">Fill everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
+          <button type="button" className="btn" disabled={loadDemo.busy} onClick={() => loadDemo.run(onDemo)}>{loadDemo.busy ? 'Loading…' : 'Use demo data'}</button>
+          <ActionError error={loadDemo.error} />
+        </div>
+      )}
       {step < 2 && <FormSummary form={form} describe={seatNo} />}
 
       {step === 0 && (
