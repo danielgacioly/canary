@@ -40,6 +40,7 @@ MODELS = ROOT / "frontend" / "public" / "models"
 SCALE = 1.018          # BodyParts3D man is 1.72 m; the MakeHuman body 1.75 m
 GROUND_MM = 78.0       # BodyParts3D feet stand 78 mm below its z = 0
 GLOW_K, GLOW_EXP = 0.4, 0.8   # light per mesh = K / layers^EXP
+FINGERS = {1: "thumb", 2: "index finger", 3: "middle finger", 4: "ring finger", 5: "little finger"}
 
 
 # ----------------------------------------------------------------------------- data access
@@ -265,7 +266,17 @@ def build_parts(db, log):
         log(f"{s}: hand {len(c['hand'])} foot {len(c['foot'])} elements")
         add(f"humerus_{s}", "skeleton", "bone", c["humerus"], 1700, f"humerus_{s}", group=f"arm_{s}")
         add(f"forearm_{s}", "skeleton", "bone", c["forearm"], 1500, f"forearm_{s}", group=f"arm_{s}")
-        add(f"hand_{s}", "skeleton", "bone", c["hand"], 4500, f"hand_{s}")
+        # the hand is fitted bone by bone (see fit_parts): the palm on the wrist and knuckles, each phalanx on its joints
+        fingers = {}
+        for n, nm in FINGERS.items():
+            seq = ([f"{s} first metacarpal bone"] if n == 1 else []) + [f"{k} phalanx of {s} {nm}" for k in (("proximal", "distal") if n == 1 else ("proximal", "middle", "distal"))]
+            fingers[n] = seq
+            for k, bone_name in enumerate(seq):
+                add(f"hand_{s}_{n}_{k}", "skeleton", "bone", db.fj(bone_name), 260 if k else 320, f"hand_{s}:{n}:{k}", group=f"hand_{s}")
+        used = set(sum((db.fj(*seq) for seq in fingers.values()), []))
+        palm = [f for f in dict.fromkeys(c["hand"]) if f not in used]
+        add(f"hand_{s}_palm", "skeleton", "bone", palm, 1600, f"hand_{s}:palm", group=f"hand_{s}")
+        c["fingers"] = fingers
         add(f"femur_{s}", "skeleton", "bone", c["femur"], 3000, f"femur_{s}", group=f"leg_{s}")
         add(f"shin_{s}", "skeleton", "bone", c["shin"], 2700, f"shin_{s}", group=f"leg_{s}")
         add(f"foot_{s}", "skeleton", "bone", c["foot"], 5200, f"foot_{s}")
@@ -279,6 +290,29 @@ def build_parts(db, log):
                    ("pulmonary_trunk", db.fj("pulmonary trunk")),
                    ("vena_cava", db.fj("superior vena cava", "inferior vena cava"))):
         add(nm, "heart", "vessel", fj, 1800, "torso", uv=True)
+    add("veins_upper", "heart", "vessel", db.fj("right brachiocephalic vein", "left brachiocephalic vein"), 600, "torso", uv=True, group="vena_cava")
+    add("coronaries", "heart", "vessel", db.fj("left coronary artery", "right coronary artery"), 2500, "torso", uv=True)
+    # the real arteries: trunk and neck follow the torso warp, the limbs follow their bones (see fit_parts)
+    # A named artery in BodyParts3D carries its whole downstream tree (the subclavian brings the arm, the external
+    # iliac the leg), so every element is sorted by where it lies: arm, leg or trunk.
+    tree = db.fj("brachiocephalic artery", "right common carotid artery", "left common carotid artery", "right subclavian artery",
+                 "left subclavian artery", "celiac trunk", "superior mesenteric artery", "inferior mesenteric artery", "right renal artery",
+                 "left renal artery", "right common iliac artery", "left common iliac artery")
+    where = collections.defaultdict(list)
+    for f in tree:
+        c = to_frame(db.mesh(f)[0]).mean(0)
+        side = "left" if c[0] > 0 else "right"
+        if abs(c[0]) > 0.135 and c[1] < 1.48:
+            where[f"arm_{side}"].append(f)
+        elif c[1] < 0.9 and abs(c[0]) > 0.03:
+            where[f"leg_{side}"].append(f)
+        else:
+            where["trunk"].append(f)
+    log("arteries: " + ", ".join(f"{k} {len(v)}" for k, v in sorted(where.items())))
+    add("arteries_trunk", "heart", "vessel", where["trunk"], 6000, "torso", uv=True)
+    for s in ("left", "right"):
+        add(f"arteries_arm_{s}", "heart", "vessel", where[f"arm_{s}"], 1600, f"arm_{s}", uv=True)
+        add(f"arteries_leg_{s}", "heart", "vessel", where[f"leg_{s}"], 2200, f"leg_{s}", uv=True)
     # lungs: BodyParts3D has the airways and vessels of the lungs, not a lobe surface; the envelope is made in `lung_envelope`
     for s in ("left", "right"):
         add(f"airways_{s}", "lungs", "vessel", db.fj(f"{s} bronchial tree"), 3000, "torso", uv=True)
@@ -389,7 +423,8 @@ def fit_parts(parts, chains, db, body_V, body_R, J, log):
         parts.insert(0, env)
         log(f"lung envelope {s}: {len(V)} vertices {len(F)} triangles")
     # 3. torso warp
-    inner = np.vstack([p.V for p in parts if p.xf == "torso"])
+    # the vessels that branch out to neck and limbs follow the warp but do not shape it
+    inner = np.vstack([p.V for p in parts if p.xf == "torso" and p.name not in ("arteries_trunk", "coronaries", "veins_upper")])
     warp = TorsoWarp(body_V, body_R, inner)
     for p in parts:
         if p.xf == "torso":
@@ -413,9 +448,26 @@ def fit_parts(parts, chains, db, body_V, body_R, J, log):
         shoulder_dst = warp(h0[None])[0]
         T_h = Similarity(h0, elbow_src, shoulder_dst, jt(f"{sj}-elbow"))
         T_f = Similarity(elbow_src, wrist_src, jt(f"{sj}-elbow"), jt(f"{sj}-hand"))
-        Vhand = sh(c["hand"])
-        tip = Vhand[Vhand[:, 1].argmin()]
-        T_hand = Similarity(wrist_src, tip, jt(f"{sj}-hand"), jt(f"{sj}-finger-3-4"))
+        # hand: the palm on the wrist and the five knuckles (least squares), then every phalanx on its own two
+        # joints, turned only as much as needed from the palm's orientation (so the palm sets the roll)
+        bones = {(n, k): sh(db.fj(b)) for n, seq in c["fingers"].items() for k, b in enumerate(seq)}
+        ends = {key: axis_ends(V) for key, V in bones.items()}
+        joint = lambda n, i: jt(f"{sj}-finger-{n}-{i}")
+        src_pts = [wrist_src] + [ends[(n, 0)][0] for n in FINGERS]
+        dst_pts = [jt(f"{sj}-hand")] + [joint(n, 1) for n in FINGERS]
+        T_palm = Umeyama(np.array(src_pts), np.array(dst_pts))
+        log(f"{side} palm: scale {T_palm.s:.3f} residual {T_palm.residual * 1000:.1f} mm")
+        T_bone = {}
+        for (n, k), (p0, p1) in ends.items():
+            a0, a1 = T_palm(p0[None])[0], T_palm(p1[None])[0]
+            b0, b1 = joint(n, k + 1), joint(n, k + 2)
+            if k == len(c["fingers"][n]) - 1:      # the last joint sits at the skin of the fingertip: stop short of it
+                b1 = b0 + (b1 - b0) * 0.85
+            T_bone[(n, k)] = Chain(T_palm, a0, a1, b0, b1)
+        for p in parts:
+            if p.xf.startswith(f"hand_{side}:"):
+                key = p.xf.split(":")[1:]
+                p.V = T_palm(p.V) if key == ["palm"] else T_bone[(int(key[0]), int(key[1]))](p.V)
         Vfe, Vsh = sh(c["femur"]), sh(c["shin"])
         fe0, fe1 = axis_ends(Vfe)
         sh0, sh1 = axis_ends(Vsh)
@@ -426,12 +478,131 @@ def fit_parts(parts, chains, db, body_V, body_R, J, log):
         Vfoot = sh(c["foot"])
         toe = Vfoot[Vfoot[:, 2].argmax()]
         T_foot = Similarity(ankle_src, toe, jt(f"{sj}-ankle"), jt(f"{sj}-toe-2-4"))
-        for name, T in (("humerus", T_h), ("forearm", T_f), ("hand", T_hand), ("femur", T_fe), ("shin", T_sh), ("foot", T_foot)):
+        for name, T in (("humerus", T_h), ("forearm", T_f), ("femur", T_fe), ("shin", T_sh), ("foot", T_foot)):
             for p in parts:
                 if p.xf == f"{name}_{side}":
                     p.V = T(p.V)
                     log(f"{p.name}: scale {T.s:.3f}")
+        # limb arteries: every vertex follows the bone segment it lies along, so the vessel bends at the joints with them
+        arm = SegmentWarp([h0, elbow_src, wrist_src], [T_h, T_f, T_palm])
+        leg = SegmentWarp([fe0, knee_src, ankle_src], [T_fe, T_sh, T_foot])
+        for p in parts:
+            if p.xf == f"arm_{side}":
+                p.V = arm(p.V)
+            elif p.xf == f"leg_{side}":
+                p.V = leg(p.V)
+    bridge_vessels(parts, log)
     return warp
+
+
+class Umeyama:
+    """least-squares similarity p -> t + s R p over point pairs"""
+
+    def __init__(self, src, dst):
+        ms, md = src.mean(0), dst.mean(0)
+        A, B = src - ms, dst - md
+        U, S, Vt = np.linalg.svd(B.T @ A / len(src))
+        D = np.diag([1, 1, np.sign(np.linalg.det(U @ Vt))])
+        self.R = U @ D @ Vt
+        self.s = float(np.trace(np.diag(S) @ D) / (A ** 2).sum(1).mean())
+        self.t = md - self.s * self.R @ ms
+        self.residual = float(np.sqrt(((self(src) - dst) ** 2).sum(1).mean()))
+
+    def __call__(self, V):
+        return self.t + self.s * V @ self.R.T
+
+
+class Chain:
+    """T0 first, then the smallest rotation and a scale about a0 that put the a0->a1 segment on b0->b1"""
+
+    def __init__(self, T0, a0, a1, b0, b1):
+        self.T0, self.a0, self.b0 = T0, a0, b0
+        self.R = rot_between(a1 - a0, b1 - b0)
+        self.s = np.linalg.norm(b1 - b0) / np.linalg.norm(a1 - a0)
+
+    def __call__(self, V):
+        return self.b0 + self.s * (self.T0(V) - self.a0) @ self.R.T
+
+
+class SegmentWarp:
+    """each vertex takes the transform of the bone segment (p_i -> p_i+1) it lies along; past the last joint, the last one"""
+
+    def __init__(self, joints, transforms):
+        self.j, self.T = [np.asarray(p) for p in joints], transforms
+
+    def __call__(self, V):
+        seg = np.zeros(len(V), int)
+        for i in range(len(self.j) - 1):
+            a, b = self.j[i], self.j[i + 1]
+            t = (V - a) @ (b - a) / ((b - a) @ (b - a))
+            seg = np.where((seg == i) & (t > 1), i + 1, seg)
+        out = V.copy()
+        for i, T in enumerate(self.T):
+            m = seg == i
+            if m.any():
+                out[m] = T(V[m])
+        return out
+
+
+def keep_inside(parts, body_V, body_F, body_R, log, depth=0.004):
+    """Limb vessels may leave the skin where bone and body poses differ: pull those vertices back under it."""
+    N = smooth_normals(body_V, body_F)
+    limb = np.round(body_R) >= 2
+    S, SN = body_V[limb], N[limb]
+    for p in parts:
+        if not p.name.startswith(("arteries_arm", "arteries_leg")):
+            continue
+        out = p.V.copy()
+        for i in range(0, len(out), 2000):
+            q = out[i:i + 2000]
+            k = ((q[:, None] - S[None]) ** 2).sum(-1).argmin(1)
+            o = ((q - S[k]) * SN[k]).sum(1)
+            fix = o > -depth
+            q[fix] -= (o[fix] + depth)[:, None] * SN[k][fix]
+        log(f"{p.name}: {np.mean(np.any(out != p.V, 1)) * 100:.1f}% of vertices pulled under the skin")
+        p.V = out
+
+
+def tube(points, r, sides=10):
+    """a closed-ended tube along a polyline, as (V, F)"""
+    P = np.asarray(points, float)
+    V, F = [], []
+    up = np.array([0.0, 0.0, 1.0])
+    for i, p in enumerate(P):
+        d = P[min(i + 1, len(P) - 1)] - P[max(i - 1, 0)]
+        d /= np.linalg.norm(d)
+        u = np.cross(d, up if abs(d @ up) < 0.9 else np.array([1.0, 0, 0]))
+        u /= np.linalg.norm(u)
+        w = np.cross(d, u)
+        for k in range(sides):
+            a = 2 * np.pi * k / sides
+            V.append(p + r * (np.cos(a) * u + np.sin(a) * w))
+    for i in range(len(P) - 1):
+        for k in range(sides):
+            a, b = i * sides + k, i * sides + (k + 1) % sides
+            F += [[a, b + sides, b], [a, a + sides, b + sides]]
+    return np.array(V), np.array(F, dtype=np.int64)
+
+
+def bridge_vessels(parts, log):
+    """BodyParts3D has no axillary artery, and the warps of trunk and limbs need not meet: short tubes join the
+    subclavian to the brachial artery and the external iliac to the femoral, so the circulation is continuous."""
+    trunk = next(p for p in parts if p.name == "arteries_trunk")
+    for side, sg in (("left", 1), ("right", -1)):
+        for limb, top_of in (("arm", lambda V: V[V[:, 1] > V[:, 1].max() - 0.01].mean(0)),
+                             ("leg", lambda V: V[V[:, 1] > V[:, 1].max() - 0.01].mean(0))):
+            lp = next(p for p in parts if p.name == f"arteries_{limb}_{side}")
+            start = top_of(lp.V)
+            T = trunk.V[np.sign(trunk.V[:, 0]) == sg]
+            end = T[np.argmin(np.linalg.norm(T - start, axis=1))]     # the trunk artery closest to where the limb's starts
+            gap = np.linalg.norm(start - end)
+            log(f"bridge {limb} {side}: {gap * 1000:.0f} mm")
+            if gap < 0.004:
+                continue
+            mid = (start + end) / 2 + np.array([sg * 0.008, 0.004, 0]) * (limb == "arm")
+            pts = [end + (mid - end) * t for t in np.linspace(0, 1, 6)] + [mid + (start - mid) * t for t in np.linspace(0, 1, 6)[1:]]
+            V, F = tube(pts, 0.0028 if limb == "arm" else 0.0035)
+            lp.V, lp.F = np.vstack([lp.V, V]), np.vstack([lp.F, F + len(lp.V)])
 
 
 def check_inside(parts, warp, log):
@@ -581,15 +752,19 @@ def preview(parts, body_V, out_dir, views=("front", "side")):
     pts, cols = np.vstack(pts), np.vstack(cols).astype(float)
     sel = rng.random(len(body_V)) < 0.25
     for view in views:
-        for crop, (y0, y1) in {"full": (0.0, 1.78), "head": (1.45, 1.78), "torso": (0.8, 1.5)}.items():
+        for crop, (y0, y1) in {"full": (0.0, 1.78), "head": (1.45, 1.78), "torso": (0.8, 1.5), "hand": (0.94, 1.16)}.items():
             H = 900
             sc = H / (y1 - y0)
             W = int((1.2 if crop == "full" else 0.55) * sc) if view == "front" else int(0.5 * sc)
+            cx = 0.0
+            if crop == "hand":   # the left hand, centred
+                W = int(0.22 * sc)
+                cx = 0.46 if view == "front" else 0.19
             img = np.zeros((H, W, 3), dtype=np.float32)
             zb = np.full((H, W), -9.0)
 
             def draw(P, C, fade):
-                u = P[:, 0] if view == "front" else P[:, 2] + 0.05
+                u = (P[:, 0] if view == "front" else P[:, 2] + 0.05) - cx
                 d = P[:, 2] if view == "front" else P[:, 0]
                 px = (W / 2 + u * sc).astype(int)
                 py = (H - 1 - (P[:, 1] - y0) * sc).astype(int)
@@ -639,11 +814,12 @@ def main():
     a = ap.parse_args()
     log = lambda m: print(m, flush=True)
 
-    body_V, _, body_R = read_glb(MODELS / "body.glb")
+    body_V, body_F, body_R = read_glb(MODELS / "body.glb")
     J = json.loads((MODELS / "joints.json").read_text())["joints"]
     db = BP3D(a.bp3d, a.lists)
     parts, chains = build_parts(db, log)
     warp = fit_parts(parts, chains, db, body_V, body_R, J, log)
+    keep_inside(parts, body_V, body_F, body_R, log)
 
     # the spleen, between the stomach, the left kidney and the diaphragm
     kid = next(p for p in parts if p.name == "kidney_left").V
@@ -679,6 +855,7 @@ def main():
     work = pathlib.Path(a.keep) if a.keep else pathlib.Path(tempfile.mkdtemp(prefix="canary-anatomy-"))
     work.mkdir(parents=True, exist_ok=True)
     dec = decimate(merged, work, log)
+    heart_c = next(p.V for p in parts if p.name == "heart").mean(0)
     nodes, total = [], 0
     for m in merged:
         V, F = dec[m.name]
@@ -691,8 +868,12 @@ def main():
         if m.color:
             ex["color"] = m.color
         node = dict(name=m.name, extras=ex, V=V, N=N, F=F)
-        if m.uv:     # flow shaders run their light pulses along uv.x: use the height
-            node["UV"] = np.stack([V[:, 1] * (-3.0 if m.name == "aorta" else 3.0), np.zeros(len(V))], 1)
+        if m.uv:     # flow shaders run their light pulses along uv.x (toward larger values)
+            if m.system == "heart":   # blood leaves the heart in the arteries and comes back in the veins
+                d = np.linalg.norm(V - heart_c, axis=1) * 3.0
+                node["UV"] = np.stack([-d if m.name == "vena_cava" else d, np.zeros(len(V))], 1)
+            else:
+                node["UV"] = np.stack([V[:, 1] * 3.0, np.zeros(len(V))], 1)
         nodes.append(node)
         total += len(F)
     # centre line of the vertebral canal, for the nerves that are drawn procedurally

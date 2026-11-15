@@ -24,7 +24,10 @@ export interface Part { mesh: THREE.Mesh; system: SystemId; kind: 'organ' | 'bon
 /** Look of the real structures that are not plain glowing surfaces: light travelling along vessels and airways. */
 const FLOW: Record<string, { color: string; speed: number; opacity: number }> = {
   aorta: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, pulmonary_trunk: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
-  vena_cava: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
+  vena_cava: { color: '#6f8dff', speed: 0.45, opacity: 1 }, coronaries: { color: '#ff4f8e', speed: 0.9, opacity: 1 },
+  arteries_trunk: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
+  arteries_arm_left: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, arteries_arm_right: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
+  arteries_leg_left: { color: '#ff4f8e', speed: 0.7, opacity: 1 }, arteries_leg_right: { color: '#ff4f8e', speed: 0.7, opacity: 1 },
   airways_left: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 }, airways_right: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 },
   trachea: { color: SYSTEM_COLOR.lungs, speed: 0.35, opacity: 1 },
   lung_vessels_left: { color: '#8fe6ff', speed: 0.5, opacity: 0.8 }, lung_vessels_right: { color: '#8fe6ff', speed: 0.5, opacity: 0.8 },
@@ -240,7 +243,9 @@ export function buildAnatomy(J: Joints, gltf?: GLTF | null) {
       new THREE.Vector3(0, gutTop - 0.08, -0.07), new THREE.Vector3(0, pelvis.y + 0.04, -0.06)]
     tube(aortaPts, 0.006, 'heart', 'vessel', '#ff4f8e', 0.7)
   }
-  for (const s of ['l', 'r']) {
+  // drawn only when the model has no real arteries of the neck and limbs
+  const realArteries = !!real?.meshes.some(m => m.name.startsWith('arteries_'))
+  for (const s of realArteries ? [] : ['l', 'r']) {
     const sg = s === 'l' ? 1 : -1
     tube([aortaBottom.clone(), v(J[`${s}-upper-leg`]).add(new THREE.Vector3(0, 0, 0.03)), v(J[`${s}-knee`]).add(new THREE.Vector3(0, 0, -0.01)), v(J[`${s}-ankle`])], 0.0045, 'heart', 'vessel', '#ff4f8e', 0.7)
     tube([aortaTop.clone(), new THREE.Vector3(sg * 0.025, neck.y, 0), new THREE.Vector3(sg * 0.03, head.y + 0.02, 0.0)], 0.004, 'heart', 'vessel', '#ff4f8e', 0.7)
