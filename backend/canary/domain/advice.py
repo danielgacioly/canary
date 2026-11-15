@@ -133,7 +133,7 @@ def sync(crew_id: str, day: int) -> None:
     done = db.get_setting("advice_escalated", [])
     new = [e for e in escalation(crew_id, day) if f"{crew_id}:{e['key']}" not in done]
     for e in new:
-        to = privacy.SUBSTITUTE if crew_id == privacy.MEDICAL_OFFICER else privacy.MEDICAL_OFFICER
+        to = privacy.alerts_to(crew_id)
         now = time.time()
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
              ("canary", to, "advice", f"Advice review for {CREW_BY_ID[crew_id]['name'].split(' ')[0]}: two rounds of advice in a row did not move the numbers. "
