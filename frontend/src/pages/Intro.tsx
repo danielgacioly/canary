@@ -45,7 +45,6 @@ export default function Intro() {
       <Stars />
       <div className="row intro-top">
         <span className="brand"><CanaryMark size={24} />CANARY</span>
-        <span className="small dim">NASA Space Apps Challenge 2026</span>
         <button className="btn sm ghost right" onClick={enter}>Skip intro<Icon name="chev" /></button>
       </div>
       <div className="intro-stage">
