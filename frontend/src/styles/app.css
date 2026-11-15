@@ -1329,3 +1329,8 @@ ul.bul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; g
 .er-describe:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .er-match { padding: 22px 0 6px; border-top: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .er-alt { padding: 10px 0; border-top: 1px solid var(--line); }
+
+/* ---------- mission plan: one leg, in reading order ---------- */
+.leg-facts { display: flex; flex-wrap: wrap; gap: 4px 0; margin: 4px 0 0; color: var(--ink); font-size: 16px; }
+.leg-facts > span + span::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--line-2); margin: 0 14px 3px; }
+button.prow { width: 100%; text-align: left; }
