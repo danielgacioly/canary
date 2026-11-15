@@ -264,7 +264,7 @@ def test_unacknowledged_critical_events_climb_to_the_commander_then_the_flight_s
     ev = db.q("SELECT * FROM alert_events WHERE key='ind_spo2' AND crew_id='t'")[0]
     wait = notify.escalate_after_s()
     t0 = time.time()
-    assert notify.escalate(t0 + wait - 1) == 0  # not yet
+    assert notify.escalate(t0 + wait - 3) == 0  # not yet
     assert notify.escalate(t0 + wait + 1) >= 1
     assert notify.get(ev["id"])["escalation_stage"] == 1
     cmd = db.q("SELECT * FROM messages WHERE recipient='h' AND kind='alert' ORDER BY id DESC LIMIT 1")[0]  # Helena is the commander

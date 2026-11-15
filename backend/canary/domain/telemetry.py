@@ -51,7 +51,7 @@ CHECKIN_FIELDS = {
     "mood": [("mood", "mood"), ("stress", "stress")],
     "pvt": [("ms", "react")],
     "sleep": [("hours", "sleep")],
-    "vitals": [("hr", "hr"), ("bp", "sbp"), ("dbp", "dbp"), ("temp", "temp"), ("spo2", "spo2")],
+    "vitals": [("hr", "hr"), ("sbp", "sbp"), ("dbp", "dbp"), ("temp", "temp"), ("spo2", "spo2")],
     "dsst": [("correct", "dsst")],
     "span": [("span", "span")],
     "kss": [("level", "kss")],

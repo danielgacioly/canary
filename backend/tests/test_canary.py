@@ -736,11 +736,11 @@ def test_missing_mood_after_three_days_without_the_goal_and_gone_after_a_checkin
 
 def test_vitals_outside_what_can_be_typed_are_refused():
     _day(100)
-    for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"bp": 0}, {"hr": "fast"}):
+    for bad in ({"hr": 900}, {"hr": 5}, {"temp": 80}, {"spo2": 120}, {"sbp": 0}, {"hr": "fast"}):
         r = _checkin("a", "vitals", bad)
         assert r.status_code == 422, bad  # was 400 before every bad input answered with the same {field, message} shape
-        assert r.json()["detail"][0]["field"] in ("hr", "bp", "temp", "spo2")
-    assert _checkin("a", "vitals", {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
+        assert r.json()["detail"][0]["field"] in ("hr", "sbp", "temp", "spo2")
+    assert _checkin("a", "vitals", {"hr": 62, "sbp": 118, "temp": 36.6, "spo2": 98}).status_code == 200
     latest = {t["id"]: t["latest"] for t in client.get("/api/checkins/a", headers=as_("a")).json()["tests"]}
     assert latest["vitals"]["payload"]["hr"] == 62
     assert selftests_limits_are_not_clinical()
@@ -1727,10 +1727,10 @@ def _tests_count(cid, kind):
 
 @pytest.mark.parametrize("kind,payload,field,text", [
     ("vitals", {"hr": 10}, "hr", "Pulse must be between 25 and 250 bpm"),
-    ("vitals", {"bp": 300}, "bp", "between 60 and 260 mmHg"),
+    ("vitals", {"sbp": 300}, "sbp", "between 60 and 260 mmHg"),
     ("vitals", {"temp": 36.55}, "temp", "decimal place"),
     ("vitals", {"spo2": 97.5}, "spo2", "whole number"),
-    ("vitals", {"hr": None, "bp": None}, "form", "Type at least one value"),
+    ("vitals", {"hr": None, "sbp": None}, "form", "Type at least one value"),
     ("vitals", {"hr": "abc"}, "hr", "must be a number"),
     ("sleep", {"bed": "23:00", "wake": "23:30", "quality": 3}, "wake", "between 1 and 16 h"),
     ("sleep", {"bed": "", "wake": "07:00"}, "bed", "required"),
@@ -1755,7 +1755,7 @@ def test_a_bad_check_in_is_refused_with_the_field_and_nothing_is_saved(kind, pay
 
 def test_a_valid_check_in_of_each_kind_still_saves():
     _day(100)
-    ok = {"vitals": {"hr": 62, "bp": 118, "temp": 36.6, "spo2": 98}, "sleep": {"bed": "23:00", "wake": "07:00", "quality": 4},
+    ok = {"vitals": {"hr": 62, "sbp": 118, "temp": 36.6, "spo2": 98}, "sleep": {"bed": "23:00", "wake": "07:00", "quality": 4},
           "reading": {"title": "Dune", "minutes": 25, "pages": None, "absorbing": 4}, "journal": {"lines": 2},
           "wellbeing": {"answers": [0, 1, 2, 3]}, "symptoms": {"items": [], "severity": 0, "note": ""},
           "tlx": {"scores": {"mental": 50, "physical": 20}}, "kss": {"level": 3}, "pvt": {"ms": 320}, "amsler": {"distortion": False},
@@ -1851,7 +1851,7 @@ def test_nan_and_null_numbers_in_the_raw_json_are_refused_not_saved():
     h = {**as_("a"), "Content-Type": "application/json"}
     r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":NaN}}', headers=h)
     assert "hr" in _fields(r)
-    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":null,"bp":null,"temp":null,"spo2":null}}', headers=h)
+    r = client.post("/api/checkins", content='{"crew_id":"a","kind":"vitals","payload":{"hr":null,"sbp":null,"temp":null,"spo2":null}}', headers=h)
     assert "form" in _fields(r)
     assert db.q("SELECT COUNT(*) AS n FROM checkins")[0]["n"] == before
 

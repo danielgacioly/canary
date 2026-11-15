@@ -16,3 +16,4 @@ The golden files were regenerated on purpose with `CANARY_GOLDEN_UPDATE=1 pytest
 - The Mars plan has a return leg (return cruise days 721 to 930, Earth from 931); the dose projection and `plan/conditions` change with it.
 - Mission state gains `met`, `gmt`, `sol`, `mars_time`, `one_way_light_s` and `blackout`; the delay of the place is computed from the Earth-Mars geometry; the sol uses the real 88,775.244 s length.
 - Merged with the accounts/alerts phase: messages now include storm notices.
+- Medical overview no longer carries `notices` (the legacy notice table is gone; alerts are read from `alert_events`).

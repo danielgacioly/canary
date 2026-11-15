@@ -170,7 +170,7 @@ function Amsler() {
 
 const VITALS = [
   { k: 'hr', label: 'Pulse', unit: 'bpm', min: 25, max: 250 },
-  { k: 'bp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
+  { k: 'sbp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
   { k: 'temp', label: 'Temperature', unit: '°C', min: 30, max: 45, decimals: 1 },
   { k: 'spo2', label: 'Oxygen', unit: '%', min: 50, max: 100, integer: true },
 ] as const
@@ -183,7 +183,7 @@ function Vitals() {
   const [photoErr, setPhotoErr] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
   const form = useForm({
-    initial: { hr: '', bp: '', temp: '', spo2: '', photo: '' },
+    initial: { hr: '', sbp: '', temp: '', spo2: '', photo: '' },
     validate: f => {
       const e: Record<string, string | null> = {}
       for (const { k, label, unit, min, max, ...o } of VITALS) e[k] = v.number(label, { min, max, unit, optional: true, ...o })(f[k])
@@ -210,7 +210,7 @@ function Vitals() {
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
-      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), bp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
+      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), sbp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
       <div className="grid g2">
         {VITALS.map(({ k, label, unit, min, max, ...o }) => (
           <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />

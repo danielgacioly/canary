@@ -168,7 +168,7 @@ function PatchesTab({ me }: { me: string }) {
 /* ---------------------------------------------------------------- dashboard: every chart in one place */
 const GROUPS: [string, string[]][] = [
   ['Mental', ['sleep', 'react', 'mood', 'stress', 'social']],
-  ['Physical', ['hr', 'bp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
+  ['Physical', ['hr', 'sbp', 'dbp', 'spo2', 'vo2', 'temp', 'gluc', 'water', 'exer', 'grip', 'bone']],
 ]
 
 function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {

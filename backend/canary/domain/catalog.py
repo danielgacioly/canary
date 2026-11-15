@@ -353,7 +353,6 @@ ACCEPT: Dict[str, dict] = {
     "hr": {"units": ("bpm",), "range": (25, 250)},
     "sbp": {"units": ("mmHg",), "range": (60, 260)},
     "dbp": {"units": ("mmHg",), "range": (30, 180)},
-    "bp": {"units": ("mmHg",), "range": (60, 260)},  # legacy name of the systolic pressure: stored as `sbp`
     "spo2": {"units": ("%",), "range": (50, 100)},
     "temp": {"units": ("°C",), "range": (30, 45)},
     "gluc": {"units": ("mg/dL",), "range": (20, 800)},

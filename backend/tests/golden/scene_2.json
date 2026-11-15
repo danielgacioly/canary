@@ -51280,19 +51280,6 @@
    },
    "suggested_user": "h"
   },
-  "notices": [
-   {
-    "alert_id": "behaviour",
-    "crew_id": "h",
-    "day": 147,
-    "level": 2,
-    "name": "Helena Duarte",
-    "since_day": 143,
-    "title": "Sleep, mood and focus are dropping together.",
-    "to": "k",
-    "to_name": "Kenji Mori"
-   }
-  ],
   "thresholds": {
    "act": 2.5,
    "watch": 1.5

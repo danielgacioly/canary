@@ -372,7 +372,6 @@ def _interp(points: Sequence[Sequence[float]], day: float) -> float:
 
 
 # ---------------------------------------------------------------- reading the table
-ALIAS = {"bp": "sbp"}  # the legacy name of the systolic pressure
 # `method` of the readings made by an instrument; anything else ("manual") is self-reported. On the same day an instrument
 # reading takes precedence over a self-report (telemetry.pick); every reading of the day is kept.
 DEVICE_METHODS = frozenset({"wearable", "test", "blood", "urine", "environment", "dosimeter", "device", "sensor"})  # "sensor" is the API default for a device-keyed sender
@@ -408,7 +407,7 @@ class Table:
     def __init__(self, rows: Iterable[Sequence]):
         by: Dict[Tuple[str, str], List[tuple]] = {}
         for r in rows:
-            by.setdefault((r[0], ALIAS.get(r[2], r[2])), []).append((int(r[1]), float(r[3]), r[5], r[6], r[7], r[8], r[4]))
+            by.setdefault((r[0], r[2]), []).append((int(r[1]), float(r[3]), r[5], r[6], r[7], r[8], r[4]))
         self.days: Dict[Tuple[str, str], List[int]] = {}
         self.obs: Dict[Tuple[str, str], List[tuple]] = {}
         for k, lst in by.items():
