@@ -1,7 +1,7 @@
 // Thin typed client for the Canary API. Every screen talks to the backend through here.
 import type {
   AssistantAnswer, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, GoalsResponse,
-  CheckinResult, ControlDemo, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
+  CheckinResult, ControlDemo, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, Suggestions, TestHistory, Rad, SpaceWeather,
 } from './types'
 
 let medicalToken: string | null = sessionStorageGet('canary.med')
@@ -83,6 +83,7 @@ const body = (b: unknown) => ({ body: JSON.stringify(b) })
 export const api = {
   catalog: () => req<Catalog>('/catalog'),
   mission: () => req<Mission>('/mission'),
+  scenes: () => req<Scene[]>('/scenes'),
   setStep: (step: number) => req<Mission>('/mission', { method: 'PUT', ...body({ step }) }),
   setLocation: (location: string | null) =>
     req<Mission>('/mission', { method: 'PUT', ...body(location ? { location } : { clear_location: true }) }),

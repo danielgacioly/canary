@@ -8,10 +8,11 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { buildAnatomy, type Joints, type Part, type SystemId } from './anatomy'
-import { bodyMaterial, STATUS_COLOR } from './materials'
+import { bodyMaterial, NO_DATA_COLOR, STATUS_COLOR } from './materials'
 
 export type Lens = 'physical' | 'mental'
-export type StatusMap = Partial<Record<SystemId, 0 | 1 | 2>>
+/** 0 to 2 are the status levels; -1 is a system with no data yet (painted neutral grey). */
+export type StatusMap = Partial<Record<SystemId, -1 | 0 | 1 | 2>>
 const REGIONS = ['head', 'torso', 'arm', 'hand', 'leg', 'foot']
 const REGION_SYSTEM: Record<string, SystemId> = { head: 'brain', torso: 'skin', arm: 'muscles', hand: 'muscles', leg: 'muscles', foot: 'muscles' }
 const MENTAL: SystemId[] = ['brain']
@@ -159,14 +160,14 @@ export class HologramScene {
     REGIONS.forEach((r, i) => {
       const sys = REGION_SYSTEM[r]
       const lvl = this.status[sys] ?? 0
-      const c = STATUS_COLOR[lvl]
-      ;(u.uTint.value[i] as THREE.Vector4).set(c.r, c.g, c.b, lvl ? 0.55 : 0)
+      const c = lvl < 0 ? NO_DATA_COLOR : STATUS_COLOR[lvl]
+      ;(u.uTint.value[i] as THREE.Vector4).set(c.r, c.g, c.b, lvl ? (lvl < 0 ? 0.45 : 0.55) : 0)
       u.uBoost.value[i] = sys === this.hovered ? 0.6 : sys === this.selected ? 0.9 : 0
     })
     for (const p of this.parts) {
       const m = p.mesh.material as THREE.ShaderMaterial
       const lvl = this.status[p.system] ?? 0
-      m.uniforms.uColor.value.copy(lvl ? STATUS_COLOR[lvl] : m.uniforms.uBase.value)
+      m.uniforms.uColor.value.copy(lvl < 0 ? NO_DATA_COLOR : lvl ? STATUS_COLOR[lvl] : m.uniforms.uBase.value)
       m.uniforms.uPulse.value = lvl === 2 ? 1 : lvl === 1 ? 0.4 : 0
       m.uniforms.uBoost.value = p.system === this.hovered ? 0.7 : p.system === this.selected ? 1 : 0
     }

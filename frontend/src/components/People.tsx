@@ -44,7 +44,7 @@ export function CrewDots({ people }: { people: DotPerson[] }) {
 export function ProfilePicker({ preselect = null, title = 'Choose your profile' }: { preselect?: string | null; title?: string }) {
   const { catalog, setMe } = useSession()
   const [, setParams] = useSearchParams()
-  const [who, setWho] = useState<string | null>(preselect && DEMO_PINS[preselect] ? preselect : null)
+  const [who, setWho] = useState<string | null>(preselect)
   if (!catalog) return null
   const person = catalog.crew.find(c => c.id === who)
   const close = () => { setWho(null); setParams({}, { replace: true }) }
@@ -63,7 +63,7 @@ export function ProfilePicker({ preselect = null, title = 'Choose your profile' 
       </div>
       {person && (
         <PinModal onCancel={close}>
-          <PinPad key={person.id} title={`Hello, ${person.name.split(' ')[0]}`} subtitle="Enter your 4-digit PIN" hint={`Demo PIN: ${DEMO_PINS[person.id]}`} onCancel={close}
+          <PinPad key={person.id} title={`Hello, ${person.name.split(' ')[0]}`} subtitle="Enter your 4-digit PIN" hint={DEMO_PINS[person.id] ? `Demo PIN: ${DEMO_PINS[person.id]}` : undefined} onCancel={close}
             onSubmit={async pin => { await api.crewSignIn(person.id, pin); setMe(person.id); setParams({}, { replace: true }) }} />
         </PinModal>
       )}

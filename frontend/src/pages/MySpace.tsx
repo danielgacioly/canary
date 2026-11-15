@@ -5,16 +5,17 @@ import { useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { CrewDetail, GoalsResponse, PersonalRecord, Suggestions } from '../api/types'
+import type { Pt } from '../lib/scale'
 import BloodChart from '../components/BloodChart'
 import BodyView, { Guide } from '../components/BodyView'
 import { GoalRow, TeamRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import Trend from '../components/Trend'
-import { Icon, Loading, Patch, Tabs } from '../components/ui'
+import { Icon, Loading, Patch, Tabs, WaitingForData } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
-import { bonePctOfPreflight, nasaLine, ORIGIN } from '../lib/health'
+import { bonePctOfPreflight, learningNote, missingNote, nasaLine, num, ORIGIN } from '../lib/health'
 import { squareJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
 import { imageFile } from '../lib/validate'
@@ -161,6 +162,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
   const { catalog } = useSession()
   const guide = catalog?.guide ?? {}
+  if (d.no_data) return <WaitingForData self name={d.crew.name.split(' ')[0]} />
   return (
     <>
       <p className="muted rise">Last 30 days against your own normal. Readings are simulated in this prototype; the blood values are real NASA data.</p>
@@ -171,22 +173,23 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
             {ids.filter(k => d.indicators[k]).map(k => {
               const i = d.indicators[k]
               const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
-              const pts: [number, number][] = bone ? d.trends[k].map(([x, y]) => [x, 100 + y]) : d.trends[k]
+              const pts: Pt[] = bone ? d.trends[k].map(([x, y]): Pt => [x, y === null ? null : 100 + y]) : d.trends[k]
               const lim = nasaLine(k, i)
               const normal = bone ? 100 : i.baseline
               return (
-                <figure key={k} className={`chart-card s${i.level}`}>
+                <figure key={k} className={`chart-card ${i.value === null ? 'nodata' : `s${i.level}`}`}>
                   <figcaption>
                     <span className="dot" /><b>{i.name}</b>
                     <span className="tag">{ORIGIN[i.origin]}</span>
-                    <span className="num">{bone ? `${bonePctOfPreflight(i).toFixed(1)} % of pre-flight` : `${i.value.toFixed(i.dp)} ${i.unit}`}</span>
+                    <span className="num">{i.value === null ? '—' : bone ? `${num(bonePctOfPreflight(i), 1)} % of pre-flight` : `${num(i.value, i.dp)} ${i.unit}`}</span>
                   </figcaption>
                   <p className="small muted legend">
-                    <span><i className="key normal" />Your normal {bone ? '100 %' : `${i.baseline.toFixed(i.dp)} ${i.unit}`}</span>
+                    {normal === null ? <span>{learningNote(i) ?? 'No normal of your own yet'}</span> : <span><i className="key normal" />Your normal {bone ? '100 %' : `${num(i.baseline, i.dp)} ${i.unit}`}</span>}
+                    {i.value !== null ? null : <span>{missingNote(i)}</span>}
                     {lim && <span><i className="key limit" />NASA limit {lim.text} · <a className="item" href={lim.url} target="_blank" rel="noreferrer">{lim.item}</a></span>}
                     {bone && <span>7-day average over daily values</span>}
                   </p>
-                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal} limit={lim?.y}
+                  <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal ?? undefined} limit={lim?.y}
                     minSpan={bone ? 4 : i.spread * 4} avg={bone ? 7 : undefined} label={`${i.name}, last ${pts.length} days`} />
                   {i.standard && i.standard.level > 0 && <p className="small muted">{i.standard.text}</p>}
                   {guide[k] && <Guide g={guide[k]} />}

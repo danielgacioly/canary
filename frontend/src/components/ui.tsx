@@ -1,6 +1,8 @@
 // Small shared pieces: icons, status, sparkline, line chart, mission patches.
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Level } from '../api/types'
+import { Link } from 'react-router-dom'
+import { gapPath, known, type Pt } from '../lib/scale'
 
 export const STATUS = ['On track', 'Watch', 'Act'] as const
 
@@ -51,25 +53,28 @@ export function Status({ level, children }: { level: Level | number; children?: 
   return <span className={`status s${level}`}><span className="dot" />{children ?? STATUS[level]}</span>
 }
 
-/** Line with the personal baseline dashed. No fill, no glow. */
-export function Spark({ data, base, color = 'var(--muted)', w = 140, h = 36 }: { data: [number, number][]; base?: number; color?: string; w?: number; h?: number }) {
-  if (!data.length) return null
-  const ys = data.map(d => d[1]).concat(base ?? [])
+/** Line with the personal baseline dashed. No fill, no glow. Days with no value are gaps. */
+export function Spark({ data, base, color = 'var(--muted)', w = 140, h = 36 }: { data: Pt[]; base?: number; color?: string; w?: number; h?: number }) {
+  const have = known(data)
+  if (!have.length) return null
+  const ys = have.map(d => d[1]).concat(base ?? [])
   const lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1
-  const X = (i: number) => (i / (data.length - 1)) * w, Y = (v: number) => h - 3 - ((v - lo) / span) * (h - 6)
-  const line = data.map((d, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(d[1]).toFixed(1)}`).join('')
+  const x0 = data[0][0], x1 = data[data.length - 1][0]
+  const X = (x: number) => ((x - x0) / (x1 - x0 || 1)) * w, Y = (v: number) => h - 3 - ((v - lo) / span) * (h - 6)
+  const last = have[have.length - 1]
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
       {base !== undefined && <line x1="0" x2={w} y1={Y(base)} y2={Y(base)} stroke="var(--dim)" strokeDasharray="3 3" />}
-      <path d={line} fill="none" stroke={color} strokeWidth="1.6" />
-      <circle cx={X(data.length - 1)} cy={Y(data[data.length - 1][1])} r="2.5" fill={color} />
+      <path d={gapPath(data, X, Y)} fill="none" stroke={color} strokeWidth="1.6" />
+      <circle cx={X(last[0])} cy={Y(last[1])} r="2.5" fill={color} />
     </svg>
   )
 }
 
 export function LineChart({ series, w = 560, h = 190, xLabels, refY, refLabel }:
-  { series: { pts: [number, number][]; color: string }[]; w?: number; h?: number; xLabels?: string[]; refY?: number; refLabel?: string }) {
-  const all = series.flatMap(s => s.pts)
+  { series: { pts: Pt[]; color: string }[]; w?: number; h?: number; xLabels?: string[]; refY?: number; refLabel?: string }) {
+  const all = series.flatMap(s => known(s.pts))
+  if (!all.length) return <p className="small dim">No data yet.</p>
   const xs = all.map(p => p[0]), ys = all.map(p => p[1]).concat(refY ?? [])
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(0, ...ys), y1 = Math.max(...ys) * 1.08
   const P = { l: 44, r: 10, t: 10, b: 24 }
@@ -80,7 +85,7 @@ export function LineChart({ series, w = 560, h = 190, xLabels, refY, refLabel }:
     <svg className="chart" viewBox={`0 0 ${w} ${h}`} width="100%" aria-hidden="true">
       {ticks.map((t, i) => <g key={i}><line className="gl" x1={P.l} x2={w - P.r} y1={Y(t)} y2={Y(t)} /><text x={P.l - 8} y={Y(t) + 4} textAnchor="end">{t >= 1000 ? `${(t / 1000).toFixed(1)}k` : t.toFixed(t < 10 ? 1 : 0)}</text></g>)}
       {refY !== undefined && <><line x1={P.l} x2={w - P.r} y1={Y(refY)} y2={Y(refY)} stroke="var(--muted)" strokeDasharray="4 4" /><text x={w - P.r} y={Y(refY) - 6} textAnchor="end">{refLabel}</text></>}
-      {series.map((s, i) => <path key={i} d={s.pts.map((p, j) => `${j ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('')} fill="none" stroke={s.color} strokeWidth="1.8" />)}
+      {series.map((s, i) => <path key={i} d={gapPath(s.pts, X, Y)} fill="none" stroke={s.color} strokeWidth="1.8" />)}
       {xLabels?.map((l, i) => <text key={i} x={P.l + (i / (xLabels.length - 1)) * (w - P.l - P.r)} y={h - 6} textAnchor={i === 0 ? 'start' : i === xLabels.length - 1 ? 'end' : 'middle'}>{l}</text>)}
     </svg>
   )
@@ -110,6 +115,13 @@ export function Patch({ id, earned }: { id: string; earned: boolean }) {
 
 export function Avatar({ initials, size = '' }: { initials: string; size?: '' | 'lg' | 'xl' }) {
   return <span className={`avatar ${size}`}>{initials}</span>
+}
+
+/** A person with no current measurement at all: one plain line, no empty grids. */
+export function WaitingForData({ self, name }: { self: boolean; name?: string }) {
+  return self
+    ? <p className="waiting rise">Canary is waiting for your first measurements. Check-ins count from today. <Link className="item" to="/tests">Go to Tests</Link></p>
+    : <p className="waiting rise">Canary has no measurements for {name ?? 'this person'} yet.</p>
 }
 
 export function Loading({ what = 'data' }: { what?: string }) {

@@ -6,7 +6,7 @@ import type { Briefing, MedGoal, MedicalOverview } from '../api/types'
 import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
 import PinPad from '../components/PinPad'
 import { Avatar, Icon, Status, Tabs } from '../components/ui'
-import { nasaLine } from '../lib/health'
+import { allMissing, doseOrigin, DASH, nasaLine, num } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
@@ -31,7 +31,9 @@ export default function Medical() {
         <button className="btn sm right" onClick={() => { api.medicalSignOut(); setSigned(false) }}>Sign out</button>
       </div>
       <Tabs value={tab} onChange={setTab} options={TABS.map(t => [t, t] as [typeof t, string])} />
-      {!ov ? <span className="lbl">Loading…</span> : (
+      {!ov ? <span className="lbl">Loading…</span> : ov.crew.length === 0 && tab !== 'Messages' ? (
+        <p className="waiting">No crew is registered yet. Mission Control registers the crew; their health appears here once it does.</p>
+      ) : (
         <>
           {tab === 'Triage' && <Triage ov={ov} />}
           {tab === 'Briefings' && <Briefings ov={ov} />}
@@ -86,7 +88,7 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                   <span className="why">
                     {c.ops.reason && <span className="small muted">{c.ops.reason}</span>}
                     {alerts.map(a => <span key={a.id} className={`alert-line s${a.level}`}><span className="dot" />{a.title}{a.since_day !== undefined && <span className="small dim num"> since day {a.since_day}</span>}</span>)}
-                    {!c.ops.reason && !alerts.length && <span className="small dim">Nothing raised</span>}
+                    {!c.ops.reason && !alerts.length && <span className="small dim">{allMissing(Object.values(c.indicators)) ? 'No data yet' : 'Nothing raised'}</span>}
                   </span>
                   {red ? <span className={`tag s${red.level}`} title={red.title}>{red.text}</span> : <span />}
                 </Link>
@@ -125,7 +127,9 @@ function Triage({ ov }: { ov: MedicalOverview }) {
                     const eva = k === 'vo2' && c.standard_profile ? EVA_WORD[c.standard_profile.eva] : null
                     return (
                       <td key={c.id} className={`num r s${i.level}`}>
-                        <span className={i.level ? 'c' : ''}>{(k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>
+                        <span className={i.level ? 'c' : ''}>{i.value === null ? DASH : (k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> {i.z !== null && <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>}
+                        {i.value === null && <div className="cell-note small dim">{i.last_measured_day !== null ? `Last measured day ${i.last_measured_day}` : 'No data yet'}</div>}
+                        {i.value !== null && i.baseline === null && <div className="cell-note small dim">Learning: {i.baseline_n} of {i.baseline_need ?? 5}</div>}
                         {(eva || s) && (
                           <div className="cell-note small">
                             {eva && <div className="dim">{eva}</div>}
@@ -143,8 +147,8 @@ function Triage({ ov }: { ov: MedicalOverview }) {
               <td><b>Career dose</b> <span className="dim small">mSv</span></td>
               {ov.crew.map(c => (
                 <td key={c.id} className="num r">
-                  {c.dose.career_msv?.toFixed(0)}
-                  <div className="cell-note small dim">{c.dose.career_pct_of_limit?.toFixed(0)}%{c.dose.prior_estimate ? ' · est.' : ''}</div>
+                  {num(c.dose.career_msv)}
+                  <div className="cell-note small dim">{num(c.dose.career_pct_of_limit)}%{c.dose.prior_estimate ? ' · est.' : ''}{doseOrigin(c.dose) ? ` · dose ${doseOrigin(c.dose)}` : ''}</div>
                 </td>
               ))}
               <td className="small muted">{ov.crew[0].dose.career_limit_msv} mSv over a career (V1 4030)</td>

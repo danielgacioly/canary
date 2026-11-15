@@ -1,11 +1,12 @@
 // Crew home: what everyone on board may see. The crew, today's hazards, crew missions.
-// No status, no scores, no averages (with four people an average gives individuals away), no vitals.
+// No status, no scores, no averages (with few people an average gives individuals away), no vitals.
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { TeamRow } from '../components/GoalItems'
 import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
 import { Icon, Loading } from '../components/ui'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
 export default function Crew() {
@@ -16,6 +17,7 @@ export default function Crew() {
   if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
+  if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
   const storm = data.warnings[0]
   const names = Object.fromEntries(catalog.crew.map(c => [c.id, c.name]))
   const eva = storm ? { l: 2, t: 'EVA suspended for everyone' }
@@ -33,7 +35,7 @@ export default function Crew() {
       <div className="head rise">
         <div>
           <h1>{headline}</h1>
-          <p className="sub">{ms.day_label} · {ms.place.name}. No one's health is shown here; tap yourself to open your space with your PIN.</p>
+          <p className="sub">{ms.day_label} · {clockLine(ms.clock)} · {ms.place.name}. No one's health is shown here; tap yourself to open your space with your PIN.</p>
         </div>
       </div>
 
@@ -70,7 +72,7 @@ export default function Crew() {
         <p className="facts-line small">
           <span><span className={`dot s${eva.l}`} />{eva.t}</span>
           <span>Mission dose {data.dose.mission_msv} mSv, {data.dose.pct_of_limit}% of the career limit</span>
-          <span className="dim">Simulated, the same for everyone. Each person's career dose is in My space.</span>
+          <span className="dim">The same for everyone on board. Each person's career dose is in My space.</span>
         </p>
       </section>
 

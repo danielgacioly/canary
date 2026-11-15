@@ -100,7 +100,7 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
         return {**out, "value": None, "baseline": None if base is None else round(base, 3), "delta": None, "z": None, "bad": None,
                 "level": 0, "status": "no_data", "source": f"telemetry:{crew_id}:{ind}:day{day}", "origin": obs["origin"],
                 "last_measured_day": seen_day, "age_days": day - seen_day if seen_day is not None else None, "stale": obs["stale"],
-                "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "learning": learning,
+                "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "baseline_need": B.get("need"), "learning": learning,
                 "population": {"low": None, "high": None, "status": "no_data", "source": None, "verified": False}, "standard": None,
                 **({"sensitive_until": window["sensitive_until"]} if window else {})}
     z = bad = None if learning else 0.0
@@ -128,7 +128,7 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
             "source": f"telemetry:{crew_id}:{ind}:day{day}",
             "origin": obs["origin"], "last_measured_day": last.get(ind),
             "age_days": day - last[ind] if ind in last else None, "stale": False,
-            "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "learning": learning, "population": pop,
+            "spread": round(spread, 3), "baseline_from": B["from"], "baseline_n": B["n"], "baseline_need": B.get("need"), "learning": learning, "population": pop,
             "standard": std,
             **({"sensitive_until": window["sensitive_until"]} if window else {})}
 

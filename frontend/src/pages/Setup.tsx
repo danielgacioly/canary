@@ -207,7 +207,7 @@ export default function Setup() {
   const heads = [
     { h: 'Where is this mission going?', p: 'Everything Canary watches adapts to the place: gravity, radiation, how far Earth is.' },
     { h: 'How long?', p: 'Set the length of each part. The timeline below follows as you change the numbers.' },
-    { h: 'Your crew', p: 'Four people, each with their own normal.' },
+    { h: 'Your crew', p: 'Each person has their own normal.' },
     { h: 'Ready for launch?', p: `${name || 'Your mission'}, ${last + 1} days from launch to the end of the plan.` },
   ][step]
 

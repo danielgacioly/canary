@@ -3,6 +3,8 @@
 import * as THREE from 'three'
 
 export const STATUS_COLOR = [new THREE.Color('#3ddc97'), new THREE.Color('#ffb547'), new THREE.Color('#ff4d5e')]
+/** A system with nothing measured: neutral grey, never a status colour. */
+export const NO_DATA_COLOR = new THREE.Color('#7b8490')
 
 const REVEAL = /* glsl */ `
   float reveal(float y, float r) { return smoothstep(r, r - 0.06, y); }

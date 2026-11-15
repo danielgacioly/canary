@@ -27,9 +27,28 @@ export function domain(values: number[], minSpan = 0, pad = 0.12): [number, numb
   return [lo - p, hi + p]
 }
 
-/** Trailing moving average over `win` points. */
-export const movingAvg = (pts: [number, number][], win: number): [number, number][] =>
-  pts.map(([x], i) => {
-    const w = pts.slice(Math.max(0, i - win + 1), i + 1)
+/** A chart point: a day and a value, or null on a day nobody measured. */
+export type Pt = [number, number | null]
+export type Known = [number, number]
+
+/** The points that have a value. */
+export const known = (pts: readonly Pt[]): Known[] => pts.filter((p): p is Known => p[1] !== null)
+
+/** SVG path of a line that is lifted at every gap: it never joins two points with an unmeasured day between them. */
+export function gapPath(pts: readonly Pt[], X: (x: number) => number, Y: (y: number) => number): string {
+  let d = '', pen = false
+  for (const [x, y] of pts) {
+    if (y === null) { pen = false; continue }
+    d += `${pen ? 'L' : 'M'}${X(x).toFixed(1)},${Y(y).toFixed(1)}`
+    pen = true
+  }
+  return d
+}
+
+/** Trailing moving average over `win` days; a day without a value stays without one. */
+export const movingAvg = (pts: readonly Pt[], win: number): Pt[] =>
+  pts.map(([x, y], i) => {
+    if (y === null) return [x, null]
+    const w = known(pts.slice(Math.max(0, i - win + 1), i + 1))
     return [x, w.reduce((s, p) => s + p[1], 0) / w.length]
   })

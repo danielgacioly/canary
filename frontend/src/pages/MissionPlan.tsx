@@ -6,6 +6,7 @@ import type { PlanConditions } from '../api/types'
 import Hazards from '../components/Hazards'
 import Timeline from '../components/Timeline'
 import { LineChart, Loading } from '../components/ui'
+import { clockLine } from '../lib/clock'
 import { useApi, useSession } from '../state/session'
 
 const BODY: Record<string, string[]> = {
@@ -40,7 +41,7 @@ export default function MissionPlan() {
       <div className="head rise">
         <div>
           <h1>{c.name}</h1>
-          <p className="sub">{mission.day_label} · {mission.place.name}. Registered by mission control; Canary adapts the crew's health care to every leg.</p>
+          <p className="sub">{mission.day_label} · {clockLine(mission.clock)} · {mission.place.name}. Registered by mission control; Canary adapts the crew's health care to every leg.</p>
         </div>
       </div>
 

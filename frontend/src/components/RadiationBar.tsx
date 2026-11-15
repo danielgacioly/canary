@@ -1,6 +1,7 @@
 // Career dose against NASA's 600 mSv (V1 4030): earlier flights, then this mission. Personal; the crew pages show the
 // mission dose only, which is the same for everyone.
 import type { CrewDetail } from '../api/types'
+import { doseOrigin } from '../lib/health'
 import { useSession } from '../state/session'
 
 export default function RadiationBar({ d, compact = false }: { d: CrewDetail; compact?: boolean }) {
@@ -23,7 +24,7 @@ export default function RadiationBar({ d, compact = false }: { d: CrewDetail; co
         <>
           <ul className="rad-key small">
             <li><i className="prior" /><span>Earlier flights</span><b className="num">{x.prior_msv} mSv</b>{x.prior_estimate && <span className="tag" title={x.prior_source}>estimated</span>}</li>
-            <li><i className="now" /><span>This mission</span><b className="num">{x.mission_msv} mSv</b></li>
+            <li><i className="now" /><span>This mission</span><b className="num">{x.mission_msv} mSv</b>{doseOrigin(x) && <span className="small dim">{doseOrigin(x)}</span>}</li>
             <li><span className="sp" /><span>Career total</span><b className="num">{x.career_msv} of {limit} mSv</b></li>
           </ul>
           <p className="small muted">

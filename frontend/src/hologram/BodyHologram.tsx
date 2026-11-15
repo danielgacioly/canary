@@ -56,7 +56,7 @@ export default function BodyHologram({ status = {}, lens = 'physical', selected 
       {failed && <div className="holo-loading">The 3D body needs WebGL 2. Your data is listed beside it.</div>}
       {tip && (
         <div className="holo-tip" style={{ left: tip.x, top: tip.y }}>
-          <b>{names[tip.sys] ?? tip.sys}</b> <span className={`s${lvl} c`}>· {STATUS[lvl]}</span>
+          <b>{names[tip.sys] ?? tip.sys}</b> <span className={lvl < 0 ? 'dim' : `s${lvl} c`}>· {lvl < 0 ? 'No data yet' : STATUS[lvl]}</span>
         </div>
       )}
       {children}
