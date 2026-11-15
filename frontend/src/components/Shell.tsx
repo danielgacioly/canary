@@ -13,7 +13,7 @@ import { CanaryMark, Icon } from './ui'
 
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your health".
 const NAV: { group: string; items: [string, string, string][] }[] = [
-  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/tests', 'test', 'Tests'], ['/plan', 'plan', 'Mission plan'], ['/ranking', 'rank', 'Ranking']] },
+  { group: 'Crew', items: [['/crew', 'crew', 'Crew'], ['/tests', 'test', 'Tests'], ['/plan', 'plan', 'Mission plan'], ['/protocols', 'shield', 'Protocols'], ['/ranking', 'rank', 'Ranking']] },
   { group: 'Your health', items: [['/me', 'today', 'My space']] },
 ]
 

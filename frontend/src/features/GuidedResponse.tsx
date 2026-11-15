@@ -1,15 +1,73 @@
 // Guided Response: deterministic, step-by-step first response. No AI on this path.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, errorText } from '../api/client'
-import type { Emergency, Protocols } from '../api/types'
+import type { Emergency, ProtocolMatch, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
 import { speakWithChirp, stepSpeech, useEnglishVoice } from '../lib/voice'
 import { useSession } from '../state/session'
 
+const CHIPS = ['Not breathing', 'Seizure', 'Choking', 'Bleeding', 'Chest pain', 'Fainted', 'Allergic reaction', 'Eye injury', 'Panic or crisis', 'Radiation alarm']
+
+/** The person describes what they see; Canary ranks the protocols by the words (rules, shown). Nothing starts by itself. */
+function Describe({ P, onStart, onBack }: { P: Protocols; onStart: (id: string, text: string) => void; onBack: () => void }) {
+  const { toast } = useSession()
+  const [text, setText] = useState('')
+  const [res, setRes] = useState<{ q: string; r: ProtocolMatch } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const find = async (q: string) => {
+    const t = q.trim()
+    if (!t || busy) return
+    setBusy(true)
+    try { setRes({ q: t, r: await api.matchProtocol(t) }) } catch (e) { toast(`Could not match that: ${errorText(e)}. Pick from the list instead.`) }
+    setBusy(false)
+  }
+  const best = res?.r.matches[0], rest = res?.r.matches.slice(1) ?? []
+  const name = (id: string) => P.protocols[id]?.name ?? id
+  return (
+    <div className="col" style={{ gap: 18 }}>
+      <p className="er-lead">Say what you see, in your own words.</p>
+      <textarea className="er-describe" rows={3} autoFocus value={text} maxLength={500} aria-label="What do you see?" placeholder="For example: he is shaking and not responding"
+        onChange={e => { setText(e.target.value); setRes(null) }}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); find(text) } }} />
+      <div className="er-choices">{CHIPS.map(c => <button key={c} className="btn er-btn" onClick={() => { setText(c); find(c) }}>{c}</button>)}</div>
+      <div className="row wrap">
+        <button className="btn pri er-btn big" disabled={!text.trim() || busy} onClick={() => find(text)}>{busy ? 'Looking…' : 'Find the protocol'}</button>
+        <button className="btn ghost er-btn" onClick={onBack}>Choose from the list</button>
+      </div>
+      {res && best && (
+        <div className="col detail" style={{ gap: 14 }}>
+          <div className="er-match">
+            <span className="lbl">Closest match</span>
+            <h3 className="er-big">{name(best.id)}</h3>
+            <p className="muted">{best.sign}. You said: {best.matched.length ? best.matched.map(w => `“${w}”`).join(', ') : 'nothing that matches by word'}.</p>
+            <button className="btn pri er-next" onClick={() => onStart(best.id, res.q)}>Start this protocol<Icon name="chev" size={24} /></button>
+          </div>
+          {rest.length > 0 && (
+            <div className="col" style={{ gap: 8 }}>
+              <span className="lbl">It could also be</span>
+              {rest.map(m => (
+                <div key={m.id} className="row er-alt"><span className="grow"><b>{name(m.id)}</b> <span className="muted">{m.matched.map(w => `“${w}”`).join(', ')}</span></span>
+                  <button className="btn er-btn" onClick={() => onStart(m.id, res.q)}>Start</button></div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {res && !best && (
+        <div className="col detail" style={{ gap: 12 }}>
+          <p className="er-big">No protocol matches.</p>
+          <p className="muted">Nothing in what you wrote fits a protocol here. If the person is not responding or not breathing, start basic life support. Otherwise choose from the list.</p>
+          <button className="btn pri er-next" onClick={() => onStart(res.r.fallback?.id ?? 'cpr', res.q)}>No protocol matches — start basic life support<Icon name="chev" size={24} /></button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
 
 export default function GuidedResponse({ onClose }: { onClose: () => void }) {
-  const { me, mission, catalog, bump, toast, prefs } = useSession()
+  const { me, mission, catalog, bump, toast, prefs, emergencyPid } = useSession()
   const [P, setP] = useState<Protocols | null>(null)
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -19,6 +77,8 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   const [stepAt, setStepAt] = useState(Date.now())
   const [voice, setVoice] = useState(prefs.voice)
   const [done, setDone] = useState(false)
+  const [describing, setDescribing] = useState(false)  // "I don't know": the person says what they see, Canary suggests a protocol
+  const started = useRef(false)
 
   useEffect(() => {
     api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
@@ -39,9 +99,16 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
   }, [voice, step, proto, i, eng.voice])
 
   const pick = (id: string) => {
-    setPid(id); setI(0); setStepAt(Date.now())
+    if (id === 'triage') { setDescribing(true); return }  // the yes/no guessing is replaced by a description
+    setDescribing(false); setPid(id); setI(0); setStepAt(Date.now())
     log(`Protocol: ${P?.protocols[id].name}`, { protocol: id })
   }
+  // Opened from a protocol's page: go straight to it (once the bank and the record are ready, so the log keeps the choice).
+  useEffect(() => {
+    if (started.current || !emergencyPid || !P || !em || !P.protocols[emergencyPid]) return
+    started.current = true
+    pick(emergencyPid)
+  }, [P, em, emergencyPid])  // eslint-disable-line react-hooks/exhaustive-deps
   const go = (to: number | string | undefined) => {
     if (to === undefined) { setI(x => x + 1); setStepAt(Date.now()); return }
     if (typeof to === 'string') { log(`Switched to ${P?.protocols[to].name}`, { protocol: to }); setPid(to); setI(to === 'cpr' ? 1 : 0) } else setI(to)
@@ -79,14 +146,15 @@ export default function GuidedResponse({ onClose }: { onClose: () => void }) {
       <div className="er-body">
         <div className="col" style={{ gap: 18 }}>
           {!P && <span className="lbl">Loading protocols…</span>}
-          {P && !proto && !done && (
+          {P && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
+          {P && !proto && !done && !describing && (
             <>
-              <p className="er-lead">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and answer yes or no.</p>
+              <p className="er-lead">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
               <div className="proto-grid">
                 {P.order.map(id => (
                   <button key={id} className="proto" onClick={() => pick(id)}>
                     <b>{P.protocols[id].name}</b>
-                    <span className="muted">{P.protocols[id].sign}</span>
+                    <span className="muted">{id === 'triage' ? 'Say what you see' : P.protocols[id].sign}</span>
                   </button>
                 ))}
               </div>
