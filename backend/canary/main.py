@@ -1171,6 +1171,20 @@ def control_space_events():
     return {"events": data.events()}
 
 
+@app.get("/api/control/data-status", tags=["control"], dependencies=[Depends(require_control)])
+def control_data_status():
+    """What Mission Control may know about the data: is ingest on, which package, how much of each kind, and when each
+    person's indicator last arrived. Counts and dates only: no values and nothing about anyone's health."""
+    count = lambda t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"]  # noqa: E731 (fixed table names)
+    readings = db.q("SELECT crew_id, indicator, MAX(day) last_day, MAX(received_at) last_received_at, COUNT(*) count "
+                    "FROM observations GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
+    pkg = data.loaded_package()
+    return {"ingest_configured": bool(settings.ingest_key), "package": (pkg or {}).get("name"),
+            "counts": {"observations": count("observations"), "goal_entries": count("goal_log"),
+                       "events": count("space_events"), "scenes": count("scenes")},
+            "readings": [{k: r[k] for k in ("crew_id", "indicator", "last_day", "last_received_at", "count")} for r in readings]}
+
+
 def _multipart_files(content_type: str, raw: bytes) -> list:
     """(filename, bytes) of every file part of a multipart/form-data body (standard library, no extra dependency)."""
     from email import policy

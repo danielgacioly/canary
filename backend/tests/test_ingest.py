@@ -395,3 +395,38 @@ def test_the_engine_no_longer_reads_the_file_or_generates_rows():
     src = inspect.getsource(telemetry)
     assert "OBS_FILE" not in src and "Generator" not in src and "read_csv" not in src
     assert not hasattr(goals, "_sim_done")
+
+
+# ---------------------------------------------------------------- GET /api/control/data-status (Mission Control sees counts and dates, never values)
+def _keys(x):
+    if isinstance(x, dict):
+        for k, v in x.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _keys(v)
+
+
+def test_data_status_needs_the_control_session():
+    assert client.get("/api/control/data-status").status_code == 401
+    assert client.get("/api/control/data-status", headers=me()).status_code == 401
+
+
+def test_data_status_has_counts_and_dates_but_no_values_and_no_health():
+    r = client.get("/api/control/data-status", headers=ctl())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ingest_configured"] is True and body["package"] == "odyssey1-mars"
+    assert set(body["counts"]) == {"observations", "goal_entries", "events", "scenes"}
+    assert body["counts"]["observations"] > 0 and body["readings"]
+    assert set(body["readings"][0]) == {"crew_id", "indicator", "last_day", "last_received_at", "count"}
+    forbidden = {"value", "values", "baseline", "z", "bad", "level", "status", "alerts", "risks", "systems", "areas", "delta", "trend"}
+    assert not (set(_keys(body)) & forbidden)
+    assert KEY not in r.text and "ingest_key" not in r.text
+
+
+def test_data_status_never_shows_the_key_when_ingest_is_off(monkeypatch):
+    monkeypatch.setattr(settings, "ingest_key", "")
+    body = client.get("/api/control/data-status", headers=ctl()).json()
+    assert body["ingest_configured"] is False
