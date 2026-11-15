@@ -44,7 +44,7 @@ export function CanaryMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
       <path d="M3 9l5 3-1 4c0 6 5 11 12 11 5 0 8-3 8-7 0-3-2-5-4-6-1-1-1-3-3-4-3-2-6-1-8 1L3 9z" fill="#f2c230" />
-      <circle cx="12" cy="13" r="1.4" fill="#0b0d11" />
+      <circle cx="12" cy="13" r="1.4" style={{ fill: 'var(--logo-eye, #0b0d11)' }} />
     </svg>
   )
 }
