@@ -29,14 +29,16 @@ function kindFor(path: string, method: string): Kind | null {
   if (path.startsWith('/medical/')) return 'medical'
   const here = typeof location === 'undefined' ? '' : location.pathname
   if (here.startsWith('/control')) return 'control'
-  if (here.startsWith('/medical') || (here.startsWith('/crew/') && tokens.medical)) return 'medical'
+  // The medical sign-in works only inside the Medical console: a crew page never carries it (Shell signs it out off-console).
+  if (here.startsWith('/medical')) return 'medical'
   return null
 }
 
-/** The token a call carries: the kind it needs, else the crew sign-in, else the medical one (the crew pages a medical person reads). */
+/** The token a call carries: the kind it needs, else the crew sign-in, else Control's. Never the medical one outside the
+ *  Medical console: health details open only with the right PIN. */
 function pick(path: string, method: string, as?: Kind): { kind: Kind; token: string } | null {
   const want = as ?? kindFor(path, method)
-  const kind = want ?? (tokens.crew ? 'crew' : tokens.medical ? 'medical' : tokens.control ? 'control' : null)
+  const kind = want ?? (tokens.crew ? 'crew' : tokens.control ? 'control' : null)
   const token = kind ? tokens[kind] : undefined
   return kind && token ? { kind, token } : null
 }

@@ -184,7 +184,7 @@ const today = useSession().mission?.day ?? 0
             const empty = allMissing(Object.values(c.indicators))
             return (
               <li key={c.id}>
-                <Link to={`/crew/${c.id}`} className="triage-row" aria-label={`Open ${c.name}`}>
+                <Link to={`/medical/crew/${c.id}`} className="triage-row" aria-label={`Open ${c.name}`}>
                   <span className="who"><b>{c.name}</b><span className="small muted">{c.role}</span></span>
                   {empty && !c.ops.reason ? <span className="status nodata"><span className="dot" />No data yet</span> : <Status level={c.ops.level}>{c.ops.label}</Status>}
                   <span className="why">

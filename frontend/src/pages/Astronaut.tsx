@@ -1,6 +1,6 @@
 // A crew member's page. The crew sees only the public card: goal participation, never a status.
 // Health details and operational status appear for the medical team only.
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CrewDetail, Person } from '../api/types'
 import BodyView, { RiskBlock } from '../components/BodyView'
@@ -15,24 +15,29 @@ import { useApi, useSession, useSignedApi } from '../state/session'
 import { useState } from 'react'
 import RulesNote from '../components/RulesNote'
 
+/** `/crew/:id` is the crew's view: the public card, or the person's own space. `/medical/crew/:id` is the Medical
+ * console's view, the only place a medical sign-in opens someone's health details. */
 export default function Astronaut() {
   const { id = '' } = useParams()
   const { me } = useSession()
-  if (id === me) return <Navigate to="/me" replace />
-  return <Other id={id} />
+  const medical = useLocation().pathname.startsWith('/medical/')
+  if (!medical && id === me) return <Navigate to="/me" replace />
+  return <Other id={id} medical={medical} />
 }
 
-function Other({ id }: { id: string }) {
+function Other({ id, medical }: { id: string; medical: boolean }) {
   const { data: d, error } = useApi<CrewDetail | 'private'>(() => api.crewDetail(id).catch(e => {
-    if (e instanceof ApiError && e.status === 403) return 'private' as const
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return 'private' as const
     throw e
   }), [id])
-  const { data: o } = useSignedApi(() => api.overview(), [])
+  const { data: o, locked } = useSignedApi(() => api.overview(), [])
   if (error) return <div className="page"><p className="muted">{error}</p></div>
   if (!d) return <Loading what="crew member" />
   if (d === 'private') {
+    if (medical) return <Navigate to="/medical" replace />  // the console session ended: its PIN pad again
     const person = o?.people.find(p => p.id === id)
-    return person ? <PublicCard p={person} /> : <Loading what="crew member" />
+    if (person) return <PublicCard p={person} />
+    return locked || o ? <PrivateNote /> : <Loading what="crew member" />
   }
   // Indicators never read in the window get no row of dashes: they are named once under the table.
   const all = Object.values(d.indicators).filter(i => !i.alias_of)
@@ -40,7 +45,9 @@ function Other({ id }: { id: string }) {
   const unread = all.filter(i => !read.includes(i))
   return (
     <div className="page">
-      <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
+      {medical
+        ? <Link to="/medical" className="back"><Icon name="back" />Medical console</Link>
+        : <Link to="/crew" className="back"><Icon name="back" />Crew</Link>}
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
         <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · medical team view</p></div>
@@ -204,6 +211,21 @@ function PublicCard({ p }: { p: Person }) {
           <p className="muted">The crew sees only {first}'s goals done. Numbers, alerts and operational status stay with {first} and the medical team.</p>
           <Link to="/medical" className="link">Medical team: open the console</Link>
         </div>
+      </section>
+    </div>
+  )
+}
+
+/** Nobody signed in, or someone without access: the page says it is private and how to get in. */
+function PrivateNote() {
+  return (
+    <div className="page">
+      <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
+      <section className="detail-card rise gate-mini">
+        <span className="lock"><Icon name="lock" size={20} /></span>
+        <h2>This health page is private</h2>
+        <p className="muted">Only the person, with their PIN, and the medical team, in the Medical console, can open it.</p>
+        <Link to="/me" className="link">Open my space</Link>
       </section>
     </div>
   )

@@ -45,6 +45,7 @@ export default function App() {
         <Route path="/link" element={<Navigate to="/crew" replace />} />
         <Route path="/mission" element={<MissionInfo />} />
         <Route path="/medical" element={<Medical />} />
+        <Route path="/medical/crew/:id" element={<Astronaut />} />
         <Route path="/about" element={<About />} />
       </Route>
       <Route path="*" element={<Navigate to={seenIntro() ? '/crew' : '/welcome'} replace />} />

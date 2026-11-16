@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import ErrorBoundary from './ErrorBoundary'
 import { api } from '../api/client'
@@ -21,10 +21,15 @@ const NAV: { group: string; items: [string, string, string][] }[] = [
 ]
 
 export default function Shell() {
-  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog } = useSession()
+  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog, bump } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
   const { pathname } = useLocation()
+  // The medical sign-in lasts only while someone is in the Medical console: leaving it ends the session, so the next
+  // person needs the PIN again and no crew page can open health details with it.
+  useEffect(() => {
+    if (!pathname.startsWith('/medical') && api.isMedical()) { api.medicalSignOut(); bump() }
+  }, [pathname, bump])
   const { data: crew } = useSignedApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
