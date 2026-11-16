@@ -518,7 +518,7 @@ def _g_cardio(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
         ev.append(k)
     pr = inds["sbp"] if inds["sbp"]["level"] or not inds["dbp"]["level"] else inds["dbp"]
     from . import health
-    if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and health.regravity_pattern(inds):
+    if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and health.regravity_pattern(inds, health.just_changed_to_partial(ms)):
         ev.append({"key": "regravity", "origin": pr["origin"], "value": None, "baseline": None, "z": None, "derived": True,
                    "points": RULES["cardio"]["regravity_points"], "source": pr["source"],
                    "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)"})

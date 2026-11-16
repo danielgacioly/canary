@@ -389,10 +389,22 @@ def duration_words(days: int) -> str:
     return f"{days // 7} weeks" if days % 7 == 0 else f"{days} days"
 
 
-def regravity_pattern(inds: Dict[str, dict]) -> bool:
+REGRAVITY_WINDOW_DAYS = 30  # the weeks after the change to partial gravity in which an unlabelled pressure may count (RULE-04)
+
+
+def just_changed_to_partial(ms: dict) -> bool:
+    """True in the first weeks after arriving in partial gravity from 0 g (the place just changed): the re-adaptation
+    window, in which the standing reading is optional (RULE-04)."""
+    from . import plan  # late import: plan is below health in the dependency order
+    since = plan.days_since_gravity_change(ms["day"])
+    return since is not None and since < REGRAVITY_WINDOW_DAYS
+
+
+def regravity_pattern(inds: Dict[str, dict], just_changed: bool = False) -> bool:
     """The re-adaptation pattern after the change to partial gravity (RULE-04): the pressure is BELOW the normal (direction),
     the pulse ABOVE it, and the pressure was taken standing (context). A pressure or a pulse away from the normal in another
-    direction, or a pressure taken lying or seated, is not this pattern."""
+    direction, or a pressure taken lying or seated, is not this pattern. In the first weeks after the place changed to partial
+    gravity (`just_changed`) the standing reading is optional: the position does not decide it (RULE-04, prototype)."""
     P = A.value("cardio.regravity_pattern")
     sbp, dbp, hr = inds["sbp"], inds["dbp"], inds["hr"]
 
@@ -402,7 +414,8 @@ def regravity_pattern(inds: Dict[str, dict]) -> bool:
     pressure_low = below(sbp) or below(dbp)
     pulse_high = hr.get("delta") is not None and hr["delta"] > 0 and hr["level"] >= 1
     position = (sbp.get("context") or {}).get("position") or (dbp.get("context") or {}).get("position")  # how the pressure was taken
-    return bool(pressure_low and pulse_high and position == P["position"])
+    position_ok = just_changed or position == P["position"]
+    return bool(pressure_low and pulse_high and position_ok)
 
 
 def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None,
@@ -418,7 +431,10 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
         worst = max([inds[i]["level"] for i in S["indicators"]] or [0])
         critical = any(inds[i]["population"]["status"] == "critical" or (inds[i].get("standard") or {}).get("level") == 2
                        for i in S["indicators"])
-        from_alerts = max([a["level"] for a in (al or []) if a.get("sys") == sid and not a.get("data")] or [0])
+        # cross-signal alerts set the system's level; a single indicator's alert reads at most a watch (1) here, a critical
+        # or NASA level-2 limit is already in `critical` above
+        from_alerts = max([min(1, a["level"]) if str(a.get("id", "")).startswith("ind_") else a["level"]
+                           for a in (al or []) if a.get("sys") == sid and not a.get("data")] or [0])
         lv = 2 if critical else max(risk.level_for(risks, sid), min(1, worst), from_alerts)
         note = None
         if sid == "eyes":
@@ -713,7 +729,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                   "goals": [{"id": "al_sip", "area": "physical", "title": "A sip of water every 15 minutes until dinner"},
                             {"id": "al_head", "area": "physical", "title": "Slow head movements, 5 min, three times today"}]})
 
-    if place["gravity_key"] == "gp" and regravity_pattern(inds):
+    if place["gravity_key"] == "gp" and regravity_pattern(inds, just_changed_to_partial(ms)):
         used.update(["sbp", "dbp", "hr"])
         AL.append({"id": "regravity", "level": 1, "sys": "heart",
                   "title": "Your body is relearning weight.",

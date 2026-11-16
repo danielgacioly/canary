@@ -2321,9 +2321,9 @@
     "last_checkin_day": null,
     "name": "Helena Duarte",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "role": "Commander",
     "today": {
@@ -2339,9 +2339,9 @@
     "last_checkin_day": null,
     "name": "Kenji Mori",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "role": "Crew medical officer",
     "today": {
@@ -2357,9 +2357,9 @@
     "last_checkin_day": null,
     "name": "Amara Okafor",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "role": "Flight engineer",
     "today": {
@@ -2499,7 +2499,7 @@
  "/api/crew [as medical]": {
   "crew": [
    {
-    "alerts": 3,
+    "alerts": 2,
     "areas": {
      "mental": {
       "level": 0,
@@ -2519,9 +2519,9 @@
     "level": 2,
     "name": "Helena Duarte",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "rank": 1,
     "role": "Commander",
@@ -2531,7 +2531,7 @@
      "brain": 0,
      "eyes": 0,
      "gut": 0,
-     "heart": 2,
+     "heart": 1,
      "immune": 0,
      "kidneys": 0,
      "lungs": 0,
@@ -2542,7 +2542,7 @@
     "top_alert": "A radiation storm is in progress at the Mars surface."
    },
    {
-    "alerts": 5,
+    "alerts": 3,
     "areas": {
      "mental": {
       "level": 0,
@@ -2562,9 +2562,9 @@
     "level": 2,
     "name": "Kenji Mori",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "rank": 3,
     "role": "Crew medical officer",
@@ -2585,7 +2585,7 @@
     "top_alert": "A radiation storm is in progress at the Mars surface."
    },
    {
-    "alerts": 5,
+    "alerts": 3,
     "areas": {
      "mental": {
       "level": 0,
@@ -2605,9 +2605,9 @@
     "level": 2,
     "name": "Amara Okafor",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "rank": 2,
     "role": "Flight engineer",
@@ -2628,7 +2628,7 @@
     "top_alert": "A radiation storm is in progress at the Mars surface."
    },
    {
-    "alerts": 4,
+    "alerts": 2,
     "areas": {
      "mental": {
       "level": 0,
@@ -2957,75 +2957,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
-    "level": 2,
+    "id": "regravity",
+    "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:a:sbp:day222",
      "telemetry:a:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 62 bpm. Your normal is 55 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:a:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 101 mmHg. Your normal is 109 mmHg."
-   },
-   {
-    "days_active": 11,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 212,
-    "sources": [
-     "telemetry:a:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 68 mmHg. Your normal is 73 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    },
    {
     "days_active": 12,
@@ -3620,6 +3593,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -4907,9 +4906,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -5314,6 +5313,17 @@
       "z": -1.25
      },
      {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:a:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
+     },
+     {
       "age_days": 20,
       "baseline_outside": true,
       "indicator": "potassium",
@@ -5399,7 +5409,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 4.0,
+    "score": 4.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -8172,75 +8182,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
-    "level": 2,
+    "id": "regravity",
+    "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:a:sbp:day222",
      "telemetry:a:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 62 bpm. Your normal is 55 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:a:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 101 mmHg. Your normal is 109 mmHg."
-   },
-   {
-    "days_active": 11,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 212,
-    "sources": [
-     "telemetry:a:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 68 mmHg. Your normal is 73 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    },
    {
     "days_active": 12,
@@ -8835,6 +8818,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -10122,9 +10131,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -10529,6 +10538,17 @@
       "z": -1.25
      },
      {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:a:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
+     },
+     {
       "age_days": 20,
       "baseline_outside": true,
       "indicator": "potassium",
@@ -10614,7 +10634,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 4.0,
+    "score": 4.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -13469,51 +13489,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_sbp",
-    "level": 2,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:h:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 105 mmHg. Your normal is 118 mmHg."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_hr",
+    "id": "regravity",
     "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:h:sbp:day222",
      "telemetry:h:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 64 bpm. Your normal is 58 bpm."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    }
   ],
   "areas": {
@@ -14085,6 +14102,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -15372,9 +15415,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -15766,6 +15809,17 @@
       "text": "Resting pulse 64 bpm, 6 bpm above your normal",
       "value": 63.7,
       "z": 1.9
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:h:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -15812,7 +15866,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 3.0,
+    "score": 3.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -16002,14 +16056,14 @@
      "dbp",
      "vo2"
     ],
-    "level": 2,
+    "level": 1,
     "name": "Heart & circulation",
     "no_data": false,
     "note": null,
     "risks": [
      "cardio"
     ],
-    "status": "Act"
+    "status": "Watch"
    },
    "immune": {
     "area": "physical",
@@ -18596,51 +18650,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_sbp",
-    "level": 2,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:h:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 105 mmHg. Your normal is 118 mmHg."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_hr",
+    "id": "regravity",
     "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:h:sbp:day222",
      "telemetry:h:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 64 bpm. Your normal is 58 bpm."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    }
   ],
   "areas": {
@@ -19212,6 +19263,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -20499,9 +20576,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -20893,6 +20970,17 @@
       "text": "Resting pulse 64 bpm, 6 bpm above your normal",
       "value": 63.7,
       "z": 1.9
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:h:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -20939,7 +21027,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 3.0,
+    "score": 3.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -21129,14 +21217,14 @@
      "dbp",
      "vo2"
     ],
-    "level": 2,
+    "level": 1,
     "name": "Heart & circulation",
     "no_data": false,
     "note": null,
     "risks": [
      "cardio"
     ],
-    "status": "Act"
+    "status": "Watch"
    },
    "immune": {
     "area": "physical",
@@ -23805,75 +23893,48 @@
    },
    {
     "days_active": 12,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
-    "level": 2,
+    "id": "regravity",
+    "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 211,
     "sources": [
+     "telemetry:k:sbp:day222",
      "telemetry:k:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 70 bpm. Your normal is 61 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:k:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 112 mmHg. Your normal is 120 mmHg."
-   },
-   {
-    "days_active": 14,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 209,
-    "sources": [
-     "telemetry:k:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 74 mmHg. Your normal is 78 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    },
    {
     "days_active": 1,
@@ -24468,6 +24529,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -25747,9 +25834,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -26180,6 +26267,17 @@
       "text": "Diastolic pressure 74 mmHg, 4 mmHg below your normal",
       "value": 74.0,
       "z": -1.0
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:k:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -26242,7 +26340,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 4.0,
+    "score": 4.5,
     "since_day": 209,
     "source": "prototype assumption",
     "system_levels": {
@@ -29046,75 +29144,48 @@
    },
    {
     "days_active": 12,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
-    "level": 2,
+    "id": "regravity",
+    "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 211,
     "sources": [
+     "telemetry:k:sbp:day222",
      "telemetry:k:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 70 bpm. Your normal is 61 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:k:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 112 mmHg. Your normal is 120 mmHg."
-   },
-   {
-    "days_active": 14,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 209,
-    "sources": [
-     "telemetry:k:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 74 mmHg. Your normal is 78 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    },
    {
     "days_active": 1,
@@ -29709,6 +29780,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -30988,9 +31085,9 @@
   },
   "no_data": false,
   "ops": {
-   "key": "rest",
-   "label": "Off critical tasks",
-   "level": 2
+   "key": "limited",
+   "label": "Fit for duty, no EVA",
+   "level": 1
   },
   "profile": {
    "badges": [
@@ -31421,6 +31518,17 @@
       "text": "Diastolic pressure 74 mmHg, 4 mmHg below your normal",
       "value": 74.0,
       "z": -1.0
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:k:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -31483,7 +31591,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 4.0,
+    "score": 4.5,
     "since_day": 209,
     "source": "prototype assumption",
     "system_levels": {
@@ -34830,75 +34938,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
+    "id": "regravity",
     "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:t:sbp:day222",
      "telemetry:t:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 74 bpm. Your normal is 67 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:t:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 119 mmHg. Your normal is 124 mmHg."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:t:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 77 mmHg. Your normal is 81 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    }
   ],
   "areas": {
@@ -35470,6 +35551,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -37191,6 +37298,17 @@
       "text": "Diastolic pressure 77 mmHg, 4 mmHg below your normal",
       "value": 77.0,
       "z": -1.0
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:t:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -37253,7 +37371,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 3.0,
+    "score": 3.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -40037,75 +40155,48 @@
    },
    {
     "days_active": 13,
-    "goals": [],
+    "goals": [
+     {
+      "area": "physical",
+      "id": "al_salt",
+      "title": "500 mL of salted water on waking",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     },
+     {
+      "area": "physical",
+      "id": "al_stand",
+      "title": "Measure pressure lying down and standing",
+      "verify": {
+       "after_days": 3,
+       "indicator": "sbp"
+      }
+     }
+    ],
     "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
     "hazards": [
      "R",
      "G"
     ],
-    "id": "ind_hr",
+    "id": "regravity",
     "level": 1,
     "risk": "cardio",
     "seen": false,
     "since_day": 210,
     "sources": [
+     "telemetry:t:sbp:day222",
      "telemetry:t:hr:day222"
     ],
     "sys": "heart",
-    "title": "Resting pulse is outside your normal.",
+    "title": "Your body is relearning weight.",
     "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
+     "Stand up in two steps: sit, wait, then stand",
+     "Salted water in the morning",
+     "No solo suited walks this week"
     ],
-    "why": "Today 74 bpm. Your normal is 67 bpm."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_sbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:t:sbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Systolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 119 mmHg. Your normal is 124 mmHg."
-   },
-   {
-    "days_active": 13,
-    "goals": [],
-    "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-    "hazards": [
-     "R",
-     "G"
-    ],
-    "id": "ind_dbp",
-    "level": 1,
-    "risk": "cardio",
-    "seen": false,
-    "since_day": 210,
-    "sources": [
-     "telemetry:t:dbp:day222"
-    ],
-    "sys": "heart",
-    "title": "Diastolic pressure is outside your normal.",
-    "todo": [
-     "Measure again in 1 hour",
-     "If it stays, tell the medical officer"
-    ],
-    "why": "Today 77 mmHg. Your normal is 81 mmHg."
+    "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
    }
   ],
   "areas": {
@@ -40677,6 +40768,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "indicators": {
@@ -42398,6 +42515,17 @@
       "text": "Diastolic pressure 77 mmHg, 4 mmHg below your normal",
       "value": 77.0,
       "z": -1.0
+     },
+     {
+      "baseline": null,
+      "derived": true,
+      "key": "regravity",
+      "origin": "simulated",
+      "points": 0.5,
+      "source": "telemetry:t:sbp:day222",
+      "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)",
+      "value": null,
+      "z": null
      }
     ],
     "hazard_links": [
@@ -42460,7 +42588,7 @@
     "name": "Heart and circulation",
     "nasa_red": false,
     "panel_due": false,
-    "score": 3.0,
+    "score": 3.5,
     "since_day": 210,
     "source": "prototype assumption",
     "system_levels": {
@@ -45440,6 +45568,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -45893,6 +46047,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -46346,6 +46526,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -46799,6 +47005,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -47252,6 +47484,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -47705,6 +47963,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -48158,6 +48442,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -48611,6 +48921,32 @@
     "sys": "brain",
     "title": "Write three lines in your journal",
     "why": "Naming the day makes it lighter."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_salt",
+    "sys": "heart",
+    "title": "500 mL of salted water on waking",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
+   },
+   {
+    "area": "physical",
+    "by": "alert",
+    "done": false,
+    "id": "al_stand",
+    "sys": "heart",
+    "title": "Measure pressure lying down and standing",
+    "verify": {
+     "after_days": 3,
+     "indicator": "sbp"
+    },
+    "why": "Added by the alert: Your body is relearning weight."
    }
   ],
   "profile": {
@@ -49252,51 +49588,48 @@
      },
      {
       "days_active": 13,
-      "goals": [],
+      "goals": [
+       {
+        "area": "physical",
+        "id": "al_salt",
+        "title": "500 mL of salted water on waking",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       },
+       {
+        "area": "physical",
+        "id": "al_stand",
+        "title": "Measure pressure lying down and standing",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       }
+      ],
       "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
       "hazards": [
        "R",
        "G"
       ],
-      "id": "ind_sbp",
-      "level": 2,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 210,
-      "sources": [
-       "telemetry:h:sbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Systolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 105 mmHg. Your normal is 118 mmHg."
-     },
-     {
-      "days_active": 13,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_hr",
+      "id": "regravity",
       "level": 1,
       "risk": "cardio",
       "seen": false,
       "since_day": 210,
       "sources": [
+       "telemetry:h:sbp:day222",
        "telemetry:h:hr:day222"
       ],
       "sys": "heart",
-      "title": "Resting pulse is outside your normal.",
+      "title": "Your body is relearning weight.",
       "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
+       "Stand up in two steps: sit, wait, then stand",
+       "Salted water in the morning",
+       "No solo suited walks this week"
       ],
-      "why": "Today 64 bpm. Your normal is 58 bpm."
+      "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
      }
     ],
     "areas": {
@@ -50582,9 +50915,9 @@
     "level": 2,
     "name": "Helena Duarte",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "risks": [
      {
@@ -50729,14 +51062,14 @@
        "dbp",
        "vo2"
       ],
-      "level": 2,
+      "level": 1,
       "name": "Heart & circulation",
       "no_data": false,
       "note": null,
       "risks": [
        "cardio"
       ],
-      "status": "Act"
+      "status": "Watch"
      },
      "immune": {
       "area": "physical",
@@ -50880,75 +51213,48 @@
      },
      {
       "days_active": 12,
-      "goals": [],
+      "goals": [
+       {
+        "area": "physical",
+        "id": "al_salt",
+        "title": "500 mL of salted water on waking",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       },
+       {
+        "area": "physical",
+        "id": "al_stand",
+        "title": "Measure pressure lying down and standing",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       }
+      ],
       "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
       "hazards": [
        "R",
        "G"
       ],
-      "id": "ind_hr",
-      "level": 2,
+      "id": "regravity",
+      "level": 1,
       "risk": "cardio",
       "seen": false,
       "since_day": 211,
       "sources": [
+       "telemetry:k:sbp:day222",
        "telemetry:k:hr:day222"
       ],
       "sys": "heart",
-      "title": "Resting pulse is outside your normal.",
+      "title": "Your body is relearning weight.",
       "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
+       "Stand up in two steps: sit, wait, then stand",
+       "Salted water in the morning",
+       "No solo suited walks this week"
       ],
-      "why": "Today 70 bpm. Your normal is 61 bpm."
-     },
-     {
-      "days_active": 13,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_sbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 210,
-      "sources": [
-       "telemetry:k:sbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Systolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 112 mmHg. Your normal is 120 mmHg."
-     },
-     {
-      "days_active": 14,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_dbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 209,
-      "sources": [
-       "telemetry:k:dbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Diastolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 74 mmHg. Your normal is 78 mmHg."
+      "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
      },
      {
       "days_active": 1,
@@ -52249,9 +52555,9 @@
     "level": 2,
     "name": "Kenji Mori",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "risks": [
      {
@@ -52547,75 +52853,48 @@
      },
      {
       "days_active": 13,
-      "goals": [],
+      "goals": [
+       {
+        "area": "physical",
+        "id": "al_salt",
+        "title": "500 mL of salted water on waking",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       },
+       {
+        "area": "physical",
+        "id": "al_stand",
+        "title": "Measure pressure lying down and standing",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       }
+      ],
       "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
       "hazards": [
        "R",
        "G"
       ],
-      "id": "ind_hr",
-      "level": 2,
+      "id": "regravity",
+      "level": 1,
       "risk": "cardio",
       "seen": false,
       "since_day": 210,
       "sources": [
+       "telemetry:a:sbp:day222",
        "telemetry:a:hr:day222"
       ],
       "sys": "heart",
-      "title": "Resting pulse is outside your normal.",
+      "title": "Your body is relearning weight.",
       "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
+       "Stand up in two steps: sit, wait, then stand",
+       "Salted water in the morning",
+       "No solo suited walks this week"
       ],
-      "why": "Today 62 bpm. Your normal is 55 bpm."
-     },
-     {
-      "days_active": 13,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_sbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 210,
-      "sources": [
-       "telemetry:a:sbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Systolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 101 mmHg. Your normal is 109 mmHg."
-     },
-     {
-      "days_active": 11,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_dbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 212,
-      "sources": [
-       "telemetry:a:dbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Diastolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 68 mmHg. Your normal is 73 mmHg."
+      "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
      },
      {
       "days_active": 12,
@@ -53924,9 +54203,9 @@
     "level": 2,
     "name": "Amara Okafor",
     "ops": {
-     "key": "rest",
-     "label": "Off critical tasks",
-     "level": 2
+     "key": "limited",
+     "label": "Fit for duty, no EVA",
+     "level": 1
     },
     "risks": [
      {
@@ -54222,75 +54501,48 @@
      },
      {
       "days_active": 13,
-      "goals": [],
+      "goals": [
+       {
+        "area": "physical",
+        "id": "al_salt",
+        "title": "500 mL of salted water on waking",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       },
+       {
+        "area": "physical",
+        "id": "al_stand",
+        "title": "Measure pressure lying down and standing",
+        "verify": {
+         "after_days": 3,
+         "indicator": "sbp"
+        }
+       }
+      ],
       "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
       "hazards": [
        "R",
        "G"
       ],
-      "id": "ind_hr",
+      "id": "regravity",
       "level": 1,
       "risk": "cardio",
       "seen": false,
       "since_day": 210,
       "sources": [
+       "telemetry:t:sbp:day222",
        "telemetry:t:hr:day222"
       ],
       "sys": "heart",
-      "title": "Resting pulse is outside your normal.",
+      "title": "Your body is relearning weight.",
       "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
+       "Stand up in two steps: sit, wait, then stand",
+       "Salted water in the morning",
+       "No solo suited walks this week"
       ],
-      "why": "Today 74 bpm. Your normal is 67 bpm."
-     },
-     {
-      "days_active": 13,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_sbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 210,
-      "sources": [
-       "telemetry:t:sbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Systolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 119 mmHg. Your normal is 124 mmHg."
-     },
-     {
-      "days_active": 13,
-      "goals": [],
-      "hazard_note": "Possible factors here: Radiation, Gravity. Not a cause.",
-      "hazards": [
-       "R",
-       "G"
-      ],
-      "id": "ind_dbp",
-      "level": 1,
-      "risk": "cardio",
-      "seen": false,
-      "since_day": 210,
-      "sources": [
-       "telemetry:t:dbp:day222"
-      ],
-      "sys": "heart",
-      "title": "Diastolic pressure is outside your normal.",
-      "todo": [
-       "Measure again in 1 hour",
-       "If it stays, tell the medical officer"
-      ],
-      "why": "Today 77 mmHg. Your normal is 81 mmHg."
+      "why": "Lower pressure and a faster pulse than your normal when you stand. Expected in the first weeks after months in 0 g."
      }
     ],
     "areas": {
@@ -55911,37 +56163,13 @@
    "deliver_at": "<volatile>",
    "delivered": false,
    "eta_s": "<volatile>",
-   "id": 9,
-   "in_transit": false,
-   "kind": "alert_earth",
-   "recipient": "earth",
-   "sender": "canary",
-   "sent_at": "<volatile>",
-   "text": "BRIEFING AMARA OKAFOR · Sol 12 · Mars\n1 WHAT WORRIES\n- [ACT] A radiation storm is in progress at the Mars surface.\n- [ACT] Resting pulse is outside your normal.\n- [WATCH] Systolic pressure is outside your normal.\n2 WHAT CHANGED (vs own baseline)\n- Resting pulse: 62.0 bpm (normal 55.0, z 2.5)\n- Grip strength: 28.4 kg (normal 31.0, z -1.73)\n- Systolic pressure: 101.0 mmHg (normal 109.0, z -1.6)\n- Systolic pressure: 101.0 mmHg (normal 109.0, z -1.6)\n- Readiness: physical 80, mental 100. Mission dose 405.5 mSv (simulated).\n3 WHAT WAS TRIED\n- No alert or medical goals completed this week\n- Goals done last 7 days: 80%, streak 2 days."
-  },
-  {
-   "deliver_at": "<volatile>",
-   "delivered": true,
-   "eta_s": "<volatile>",
-   "id": 8,
-   "in_transit": false,
-   "kind": "alert",
-   "recipient": "k",
-   "sender": "canary",
-   "sent_at": "<volatile>",
-   "text": "Critical alert for Amara on day 222: Resting pulse is outside your normal. Systolic pressure is outside your normal. Diastolic pressure is outside your normal. Details are in the medical console."
-  },
-  {
-   "deliver_at": "<volatile>",
-   "delivered": false,
-   "eta_s": "<volatile>",
    "id": 7,
    "in_transit": false,
    "kind": "alert_earth",
    "recipient": "earth",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "BRIEFING KENJI MORI · Sol 12 · Mars\n1 WHAT WORRIES\n- [ACT] A radiation storm is in progress at the Mars surface.\n- [ACT] Resting pulse is outside your normal.\n- [WATCH] Systolic pressure is outside your normal.\n2 WHAT CHANGED (vs own baseline)\n- Resting pulse: 70.0 bpm (normal 61.0, z 3.17)\n- Grip strength: 37.1 kg (normal 40.1, z -2.0)\n- Systolic pressure: 112.0 mmHg (normal 120.0, z -1.6)\n- Systolic pressure: 112.0 mmHg (normal 120.0, z -1.6)\n- Readiness: physical 76, mental 100. Mission dose 405.5 mSv (simulated).\n3 WHAT WAS TRIED\n- No alert or medical goals completed this week\n- Goals done last 7 days: 73%, streak 6 days."
+   "text": "BRIEFING AMARA OKAFOR · Sol 12 · Mars\n1 WHAT WORRIES\n- [ACT] A radiation storm is in progress at the Mars surface.\n- [WATCH] Your body is relearning weight.\n- [WATCH] Grip strength is outside your normal.\n2 WHAT CHANGED (vs own baseline)\n- Resting pulse: 62.0 bpm (normal 55.0, z 2.5)\n- Grip strength: 28.4 kg (normal 31.0, z -1.73)\n- Systolic pressure: 101.0 mmHg (normal 109.0, z -1.6)\n- Systolic pressure: 101.0 mmHg (normal 109.0, z -1.6)\n- Readiness: physical 80, mental 100. Mission dose 405.5 mSv (simulated).\n3 WHAT WAS TRIED\n- No alert or medical goals completed this week\n- Goals done last 7 days: 80%, streak 2 days."
   },
   {
    "deliver_at": "<volatile>",
@@ -55950,10 +56178,10 @@
    "id": 6,
    "in_transit": false,
    "kind": "alert",
-   "recipient": "h",
+   "recipient": "k",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "Critical alert for Kenji on day 222: Resting pulse is outside your normal. Systolic pressure is outside your normal. Diastolic pressure is outside your normal. Details are in the medical console."
+   "text": "Critical alert for Amara on day 222: Your body is relearning weight. Details are in the medical console."
   },
   {
    "deliver_at": "<volatile>",
@@ -55965,7 +56193,7 @@
    "recipient": "earth",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "BRIEFING HELENA DUARTE · Sol 12 · Mars\n1 WHAT WORRIES\n- [ACT] A radiation storm is in progress at the Mars surface.\n- [ACT] Systolic pressure is outside your normal.\n- [WATCH] Resting pulse is outside your normal.\n2 WHAT CHANGED (vs own baseline)\n- Systolic pressure: 105.0 mmHg (normal 118.0, z -2.6)\n- Systolic pressure: 105.0 mmHg (normal 118.0, z -2.6)\n- Resting pulse: 64.0 bpm (normal 58.0, z 1.9)\n- Grip strength: 31.5 kg (normal 33.9, z -1.6)\n- Readiness: physical 80, mental 100. Mission dose 405.5 mSv (simulated).\n3 WHAT WAS TRIED\n- No alert or medical goals completed this week\n- Goals done last 7 days: 80%, streak 8 days."
+   "text": "BRIEFING KENJI MORI · Sol 12 · Mars\n1 WHAT WORRIES\n- [ACT] A radiation storm is in progress at the Mars surface.\n- [WATCH] Your body is relearning weight.\n- [WATCH] Grip strength is outside your normal.\n2 WHAT CHANGED (vs own baseline)\n- Resting pulse: 70.0 bpm (normal 61.0, z 3.17)\n- Grip strength: 37.1 kg (normal 40.1, z -2.0)\n- Systolic pressure: 112.0 mmHg (normal 120.0, z -1.6)\n- Systolic pressure: 112.0 mmHg (normal 120.0, z -1.6)\n- Readiness: physical 76, mental 100. Mission dose 405.5 mSv (simulated).\n3 WHAT WAS TRIED\n- No alert or medical goals completed this week\n- Goals done last 7 days: 73%, streak 6 days."
   },
   {
    "deliver_at": "<volatile>",
@@ -55974,10 +56202,10 @@
    "id": 4,
    "in_transit": false,
    "kind": "alert",
-   "recipient": "k",
+   "recipient": "h",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "Critical alert for Helena on day 222: Systolic pressure is outside your normal. Resting pulse is outside your normal. Details are in the medical console."
+   "text": "Critical alert for Kenji on day 222: Your body is relearning weight. Details are in the medical console."
   },
   {
    "deliver_at": "<volatile>",
@@ -56022,13 +56250,13 @@
    "deliver_at": "<volatile>",
    "delivered": true,
    "eta_s": "<volatile>",
-   "id": 6,
+   "id": 4,
    "in_transit": false,
    "kind": "alert",
    "recipient": "h",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "Critical alert for Kenji on day 222: Resting pulse is outside your normal. Systolic pressure is outside your normal. Diastolic pressure is outside your normal. Details are in the medical console."
+   "text": "Critical alert for Kenji on day 222: Your body is relearning weight. Details are in the medical console."
   }
  ],
  "/api/messages?crew_id=k [as k]": [
@@ -56036,25 +56264,13 @@
    "deliver_at": "<volatile>",
    "delivered": true,
    "eta_s": "<volatile>",
-   "id": 8,
+   "id": 6,
    "in_transit": false,
    "kind": "alert",
    "recipient": "k",
    "sender": "canary",
    "sent_at": "<volatile>",
-   "text": "Critical alert for Amara on day 222: Resting pulse is outside your normal. Systolic pressure is outside your normal. Diastolic pressure is outside your normal. Details are in the medical console."
-  },
-  {
-   "deliver_at": "<volatile>",
-   "delivered": true,
-   "eta_s": "<volatile>",
-   "id": 4,
-   "in_transit": false,
-   "kind": "alert",
-   "recipient": "k",
-   "sender": "canary",
-   "sent_at": "<volatile>",
-   "text": "Critical alert for Helena on day 222: Systolic pressure is outside your normal. Resting pulse is outside your normal. Details are in the medical console."
+   "text": "Critical alert for Amara on day 222: Your body is relearning weight. Details are in the medical console."
   },
   {
    "deliver_at": "<volatile>",

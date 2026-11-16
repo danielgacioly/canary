@@ -74,10 +74,14 @@ def start(crew_id: str, goal_id: str, origin: str, verify: Optional[dict], day: 
 
 
 def _adhered(row: dict) -> bool:
-    """Was the goal recorded as done on enough of the days from the start up to the check day? Read from the goal log."""
+    """Was the goal ticked often enough between the start and the check day? Read from the goal log. A goal that was never
+    ticked has no adherence, so it gets no outcome (`no_adherence`). A suggestion's goal (sg_<id>) is ticked on the daily
+    goal of the same id (sg_sleep -> sleep), and both count."""
     span = max(1, int(row["check_day"]) - int(row["start_day"]))
-    n = db.q("SELECT COUNT(*) n FROM goal_log WHERE crew_id=? AND goal_id=? AND day>=? AND day<? AND done=1",
-             (row["crew_id"], row["goal_id"], row["start_day"], row["check_day"]))[0]["n"]
+    ids = sorted({row["goal_id"], row["goal_id"][3:] if row["goal_id"].startswith("sg_") else row["goal_id"]})
+    marks = ",".join("?" * len(ids))
+    n = db.q(f"SELECT COUNT(DISTINCT day) n FROM goal_log WHERE crew_id=? AND goal_id IN ({marks}) AND day>=? AND day<? AND done=1",
+             (row["crew_id"], *ids, row["start_day"], row["check_day"]))[0]["n"]
     return n >= math.ceil(ADHERENCE_MIN * span)
 
 
@@ -133,7 +137,7 @@ def _rounds(crew_id: str, rid: str, day: int) -> List[dict]:
     out = []
     for start_day, rs in groups.items():
         sts = [outcome(r, day) for r in rs]
-        if not any(x in ("improved", "same", "worse") for x in sts):  # a round nobody could measure or follow says nothing
+        if not any(x in ("improved", "same", "worse", "no_adherence") for x in sts):  # a round nobody could measure says nothing
             continue
         out.append({"start_day": start_day, "check_day": max(r["check_day"] for r in rs),
                     "improved": "improved" in sts, "indicators": sorted({r["indicator"] for r in rs}),

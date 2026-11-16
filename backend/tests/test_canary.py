@@ -1048,9 +1048,9 @@ def test_the_sleep_suggestion_becomes_an_experiment_whose_result_follows_the_day
 
     first = {d: result(d) for d in (155, 154, 153, 160, 155, 222)}
     assert first[153] is None and first[154] == first[155] == first[160] == first[222] == first[155]
-    assert first[155][0] in ("improved", "same", "worse")
+    assert first[155][0] in ("improved", "same", "worse", "no_adherence")
     assert result(155) == first[155]  # any order, any number of times
-    assert first[155][0] == "worse"  # the slide is still deepening at day 154 in the simulation
+    assert first[155][0] == "no_adherence"  # the sleep goal was ticked on 2 of the 7 days: under the 70% gate, no result is claimed
 
 
 def test_two_rounds_without_improvement_give_one_message_and_one_alternative():
