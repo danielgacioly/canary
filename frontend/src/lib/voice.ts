@@ -2,17 +2,22 @@
 // follows the device language and can read English with a foreign accent, so no English voice means no speech.
 import { useEffect, useState } from 'react'
 
-/** Novelty voices that ship with macOS; never used for an emergency. */
-const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Ralph|Fred)\b/i
-// Neural and downloaded voices sound human; they win over the language order. Then calm, warm system voices.
+/** Novelty and character voices that ship with macOS; never used for an emergency. */
+const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Ralph|Fred|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/i
+// Neural and downloaded voices sound human; they win over the language order. Then standard, calm system voices.
 const QUALITY: [RegExp, number][] = [[/natural|neural|siri/i, 24], [/premium/i, 22], [/enhanced/i, 18],
-  [/^(Ava|Zoe|Samantha|Allison|Serena|Karen|Moira|Evan|Nathan|Tom|Daniel)\b/i, 6], [/microsoft/i, 4], [/google/i, 2]]
+  [/^(Samantha|Alex|Ava|Allison|Susan|Zoe|Serena|Karen|Moira|Evan|Nathan|Tom|Daniel)\b/i, 6],
+  [/microsoft (aria|jenny|guy)/i, 6], [/microsoft/i, 4], [/google/i, 2]]
+// A voice that runs on the device. Chrome's network voices ("Google US English") fall back to the system default
+// voice when Google cannot be reached, and on a Portuguese system that reads the English text with a Portuguese voice.
+const LOCAL_BONUS = 40
 
-/** The best English voice of the list, or null. en-US first, then en-GB, then any other English. */
+/** The best English voice of the list, or null. A voice on the device first, then en-US, en-GB, any other English. */
 export function pickEnglishVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   const score = (v: SpeechSynthesisVoice): number => {
     const lang = v.lang.replace('_', '-').toLowerCase()
     let s = lang === 'en-us' ? 30 : lang === 'en-gb' ? 20 : 10
+    if (v.localService) s += LOCAL_BONUS
     for (const [re, w] of QUALITY) if (re.test(v.name)) s += w
     return s
   }
@@ -29,8 +34,10 @@ export function useEnglishVoice(): { voice: SpeechSynthesisVoice | null; checked
       try {
         const list = speechSynthesis.getVoices()
         const voice = pickEnglishVoice(list)
-        setState({ voice, checked: voice !== null || list.length > 0 || final })
-      } catch { setState({ voice: null, checked: true }) }
+        const checked = voice !== null || list.length > 0 || final
+        // Keep the same object while the choice is the same voice: a late `voiceschanged` must not restart speech.
+        setState(prev => (prev.voice?.voiceURI === voice?.voiceURI && prev.checked === checked ? prev : { voice, checked }))
+      } catch { setState(prev => (prev.voice === null && prev.checked ? prev : { voice: null, checked: true })) }
     }
     const onChange = () => read(false)
     try { speechSynthesis.addEventListener('voiceschanged', onChange) } catch { /* no speech */ }
@@ -41,11 +48,11 @@ export function useEnglishVoice(): { voice: SpeechSynthesisVoice | null; checked
   return state
 }
 
-/** What is read for a step: "Step 2 of 7. Check for a pulse." Markup, parentheses and emoji are dropped, symbols spoken. */
-export function stepSpeech(i: number, n: number, parts: (string | null | undefined)[]): string {
-  const sentences = parts.filter((p): p is string => !!p).map(cleanSpeech).filter(Boolean)
-    .map(s => (/[.?!]$/.test(s) ? s : `${s}.`))
-  return [`Step ${i + 1} of ${n}.`, ...sentences].join(' ')
+/** What is read for a screen: exactly the lines it shows, each ending as a sentence. Markup, parentheses and emoji are
+ *  dropped, symbols spoken. */
+export function screenSpeech(parts: (string | null | undefined)[]): string {
+  return parts.filter((p): p is string => !!p).map(cleanSpeech).filter(Boolean)
+    .map(s => (/[.?!]$/.test(s) ? s : `${s}.`)).join(' ')
 }
 
 export function cleanSpeech(text: string): string {
@@ -95,13 +102,14 @@ export function speakWithChirp(text: string, voice: SpeechSynthesisVoice): () =>
     if (stopped || k >= sentences.length) return
     try {
       const u = new SpeechSynthesisUtterance(sentences[k])
-      u.voice = voice; u.lang = voice.lang; u.rate = 0.9; u.pitch = 1.0; u.volume = 0.95
+      u.voice = voice; u.lang = /^en[-_]us$/i.test(voice.lang) ? 'en-US' : voice.lang.replace('_', '-'); u.rate = 0.9; u.pitch = 1.0; u.volume = 0.95
       u.onend = () => { timer = window.setTimeout(() => say(k + 1), k === 0 ? 450 : 320) }
       speechSynthesis.speak(u)
     } catch { /* no speech */ }
   }
   try {
     speechSynthesis.cancel()
+    speechSynthesis.resume()  // Chrome can stay paused after cancel(); every later utterance would then wait silently
     timer = window.setTimeout(() => say(0), chirp())
   } catch { /* no speech */ }
   return () => { stopped = true; window.clearTimeout(timer); try { speechSynthesis.cancel() } catch { /* no speech */ } }

@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { api, errorText } from '../api/client'
 import type { Emergency, ProtocolMatch, Protocols } from '../api/types'
 import { Icon } from '../components/ui'
-import { speakWithChirp, stepSpeech, useEnglishVoice } from '../lib/voice'
+import { screenSpeech, speakWithChirp, useEnglishVoice } from '../lib/voice'
 import { useSession } from '../state/session'
 
+const STABLE_Q = 'Is the patient stable?'
 const CHIPS = ['Not breathing', 'Seizure', 'Choking', 'Bleeding', 'Chest pain', 'Fainted', 'Allergic reaction', 'Eye injury', 'Panic or crisis', 'Radiation alarm']
 
-/** The person describes what they see; Canary ranks the protocols by the words (rules, shown). Nothing starts by itself. */
+/** The person describes what they see; Canary ranks the protocols by the words. Nothing starts by itself. */
 function Describe({ P, onStart, onBack }: { P: Protocols; onStart: (id: string, text: string) => void; onBack: () => void }) {
   const { toast } = useSession()
   const [text, setText] = useState('')
@@ -24,42 +25,29 @@ function Describe({ P, onStart, onBack }: { P: Protocols; onStart: (id: string, 
   const best = res?.r.matches[0], rest = res?.r.matches.slice(1) ?? []
   const name = (id: string) => P.protocols[id]?.name ?? id
   return (
-    <div className="col" style={{ gap: 18 }}>
-      <p className="er-lead">Say what you see, in your own words.</p>
-      <textarea className="er-describe" rows={3} autoFocus value={text} maxLength={500} aria-label="What do you see?" placeholder="For example: he is shaking and not responding"
+    <div className="er-screen">
+      <h3 className="er-ask">Say what you see.</h3>
+      <textarea className="er-describe" rows={2} autoFocus value={text} maxLength={500} aria-label="What do you see?" placeholder="He is shaking and not responding"
         onChange={e => { setText(e.target.value); setRes(null) }}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); find(text) } }} />
-      <div className="er-choices">{CHIPS.map(c => <button key={c} className="btn er-btn" onClick={() => { setText(c); find(c) }}>{c}</button>)}</div>
-      <div className="row wrap">
-        <button className="btn pri er-btn big" disabled={!text.trim() || busy} onClick={() => find(text)}>{busy ? 'Looking…' : 'Find the protocol'}</button>
-        <button className="btn ghost er-btn" onClick={onBack}>Choose from the list</button>
-      </div>
+      <div className="er-chips">{CHIPS.map(c => <button key={c} className="er-chip" onClick={() => { setText(c); find(c) }}>{c}</button>)}</div>
+      {!res && <button className="er-main" disabled={!text.trim() || busy} onClick={() => find(text)}>{busy ? 'Looking…' : 'Find the protocol'}<Icon name="chev" size={26} /></button>}
       {res && best && (
-        <div className="col detail" style={{ gap: 14 }}>
-          <div className="er-match">
-            <span className="lbl">Closest match</span>
-            <h3 className="er-big">{name(best.id)}</h3>
-            <p className="muted">{best.sign}. You said: {best.matched.length ? best.matched.map(w => `“${w}”`).join(', ') : 'nothing that matches by word'}.</p>
-            <button className="btn pri er-next" onClick={() => onStart(best.id, res.q)}>Start this protocol<Icon name="chev" size={24} /></button>
-          </div>
-          {rest.length > 0 && (
-            <div className="col" style={{ gap: 8 }}>
-              <span className="lbl">It could also be</span>
-              {rest.map(m => (
-                <div key={m.id} className="row er-alt"><span className="grow"><b>{name(m.id)}</b> <span className="muted">{m.matched.map(w => `“${w}”`).join(', ')}</span></span>
-                  <button className="btn er-btn" onClick={() => onStart(m.id, res.q)}>Start</button></div>
-              ))}
-            </div>
-          )}
+        <div className="er-result">
+          <h3 className="er-match-name">{name(best.id)}</h3>
+          <button className="er-main" onClick={() => onStart(best.id, res.q)}>Start<Icon name="chev" size={26} /></button>
+          {rest.length > 0 && <div className="er-alts">{rest.map(m => (
+            <button key={m.id} className="er-alt" onClick={() => onStart(m.id, res.q)}>{name(m.id)}<Icon name="chev" size={18} /></button>
+          ))}</div>}
         </div>
       )}
       {res && !best && (
-        <div className="col detail" style={{ gap: 12 }}>
-          <p className="er-big">No protocol matches.</p>
-          <p className="muted">Nothing in what you wrote fits a protocol here. If the person is not responding or not breathing, start basic life support. Otherwise choose from the list.</p>
-          <button className="btn pri er-next" onClick={() => onStart(res.r.fallback?.id ?? 'cpr', res.q)}>No protocol matches — start basic life support<Icon name="chev" size={24} /></button>
+        <div className="er-result">
+          <h3 className="er-match-name">No protocol matches.</h3>
+          <button className="er-main" onClick={() => onStart(res.r.fallback?.id ?? 'cpr', res.q)}>Start basic life support<Icon name="chev" size={26} /></button>
         </div>
       )}
+      <button className="er-link" onClick={onBack}>Choose from the list</button>
     </div>
   )
 }
@@ -73,7 +61,7 @@ const newToken = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Mat
  * id from the session (`emergencyPid`, set by a protocol's page or setEmergency(id)) is used. The patient is asked first, so
  * the protocol and the report are about that person. */
 export default function GuidedResponse({ onClose, initialProtocol }: { onClose: () => void; initialProtocol?: string }) {
-  const { me, mission, catalog, bump, toast, prefs, emergencyPid } = useSession()
+  const { me, catalog, bump, toast, prefs, emergencyPid } = useSession()
   const initial = initialProtocol ?? emergencyPid ?? undefined
   const [P, setP] = useState<Protocols | null>(null)
   const [em, setEm] = useState<Emergency | null>(null)
@@ -129,14 +117,21 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
   }, [em, P, pid])  // eslint-disable-line react-hooks/exhaustive-deps
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
-  const patientName = patient ? catalog?.crew.find(c => c.id === patient)?.name ?? patient : patient === '' ? 'Not a crew member' : null
 
   const eng = useEnglishVoice()
-  // With no English voice the step stays silent: an English text read by a foreign voice is worse than none.
+  // What the screen shows is what is read, once per screen. With no English voice it stays silent: English text read by
+  // a foreign voice is worse than none.
+  const speech = !P ? null
+    : done ? { key: 'done', text: screenSpeech(['Closed and reported.']) }
+    : patient === null ? { key: 'patient', text: screenSpeech(['Who is the patient?']) }
+    : proto && step ? { key: `${pid}-${i}`, text: screenSpeech([step.t, step.variant, step.q, step.end ? STABLE_Q : null]) }
+    : describing ? { key: 'describe', text: screenSpeech(['Say what you see.']) }
+    : { key: 'choose', text: screenSpeech(['What is happening?', 'Choose what you see.']) }
+  const speechKey = speech ? `${speech.key}|${speech.text}` : ''
   useEffect(() => {
-    if (!voice || !step || !proto || !eng.voice) return
-    return speakWithChirp(stepSpeech(i, proto.steps.length, [step.t, step.variant, step.q]), eng.voice)
-  }, [voice, step, proto, i, eng.voice])
+    if (!voice || !speech?.text || !eng.voice) return
+    return speakWithChirp(speech.text, eng.voice)
+  }, [voice, speechKey, eng.voice])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (id: string) => {
     if (id === 'triage') { setDescribing(true); return }  // the yes/no guessing is replaced by a description
@@ -175,98 +170,83 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     onClose()
   }
 
-  const illustrative = !!P && P.order.some(id => P.protocols[id]?.status === 'illustrative')
   const stepElapsed = (now - stepAt) / 1000
+  const noVoice = eng.checked && !eng.voice
   return (
-    <div className="er" role="dialog" aria-label="Guided Response">
+    <div className="er" role="dialog" aria-label="Emergency">
       <div className="er-top">
-        <i className="dot s2" style={{ background: 'var(--nasa-red)' }} />
-        <div><span className="lbl">Guided Response · {mission?.place.name} · {mission?.place.gravity}</span><h2>{proto ? proto.name : 'What is happening?'}</h2></div>
-        <div className="right row" style={{ gap: 22 }}>
-          <span className="small muted">{mission?.place.reply === 'Live' ? 'Earth sees this live' : `Earth sees this ${mission?.place.reply} later`}</span>
-          <div className="er-voice">
-            <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)} title={eng.voice ? `${eng.voice.name} (${eng.voice.lang})` : undefined} data-voice={eng.voice?.name ?? ''}>Voice {voice ? 'on' : 'off'}</button>
-            {eng.checked && !eng.voice && <span className="small dim">No English voice on this device</span>}
-          </div>
-          <button className="btn er-btn" onClick={cancelAndClose}><Icon name="close" size={18} />{done ? 'Close' : 'Cancel emergency'}</button>
+        <i className="er-dot" aria-hidden="true" />
+        <h2 className="er-title">{proto ? proto.name : 'Emergency'}</h2>
+        <div className="er-tools">
+          <button className={`er-tool ${voice && !noVoice ? 'on' : ''}`} aria-pressed={voice && !noVoice} disabled={noVoice} onClick={() => setVoice(v => !v)}
+            title={noVoice ? 'No English voice on this device' : eng.voice ? `${eng.voice.name} (${eng.voice.lang})` : undefined} data-voice={eng.voice?.name ?? ''}>
+            <Icon name={voice && !noVoice ? 'sound' : 'mute'} size={22} /><span className="er-long">{noVoice ? 'No voice' : voice ? 'Voice on' : 'Turn voice on'}</span><span className="er-short">Voice</span>
+          </button>
+          <button className="er-tool" onClick={cancelAndClose} aria-label={done ? 'Close' : 'Cancel emergency'}><Icon name="close" size={22} />{done ? 'Close' : 'Cancel'}</button>
         </div>
       </div>
 
       <div className="er-body">
-        <div className="col" style={{ gap: 18 }}>
-          {!P && <span className="lbl">Loading protocols…</span>}
-          {P && patient === null && !done && (
-            <div className="col" style={{ gap: 18 }}>
-              <p className="er-lead">Who is the patient?</p>
-              <div className="er-choices">
-                {catalog?.crew.map(c => <button key={c.id} className="btn er-btn big" onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}
-                <button className="btn er-btn big" onClick={() => { setPatient(''); log('Patient: not a crew member') }}>Someone else</button>
-              </div>
+        {!P && <p className="er-ask">Loading…</p>}
+        {P && patient === null && !done && (
+          <div className="er-screen">
+            <h3 className="er-ask">Who is the patient?</h3>
+            <div className="er-tiles">
+              {catalog?.crew.map(c => <button key={c.id} className="er-tile" onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}><b>{c.name}</b></button>)}
+              <button className="er-tile" onClick={() => { setPatient(''); log('Patient: not a crew member') }}><b>Someone else</b></button>
             </div>
-          )}
-          {P && patient !== null && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
-          {P && patient !== null && !proto && !done && !describing && (
-            <>
-              <p className="er-lead">Patient: <b>{patientName}</b>. Crew alerted. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
-              <div className="proto-grid">
-                {P.order.map(id => (
-                  <button key={id} className="proto" onClick={() => pick(id)}>
-                    <b>{P.protocols[id].name}</b>
-                    <span className="muted">{id === 'triage' ? 'Say what you see' : P.protocols[id].sign}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          {proto && step && !done && (
-            <div className="col detail" key={`${pid}-${i}`} style={{ gap: 18 }}>
-              <span className="er-step">Step {i + 1} of {proto.steps.length}</span>
-              {step.t && <p className="er-big">{step.t}</p>}
-              {step.variant && <div className="er-variant"><span className="lbl">Here, at {mission?.place.name}</span><p style={{ marginTop: 6, fontSize: 20, lineHeight: 1.45 }}>{step.variant}</p></div>}
-              {step.metro ? <div><div className="metro" /><p className="small muted" style={{ textAlign: 'center' }}>Push on every pulse: 110 per minute</p></div> : null}
-              {step.breath ? <div><div className="breath" /><p className="small muted" style={{ textAlign: 'center' }}>In as it grows, out as it shrinks</p></div> : null}
-              {step.timer ? <div className="row"><span className="lbl">Timer</span><b className="timer">{mmss(step.timer - stepElapsed)}</b></div> : null}
-              {step.q && <p className="er-big" style={{ color: 'var(--watch)' }}>{step.q}</p>}
-              {step.q ? (
-                <div className="yesno"><button className="y" onClick={() => answer(true)}>YES</button><button className="n" onClick={() => answer(false)}>NO</button></div>
-              ) : step.end ? (
-                <div className="col">
-                  <div className="er-choices" style={{ marginTop: 8 }}>
-                    <button className="btn pri er-btn big" onClick={() => finish('stable')}>Patient stable: close and report</button>
-                    <button className="btn er-btn big" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
-                  </div>
+          </div>
+        )}
+        {P && patient !== null && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
+        {P && patient !== null && !proto && !done && !describing && (
+          <div className="er-screen">
+            <h3 className="er-ask">What is happening?</h3>
+            <div className="er-tiles">
+              {P.order.map(id => (
+                <button key={id} className={`er-tile ${id === 'triage' ? 'unsure' : ''}`} onClick={() => pick(id)}>
+                  <b>{P.protocols[id].name}</b>
+                  <span>{id === 'triage' ? 'Say what you see' : P.protocols[id].sign}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {proto && step && !done && (
+          <div className="er-screen" key={`${pid}-${i}`}>
+            <div className="er-progress" role="progressbar" aria-label="Step" aria-valuemin={1} aria-valuemax={proto.steps.length} aria-valuenow={i + 1}>
+              <div className="er-bar"><i style={{ width: `${(100 * (i + 1)) / proto.steps.length}%` }} /></div>
+              <span>{i + 1}/{proto.steps.length}</span>
+            </div>
+            {step.t && <p className="er-do">{step.t}</p>}
+            {step.variant && <p className="er-here">{step.variant}</p>}
+            {i === 0 && proto.kit.length > 0 && <p className="er-kit"><b>Bring:</b> {proto.kit.join(', ')}</p>}
+            {step.metro ? <div><div className="metro" /><p className="er-sub">Push on every pulse: 110 per minute</p></div> : null}
+            {step.breath ? <div><div className="breath" /><p className="er-sub">In as it grows, out as it shrinks</p></div> : null}
+            {step.timer ? <b className="timer">{mmss(step.timer - stepElapsed)}</b> : null}
+            {step.q && <p className="er-q">{step.q}</p>}
+            {step.q ? (
+              <div className="yesno"><button className="y" onClick={() => answer(true)}>YES</button><button className="n" onClick={() => answer(false)}>NO</button></div>
+            ) : step.end ? (
+              <>
+                <p className="er-q">{STABLE_Q}</p>
+                <div className="er-outcomes">
+                  <button className="er-main ok" onClick={() => finish('stable')}>Stable: close and report</button>
+                  <button className="er-main bad" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
                 </div>
-              ) : (
-                <button className="btn pri er-next" onClick={() => { log(`Done: step ${i + 1}`); go(undefined) }}>Done, next step<Icon name="chev" size={24} /></button>
-              )}
-              <button className="btn ghost er-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setPid(null)}>Wrong protocol? Choose again</button>
-            </div>
-          )}
-          {done && (
-            <div className="card detail">
-              <h2>Closed and reported.</h2>
-              <p className="muted" style={{ marginTop: 8 }}>The log is attached to the report. Follow-up care appears as goals for the patient over the next 3 days.</p>
-              {proto && <ul className="steps">{proto.after.map(a => <li key={a}>{a}</li>)}</ul>}
-              <button className="btn pri er-next" style={{ marginTop: 16 }} onClick={onClose}>Back to Canary</button>
-            </div>
-          )}
-        </div>
-
-        <aside className="col">
-          {proto && <div className="card pad-sm"><span className="lbl">Bring</span><ul className="steps">{proto.kit.length ? proto.kit.map(k => <li key={k}>{k}</li>) : <li>Medical kit</li>}</ul></div>}
-          <details className="er-log">
-            <summary>Log · {(em?.log ?? []).length} {(em?.log ?? []).length === 1 ? 'entry' : 'entries'}, sent with the report</summary>
-            <div className="col" style={{ gap: 4, marginTop: 8, maxHeight: 180, overflow: 'auto' }}>
-              {(em?.log ?? []).slice().reverse().map(([t, x], k) => <div key={k} className="row small" style={{ alignItems: 'baseline' }}><span className="num dim">{mmss(t)}</span><span>{x}</span></div>)}
-            </div>
-          </details>
-          {illustrative && (
-            <span className="chip" data-testid="protocol-status" title={proto?.version ? `Protocol version ${proto.version}` : undefined}>
-              Illustrative — not clinically reviewed{proto?.version ? ` · v${proto.version}` : ''}
-            </span>
-          )}
-          <p className="small dim">They are data the medical team can replace.</p>
-        </aside>
+              </>
+            ) : (
+              <button className="er-main" onClick={() => { log(`Done: step ${i + 1}`); go(undefined) }}>Done, next<Icon name="chev" size={26} /></button>
+            )}
+            <button className="er-link" onClick={() => setPid(null)}>Wrong protocol? Choose again</button>
+          </div>
+        )}
+        {done && (
+          <div className="er-screen">
+            <h3 className="er-ask">Closed and reported.</h3>
+            {proto && proto.after.length > 0 && <ul className="er-after">{proto.after.map(a => <li key={a}>{a}</li>)}</ul>}
+            <button className="er-main" onClick={onClose}>Back to Canary</button>
+          </div>
+        )}
       </div>
     </div>
   )

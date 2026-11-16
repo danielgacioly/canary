@@ -68,7 +68,7 @@ export default function Settings() {
 
       <section className="set-group rise" style={{ ['--d' as string]: 3 }}>
         <h2>Guided Response</h2>
-        {toggle('voice', 'Read steps aloud', 'Start every emergency with the voice on, so hands stay free.')}
+        {toggle('voice', 'Read emergency steps aloud', 'Start every emergency with the English voice on, so hands stay free.')}
       </section>
 
       {demo && <section className="set-group rise" style={{ ['--d' as string]: 4 }}>
