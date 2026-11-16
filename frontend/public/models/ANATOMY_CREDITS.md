@@ -3,7 +3,7 @@
 `anatomy.glb` holds the bones and organs of the hologram. It is an adaptation of **BodyParts3D**:
 
 > BodyParts3D, (c) The Database Center for Life Science, licensed under CC Attribution-Share Alike 2.1 Japan.
-> https://dbarchive.biosciencedbc.jp/en/bodyparts3d/
+> https://dbarchive.biosciencedbc.jp/en/bodyparts3d/desc.html
 
 - Source data: BodyParts3D release 4.0, "PART-OF" OBJ files (`partof_BP3D_4.0_obj_99.zip`) with the tables `partof_parts_list_e.txt` and `partof_element_parts.txt`, downloaded from the DBCLS archive without any login.
 - Licence of the files: each OBJ file carries the header "Creative Commons Attribution-Share Alike 2.1 Japan". The archive's licence page was updated in 2025 and now states CC Attribution 4.0 International. We follow the stricter notice that is inside the data files.

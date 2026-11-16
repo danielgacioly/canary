@@ -264,7 +264,7 @@ Runs on every `AssistantResponse`, in this order. Any hard failure → the safe 
 ## Phase 5 · Tests and the reliability demo (1 day)
 
 1. **Unit tests, no network** (`backend/tests/test_chat_loop.py`, `test_guard.py`, `test_tools.py`, `test_kb.py`, `test_suggestions.py`, `test_suggestions_balance.py`, `test_briefing_access.py`, `test_rate_limit.py`, `test_kb_freshness.py`, `test_provider_selection.py`, `test_contracts.py`; the doubles are in `tests/fakes.py`): a `ScriptedProvider` replays canned model turns (tool calls + final JSON), so the loop, the guard and the fallback are tested in CI for free.
-   **Setup for every run:** `POST /api/demo/reset`, then `POST /api/plan/preset` (`mars`) and `PUT /api/mission` with the day (e.g. 147), in that order, because reset empties the plan. Sign in once per crew member with the demo PINs (`CANARY_CREW_PINS`, exactly 4 digits) and reuse that token for every case (5 failures in 60 s return 429); medical cases use one medical token (`CANARY_MEDICAL_PIN`).
+   **Setup for every run:** `POST /api/demo/reset`, then `POST /api/plan/preset` (`mars`) and `PUT /api/mission` with the day (e.g. 147), in that order, because reset empties the plan. Sign in once per crew member with the demo PINs (`CANARY_CREW_PINS`, exactly 4 digits) and reuse that token for every case (5 failures in 60 s return 429); medical cases use one medical token (the crew medical officer's or a flight surgeon's account from `ground.csv`).
 2. **Adversarial eval, real API** (`backend/evals/run.py`, run by hand, costs money): 36 questions (`backend/evals/cases.py`), each with the expected `mode` / `status`:
 
    | Group | Example | Expected |

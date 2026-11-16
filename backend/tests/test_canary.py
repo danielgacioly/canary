@@ -882,8 +882,8 @@ def test_every_population_range_has_a_source_and_the_readme_table_is_generated_f
         assert all("https://" in c for c in P["checked"]), ind  # each checked number names the page it was read on
         assert P["verified"] is False or P["checked"], ind  # verified only when its numbers were read on the guideline
     assert all(reference.POPULATION[i]["source"].find("assumption") >= 0 for i in ("react", "dsst", "span"))
-    readme = (pathlib.Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
-    assert reference.table_md() in readme
+    doc = (pathlib.Path(__file__).resolve().parents[2] / "docs" / "health-model.md").read_text(encoding="utf-8")
+    assert reference.table_md() in doc  # the generated table lives in docs/health-model.md
     assert reference.check("grip", "F", 15)["status"] == "out" and reference.check("grip", "M", 30)["status"] == "in"
     assert reference.check("mood", "F", 1)["status"] == "in"
 
