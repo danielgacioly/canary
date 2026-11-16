@@ -10,17 +10,32 @@ export interface Prefs {
   storyBar: boolean
 }
 
-export const DEFAULT_PREFS: Prefs = { theme: 'dark', largeText: false, reduceMotion: false, highContrast: false, voice: false, storyBar: true }
+export const DEFAULT_PREFS: Prefs = { theme: 'light', largeText: false, reduceMotion: false, highContrast: true, voice: false, storyBar: true }
+
+// Bump when the defaults change. A stored version older than this gets the new theme and contrast defaults once;
+// after that, whatever the person picks in Settings is kept.
+export const PREFS_VERSION = 2
+const PREFS_VERSION_KEY = 'canary.prefs.v'
 
 export function loadPrefs(): Prefs {
+  let raw: Partial<Prefs> = {}
+  let version = 0
   try {
-    const raw = JSON.parse(localStorage.getItem('canary.prefs') || '{}')
+    raw = JSON.parse(localStorage.getItem('canary.prefs') || '{}')
+    version = Number(localStorage.getItem(PREFS_VERSION_KEY)) || 0
     // the earlier light-mode toggle stored only the theme
     if (!raw.theme && localStorage.getItem('canary.theme') === 'light') raw.theme = 'light'
-    return { ...DEFAULT_PREFS, ...raw }
   } catch {
-    return { ...DEFAULT_PREFS }
+    raw = {}
   }
+  const p: Prefs = { ...DEFAULT_PREFS, ...raw }
+  if (version < PREFS_VERSION) {
+    p.theme = DEFAULT_PREFS.theme
+    p.highContrast = DEFAULT_PREFS.highContrast
+    savePrefs(p)
+    try { localStorage.setItem(PREFS_VERSION_KEY, String(PREFS_VERSION)) } catch { /* storage blocked */ }
+  }
+  return p
 }
 
 export function savePrefs(p: Prefs) {

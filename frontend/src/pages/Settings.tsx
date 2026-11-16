@@ -48,9 +48,9 @@ export default function Settings() {
 
       <section className="set-group rise" style={{ ['--d' as string]: 1 }}>
         <h2>Appearance</h2>
-        <Row title="Theme" desc="Dark suits a dim cabin; light suits a bright room. The 3D body and Guided Response stay dark.">
+        <Row title="Theme" desc="Light with higher contrast is the default. Dark suits a dim cabin. The 3D body and Guided Response stay dark.">
           <div className="seg-ctl" role="radiogroup" aria-label="Theme">
-            {(['dark', 'light', 'system'] as const).map(t => (
+            {(['light', 'dark', 'system'] as const).map(t => (
               <button key={t} role="radio" aria-checked={prefs.theme === t} className={prefs.theme === t ? 'on' : ''} onClick={() => setPref('theme', t)}>
                 {t === 'system' ? 'Match device' : t[0].toUpperCase() + t.slice(1)}
               </button>
@@ -62,7 +62,7 @@ export default function Settings() {
       <section className="set-group rise" style={{ ['--d' as string]: 2 }}>
         <h2>Accessibility</h2>
         {toggle('largeText', 'Larger text', 'Everything about 12% bigger, for reading at arm\'s length or with gloves.')}
-        {toggle('highContrast', 'Higher contrast', 'Stronger text and lines for glare or tired eyes.')}
+        {toggle('highContrast', 'Higher contrast', 'Stronger text and lines for glare or tired eyes. On by default.')}
         {toggle('reduceMotion', 'Reduce motion', 'No entrance animations or pulsing. The device setting is followed too.')}
       </section>
 
