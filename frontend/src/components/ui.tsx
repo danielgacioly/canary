@@ -54,7 +54,9 @@ export function Status({ level, children }: { level: Level | number; children?: 
 }
 
 /** Line with the personal baseline dashed. No fill, no glow. Days with no value are gaps. */
-export function Spark({ data, base, color = 'var(--muted)', w = 140, h = 36 }: { data: Pt[]; base?: number; color?: string; w?: number; h?: number }) {
+export function Spark({ data, base, color = 'var(--muted)', w = 140, h = 36 }: { data?: Pt[]; base?: number; color?: string; w?: number; h?: number }) {
+  // A series the server did not send draws nothing instead of taking the page down.
+  if (!data?.length) return null
   const have = known(data)
   if (!have.length) return null
   const ys = have.map(d => d[1]).concat(base ?? [])

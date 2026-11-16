@@ -163,19 +163,12 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
       : medical ? `This action (${ra.id}) is not available here yet.` : 'This action is not available here yet.'
     return <button className="btn sm ask-action" disabled title={why} aria-disabled="true">{ra.label}</button>
   }
-  // Crew see plain sentences; the medical team (signed in here) also sees the raw guard report.
+  // Everyone here sees plain sentences only. Rule ids, guard exits and tool names stay in the medical audit (Medical console).
   const medical = api.isMedical()
   const guardNote = (g?: GuardReport) => {
     if (!g) return null
-    if (!medical) {
-      const lines = plainGuard([...(g.rule_ids ?? []), ...(g.reason ? [g.reason.split(': ')[0]] : [])])
-      return lines.length ? <div className="ask-guard small">{lines.map(l => <p key={l}>{l}</p>)}</div> : null
-    }
-    return g.reason ? (
-      <p className="ask-guard small">Guard: {g.reason}
-        {!!g.dropped_claims.length && ` · ${g.dropped_claims.length} claim${g.dropped_claims.length > 1 ? 's' : ''} removed`}
-        {!!g.rejected_numbers.length && ` · numbers not in the data: ${g.rejected_numbers.join(', ')}`}</p>
-    ) : null
+    const lines = plainGuard([...(g.rule_ids ?? []), ...(g.reason ? [g.reason.split(': ')[0]] : [])])
+    return lines.length ? <div className="ask-guard small">{lines.map(l => <p key={l}>{l}</p>)}</div> : null
   }
   return (
     <>
@@ -184,7 +177,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
         <div className="row drawer-head">
           <div>
             <h2 id="ask-title">Ask Canary</h2>
-            <div className="small muted">Explains your data, with a source for each answer. Never diagnoses.{status && !status.configured && ' Answers come from fixed rules.'}</div>
+            <div className="small muted">Explains your data, with a source for each answer. Never diagnoses.</div>
           </div>
           <button className="btn sm ghost right" onClick={onClose} aria-label="Close Ask Canary"><Icon name="close" size={15} /></button>
         </div>
@@ -192,10 +185,6 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           <div className="slot">
             <div className="row"><span className="lbl">Assistant</span>
               <span className="tag right">{modelLine(status)}</span></div>
-            <p className="small muted" style={{ marginTop: 6 }}>
-              It explains, it does not diagnose. Every sentence cites where it came from.
-              {status && !status.configured ? ' Answers are built by rules from the same data.' : ''}
-            </p>
             {status?.warning && <p className="small err" role="alert" style={{ marginTop: 6 }}>{status.warning}</p>}
           </div>
         </div>
@@ -221,14 +210,9 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
                 ) : a.claims.length ? a.claims.map((c, k) => (
                   <p key={k} style={{ marginTop: 6 }}>{c.text} {chips(c.source_ids)}</p>
                 )) : <p style={{ marginTop: 6 }}>{a.answer}</p>}
-                {!!a.limitations?.length && (
-                  <div className="ask-group"><span className="lbl">Limitations</span>
-                    <ul className="ask-limits small muted">{a.limitations.map((l, k) => <li key={k}>{l}</li>)}</ul></div>
-                )}
                 {a.recommended_action && action(a.recommended_action)}
                 {a.mode === 'emergency' && !a.recommended_action && <button className="btn sm" style={{ marginTop: 10 }} onClick={() => { onClose(); setEmergency(true) }}>Open Guided Response</button>}
                 {guardNote(a.guard)}
-                {medical && !!a.tools_used.length && <p className="small dim" style={{ marginTop: 8 }}>Tools: {a.tools_used.map(t => t.tool).join(', ')}</p>}
               </div>
             </div>
           ))}

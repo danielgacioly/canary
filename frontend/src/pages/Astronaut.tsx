@@ -35,7 +35,7 @@ function Other({ id }: { id: string }) {
     return person ? <PublicCard p={person} /> : <Loading what="crew member" />
   }
   // Indicators never read in the window get no row of dashes: they are named once under the table.
-  const all = Object.values(d.indicators)
+  const all = Object.values(d.indicators).filter(i => !i.alias_of)
   const read = all.filter(i => i.value !== null || (d.trends[i.id] ?? []).some(([, y]) => y !== null))
   const unread = all.filter(i => !read.includes(i))
   return (

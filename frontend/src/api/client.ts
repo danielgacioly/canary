@@ -173,7 +173,7 @@ export const api = {
   matchProtocol: (text: string) => req<ProtocolMatch>('/protocols/match', { method: 'POST', ...body({ text }) }),
   startEmergency: (responder: string | null, token?: string) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder, token }) }),
   emergenciesOpen: () => req<OpenEmergency[]>('/emergencies/open'),
-  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean; escalate?: boolean }) =>
+  emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean; cancel?: boolean; escalate?: boolean }) =>
     req<Emergency>(`/emergencies/${id}`, { method: 'POST', ...body(e) }),
 
   messages: (crew_id?: string) => req<Message[]>(`/messages${crew_id ? `?crew_id=${crew_id}` : ''}`),

@@ -949,14 +949,25 @@ class EmergencyEvent(BaseModel):
     patient: Optional[str] = None
     outcome: Optional[str] = None
     close: bool = False
+    cancel: bool = False  # closed without an outcome (a false alarm, opened by mistake): no goals, care window or report
 
 
 EMERGENCY_OUTCOMES = ("stable", "needs evacuation review")
+EMERGENCY_CANCELLED = "cancelled"
 
 
 @app.post("/api/emergencies/{eid}", tags=["guided response"])
 def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(require_onboard)):
     e = _emergency(eid)
+    if body.cancel:
+        if e["ended_at"]:  # already closed or cancelled: nothing changes
+            return e
+        log = e["log"] + [[round(time.time() - e["started_at"]), "Cancelled without an outcome"]]
+        # Conditional, like the close: a cancel that lost a race with a close changes nothing.
+        if db.write("UPDATE emergencies SET ended_at=?, outcome=?, log=? WHERE id=? AND ended_at IS NULL",
+                    (time.time(), EMERGENCY_CANCELLED, json.dumps(log), eid)):
+            audit.record(actor, "emergency.cancel", f"emergency:{eid}", after={"protocol": e["protocol"], "patient": e["patient"]})
+        return _emergency(eid)
     if body.close and body.outcome not in EMERGENCY_OUTCOMES:
         raise validation.FieldError("outcome", "Say how it ended: " + ", ".join(EMERGENCY_OUTCOMES))
     if body.close and e["ended_at"]:  # closing twice: no goals, window, report or log line repeat

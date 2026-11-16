@@ -746,7 +746,7 @@ ul.plain li:last-child { border-bottom: 0; }
 
 /* =====================================================================
    Light mode. Same structure, tokens re-tuned for a bright room. The
-   hologram, the intro and Guided Response stay dark on purpose.
+   hologram and the intro stay dark on purpose; Guided Response follows the theme.
    ===================================================================== */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -778,14 +778,13 @@ ul.plain li:last-child { border-bottom: 0; }
 :root[data-theme="light"] .chip.hot { color: #b45a14; }
 :root[data-theme="light"] .tl-seg { opacity: .7; }
 /* islands that stay dark: re-declare the dark tokens inside them */
-:root[data-theme="light"] :is(.intro, .setup, .launch, .bodycard, .er) {
+:root[data-theme="light"] :is(.intro, .setup, .launch, .bodycard) {
   color-scheme: dark;
   --bg: #0c0e12; --surface: #13161c; --surface-2: #1a1e26; --hover: #20252e; --line: #1f242d; --line-2: #2c323d;
   --ink: #e8ebf0; --muted: #a0a7b4; --dim: #6f7787; --accent: #6e94f2; --accent-strong: #6e94f2; --logo-eye: #0b0d11;
   --ok: #59b88d; --watch: #d8a24c; --act: #dc6a5f; --physical: #56c2dc; --mental: #a08af2; --gold: #e2b84f;
   color: var(--ink);
 }
-:root[data-theme="light"] .er { background: var(--bg); }
 
 .chart-wide { max-width: 1100px; }
 
@@ -1252,6 +1251,7 @@ textarea.in { padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid 
 .scrim.soft { background: rgba(2, 3, 7, .4); }
 :root[data-theme="light"] .scrim.soft { background: rgba(20, 24, 32, .28); }
 .drawer-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--line); }
+.drawer-body { padding: 12px 18px; }
 .drawer-foot { padding: 14px; border-top: 1px solid var(--line); }
 .drawer-suggest { gap: 6px; margin-bottom: 10px; }
 .story-step { font-weight: 600; white-space: nowrap; }
@@ -1369,8 +1369,12 @@ button.prow { width: 100%; text-align: left; }
 .alarm { position: fixed; top: 0; left: 0; right: 0; z-index: 70; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 16px; background: var(--nasa-red); color: #fff; font-size: 14px; }
 .alarm .dot { background: #fff; flex: none; }
 .alarm a { color: #fff; text-decoration: underline; white-space: nowrap; }
+.alarm-cancel { flex: none; height: 28px; padding: 0 12px; border-radius: 8px; border: 1px solid #fff; background: transparent; color: #fff; font: 600 13px var(--f-body); white-space: nowrap; cursor: pointer; }
+.alarm-cancel:hover { background: rgba(255, 255, 255, .16); }
+.alarm-cancel:disabled { opacity: .6; cursor: default; }
 body.has-alarm { padding-top: 40px; }
 body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
+body.has-alarm .drawer { top: 40px; }  /* the drawer's title stays below the red bar */
 @media (max-width: 860px) {
   .topbar { padding-right: 168px; }
   .topbar .sos { position: fixed; top: 13px; right: 10px; z-index: 65; background: var(--bg); }

@@ -86,10 +86,13 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
   const [done, setDone] = useState(false)
   const [describing, setDescribing] = useState(false)  // "I don't know": the person says what they see, Canary suggests a protocol
   const token = useRef(newToken())
+  const closing = useRef(false)  // set by Close: a record that arrives after it is cancelled, not shown
 
   useEffect(() => {
     api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
-    api.startEmergency(me, token.current).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
+    api.startEmergency(me, token.current)
+      .then(e => { if (closing.current) return api.emergencyEvent(e.id, { cancel: true }).then(() => bump()); setEm(e) })
+      .catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
     const t = setInterval(() => setNow(Date.now()), 250)
     return () => { clearInterval(t); try { speechSynthesis.cancel() } catch { /* no speech */ } }
   }, [me])
@@ -158,6 +161,19 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     setDone(true); bump()
     toast(patient ? 'Follow-up goals added for the patient. Report queued for Earth.' : 'Report queued for Earth.')
   }
+  // Close before the end cancels the emergency, so the cabin alarm stops. Never in an effect cleanup: React may run those twice.
+  const cancelAndClose = async () => {
+    if (done || closing.current) { onClose(); return }
+    closing.current = true
+    await chain.current  // the steps already logged stay in the record
+    const id = emRef.current?.id
+    if (id !== undefined) {
+      try { await api.emergencyEvent(id, { cancel: true }); toast('Emergency cancelled.') }
+      catch (e) { toast(`The emergency was not cancelled: ${errorText(e)}. Cancel it from the red bar.`) }
+    }
+    bump()
+    onClose()
+  }
 
   const illustrative = !!P && P.order.some(id => P.protocols[id]?.status === 'illustrative')
   const stepElapsed = (now - stepAt) / 1000
@@ -172,7 +188,7 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
             <button className={`btn er-btn ${voice ? 'pri' : ''}`} onClick={() => setVoice(v => !v)} title={eng.voice ? `${eng.voice.name} (${eng.voice.lang})` : undefined} data-voice={eng.voice?.name ?? ''}>Voice {voice ? 'on' : 'off'}</button>
             {eng.checked && !eng.voice && <span className="small dim">No English voice on this device</span>}
           </div>
-          <button className="btn er-btn" onClick={onClose}><Icon name="close" size={18} />Close</button>
+          <button className="btn er-btn" onClick={cancelAndClose}><Icon name="close" size={18} />{done ? 'Close' : 'Cancel emergency'}</button>
         </div>
       </div>
 

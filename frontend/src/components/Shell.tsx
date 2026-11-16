@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import ErrorBoundary from './ErrorBoundary'
 import { api } from '../api/client'
 import { useAction } from '../lib/useAction'
 import { ActionError } from './Field'
@@ -23,6 +24,7 @@ export default function Shell() {
   const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
+  const { pathname } = useLocation()
   const { data: crew } = useSignedApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
@@ -67,7 +69,9 @@ export default function Shell() {
           <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <span data-tour="crew-dots"><CrewDots people={crew.people} /></span>}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
         {/* Keyed by the signed-in person: a switch of profile remounts the page, so no state or fetched data of the last person stays. */}
-        {mission && !mission.registered ? <WaitingForControl /> : <Outlet key={me ?? 'guest'} />}
+        <ErrorBoundary key={pathname}>
+          {mission && !mission.registered ? <WaitingForControl /> : <Outlet key={me ?? 'guest'} />}
+        </ErrorBoundary>
       </div>
 
       {catalog?.mode === 'demo' && prefs.storyBar && mission?.registered && <StoryBar />}

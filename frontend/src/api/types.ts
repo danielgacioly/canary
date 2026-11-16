@@ -69,6 +69,8 @@ export interface Indicator {
   /** null when nothing current is known (status "no_data"): never measured, or the last reading is older than the indicator allows */
   value: number | null; baseline: number | null; delta: number | null; z: number | null; bad: number | null; level: Level; source: string
   status?: 'no_data'
+  /** set on an old name kept for older readers (`bp` -> `sbp`): the same indicator again, never a second row */
+  alias_of?: string
   origin: 'user' | 'simulated' | 'real' | 'none'; last_measured_day: number | null; age_days: number | null; stale?: boolean
   /** no normal of their own yet: only the population range and the NASA standard speak */
   learning?: boolean; baseline_need?: number | null
