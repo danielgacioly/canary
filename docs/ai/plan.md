@@ -14,7 +14,7 @@
 > Verified: `make test` passes (428 backend tests + frontend typecheck); dry eval passes 34/34.
 > Live smoke test: Gemini 3.1 Flash-Lite completed the native tool loop with fictional data and valid structured output in 46 seconds.
 > Gemini 3.8 Flash returned explicit high-demand 503 errors. The user confirmed the chat works with Flash-Lite.
-> `env.example` reflects that working local model and the 15-second deadline; `.env` and keys stay untracked.
+> `.env.example` reflects that working local model and the 150-second deadline; `.env` and keys stay untracked.
 > The full paid adversarial evaluation has not been run.
 
 **Scope.** Canary is the whole crew-health system already in this repo. This plan covers only its AI layer (`backend/canary/assistant/`): connect a real model with tool calling, harden the English guard rules, and add a vector knowledge base. Everything else (alerts, goals, Guided Response, NASA data, the body) stays as it is.
@@ -64,7 +64,7 @@ Environment checked: the project venv runs Python 3.13 and its SQLite (3.54) has
    | `CANARY_GEMINI_MODEL` / `CANARY_ANTHROPIC_MODEL` | `gemini-3.1-flash-lite` / `claude-sonnet-5-5` | per-provider model id |
    | `CANARY_LLM_MODEL` | empty | override, only with an explicit provider |
    | `CANARY_LLM_EFFORT` | `low` | keeps answers fast and tool use short; raise only if the eval shows a quality gap |
-   | `CANARY_LLM_TIMEOUT_S` | `15` | after this the answer falls back to grounded rules |
+   | `CANARY_LLM_TIMEOUT_S` | `150` | after this the answer falls back to grounded rules |
    | `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
    | `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds |
    | `CANARY_KB` | `backend/kb.db` | knowledge base file |

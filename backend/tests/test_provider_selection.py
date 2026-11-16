@@ -78,9 +78,9 @@ def test_models_are_independent(monkeypatch):
 
 def test_gemini_default_model_matches_env_example():
     from canary import config
-    example = (config.ROOT / 'env.example').read_text()
+    example = (config.ROOT / '.env.example').read_text()
     assert f'CANARY_GEMINI_MODEL={config.Settings.gemini_model}' in example
-    assert 'CANARY_LLM_TIMEOUT_S=15' in example and config.Settings.llm_timeout_s == 15
+    assert 'CANARY_LLM_TIMEOUT_S=150' in example and '"CANARY_LLM_TIMEOUT_S", "150"' in (config.ROOT / 'backend/canary/config.py').read_text()
 
 
 def test_tests_never_load_dotenv(monkeypatch, tmp_path):

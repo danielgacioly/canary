@@ -97,7 +97,7 @@ class Settings:
     anthropic_model: str = os.environ.get("CANARY_ANTHROPIC_MODEL", "claude-sonnet-5-5")
     llm_effort: str = os.environ.get("CANARY_LLM_EFFORT", "low")
     # After this many seconds the answer falls back to grounded rules. Raise it locally for slow networks.
-    llm_timeout_s: float = float(os.environ.get("CANARY_LLM_TIMEOUT_S", "15"))
+    llm_timeout_s: float = float(os.environ.get("CANARY_LLM_TIMEOUT_S", "150"))
     # Tool-calling rounds per question, and tool calls per question across all rounds.
     llm_max_steps: int = int(os.environ.get("CANARY_LLM_MAX_STEPS", "3"))
     llm_max_tool_calls: int = int(os.environ.get("CANARY_LLM_MAX_TOOL_CALLS", "6"))

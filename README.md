@@ -72,7 +72,7 @@ Other commands:
 
 ### Settings (environment variables)
 
-Copy `env.example` to `.env` and fill in the desired API key. The backend automatically loads the repository-root `.env`, regardless of its working directory. Variables already exported in the process take precedence. From the repository root:
+Copy `.env.example` to `.env` and fill in the desired API key. The backend automatically loads the repository-root `.env`, regardless of its working directory. Variables already exported in the process take precedence. From the repository root:
 
 ```bash
 make dev
