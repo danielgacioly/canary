@@ -97,7 +97,7 @@ Keep unused API keys empty and restart the backend after changes. `.env` is igno
 | `CANARY_GEMINI_MODEL` | `gemini-3.1-flash-lite` | default Gemini model |
 | `CANARY_ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Anthropic model |
 | `CANARY_LLM_EFFORT` | `low` | effort level sent to the model (`low` keeps tool calls few and answers short) |
-| `CANARY_LLM_TIMEOUT_S` | `15` | one deadline per question; past it the answer falls back to grounded rules |
+| `CANARY_LLM_TIMEOUT_S` | `150` | one deadline per question; past it the answer falls back to grounded rules |
 | `CANARY_LLM_MAX_STEPS` | `3` | tool-calling rounds per question |
 | `CANARY_LLM_MAX_TOOL_CALLS` | `6` | tool calls per question, across all rounds; extra calls get an error result |
 | `CANARY_KB` | `backend/kb.db` | knowledge base file, built by `make index` or at start-up when stale (see [The AI slot](#the-ai-slot)) |
