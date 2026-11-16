@@ -77,6 +77,9 @@ export class HologramScene {
     el.appendChild(this.renderer.domElement)
 
     this.camera.position.set(0, 1.05, 4.4)
+    // The page scrolls past the body: a plain wheel never reaches the controls. Zoom stays on Ctrl/Cmd + wheel, a trackpad
+    // pinch (the browser sends it with ctrlKey) and a touch pinch. Registered before the controls so it runs first.
+    this.renderer.domElement.addEventListener('wheel', e => { if (!e.ctrlKey && !e.metaKey) e.stopImmediatePropagation() }, { capture: true })
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.08, enablePan: false, minDistance: 1.2, maxDistance: 6,
       minPolarAngle: Math.PI * 0.2, maxPolarAngle: Math.PI * 0.78, autoRotate: opts.autoRotate ?? true, autoRotateSpeed: 0.7,

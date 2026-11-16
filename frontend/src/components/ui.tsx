@@ -43,7 +43,7 @@ export function Icon({ name, size = 16 }: { name: string; size?: number }) {
 export function CanaryMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M3 9l5 3-1 4c0 6 5 11 12 11 5 0 8-3 8-7 0-3-2-5-4-6-1-1-1-3-3-4-3-2-6-1-8 1L3 9z" fill="#f2c230" />
+      <path d="M3 9l5 3-1 4c0 6 5 11 12 11 5 0 8-3 8-7 0-3-2-5-4-6-1-1-1-3-3-4-3-2-6-1-8 1L3 9z" style={{ fill: 'var(--canary, #f2c230)' }} />
       <circle cx="12" cy="13" r="1.4" style={{ fill: 'var(--logo-eye, #0b0d11)' }} />
     </svg>
   )
@@ -120,7 +120,7 @@ export function Avatar({ initials, size = '' }: { initials: string; size?: '' | 
 /** A person with no current measurement at all: one plain line, no empty grids. */
 export function WaitingForData({ self, name }: { self: boolean; name?: string }) {
   return self
-    ? <div className="waiting-box rise"><p className="waiting">Canary is waiting for your first measurements. Check-ins count from today.</p><Link className="link" to="/tests">Go to Tests</Link></div>
+    ? <div className="waiting-box rise"><p className="waiting">No readings yet. Each test you take adds one.</p><Link className="link" to="/tests">Go to Tests</Link></div>
     : <p className="waiting rise">Canary has no measurements for {name ?? 'this person'} yet.</p>
 }
 

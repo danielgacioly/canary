@@ -95,7 +95,7 @@ def test_chunk_ids_are_versioned_kb_sources(kb_path):
 def test_chunks_follow_the_protocol_bank(kb_path):
     bank = json.loads((corpus.DATA / "protocols.json").read_text())
     for pid, p in bank["protocols"].items():
-        assert isinstance(p["version"], int) and p["reviewed"] == "illustrative"
+        assert isinstance(p["version"], int) and p["status"] == "illustrative"
         doc = corpus.load_map()["protocols"][pid]
         sections = [r[0] for r in rows(kb_path, "SELECT section FROM kb_chunks WHERE doc_id = ?", (doc,))]
         assert sections.count("summary") == 1 and sections.count("step") == len(p["steps"])

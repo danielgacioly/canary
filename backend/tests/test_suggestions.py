@@ -15,6 +15,7 @@ from canary import db  # noqa: E402
 from canary.assistant import chat, providers, suggestions  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import control_headers  # noqa: E402
 
 client = TestClient(app)
 GENTLE = "A gentler way to say it."
@@ -22,19 +23,19 @@ GENTLE = "A gentler way to say it."
 
 @pytest.fixture(autouse=True)
 def fresh():
-    client.post("/api/demo/reset")
-    client.put("/api/mission", json={"step": 2})  # day 147: Helena has several suggestions
+    client.post("/api/demo/reset", headers=control_headers(client))
+    client.put("/api/mission", json={"step": 2}, headers=control_headers(client))  # day 147: Helena has several suggestions
     yield
-    client.post("/api/demo/reset")
+    client.post("/api/demo/reset", headers=control_headers(client))
 
 
 def helena():
     r = client.post("/api/crew/h/session", json={"pin": "1001"})
-    return {"X-Canary-Viewer": r.json()["token"]}
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def medical():
-    r = client.post("/api/medical/session", json={"pin": settings.medical_pin})
+    r = client.post("/api/medical/session", json={"account_id": "k", "pin": "1002"})
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 

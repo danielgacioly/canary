@@ -25,6 +25,7 @@ from canary.assistant.contracts import ToolContext  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import mission  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import control_headers  # noqa: E402
 
 client = TestClient(app)
 PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
@@ -33,18 +34,18 @@ QUESTION = "Why is my sleep worse?"
 
 @pytest.fixture(autouse=True)
 def fresh():
-    client.post("/api/demo/reset")
-    client.put("/api/mission", json={"step": 2})  # day 147, Helena's slide
+    client.post("/api/demo/reset", headers=control_headers(client))
+    client.put("/api/mission", json={"step": 2}, headers=control_headers(client))  # day 147, Helena's slide
     yield
-    client.post("/api/demo/reset")
+    client.post("/api/demo/reset", headers=control_headers(client))
 
 
 def as_(cid):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]}).json()["token"]}
 
 
 def medical():
-    r = client.post("/api/medical/session", json={"pin": settings.medical_pin})
+    r = client.post("/api/medical/session", json={"account_id": "k", "pin": "1002"})
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
@@ -190,7 +191,7 @@ def test_max_steps(monkeypatch):
 
 
 def test_tool_budget(monkeypatch):
-    inds = ["sleep", "react", "mood", "stress", "social", "hr", "bp", "temp"]
+    inds = ["sleep", "react", "mood", "stress", "social", "hr", "sbp", "temp"]
     p, r = ask(monkeypatch, [tool_use(*[("get_indicator", {"ind": i}) for i in inds]), final(good_answer())])
     results = p.api_calls[1]["contents"][2]["parts"]
     assert len(results) == 8
@@ -642,7 +643,7 @@ def _register_a_person_with_no_data():
                       {"callsign": "Test", "name": "No data", "launch_date": "2036-03-01", "preset": "mars"})
     r = client.post("/api/crew/i1/session", json={"pin": "2468"})
     assert r.status_code == 200, r.text
-    return {"X-Canary-Viewer": r.json()["token"]}
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def _no_data_ctx():
@@ -772,9 +773,11 @@ def test_unexpected_provider_error_falls_back_without_leaking_it(monkeypatch, ex
 # ---------------------------------------------------------------- item 4: operational status and the care window in the answers
 
 def _close_emergency(protocol, patient, outcome="stable"):
-    e = client.post("/api/emergencies", json={"responder": "k"}).json()
-    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient})
-    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}).json()
+    """Open, name the protocol and patient, and close an emergency as crew member k (on board, signed in)."""
+    h = as_("k")
+    e = client.post("/api/emergencies", json={"responder": "k"}, headers=h).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient}, headers=h)
+    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}, headers=h).json()
 
 
 def test_get_status_carries_the_operational_status_for_the_person():

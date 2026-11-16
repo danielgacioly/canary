@@ -19,6 +19,7 @@ sees that suggestions were built and how, never what they say.
 import copy
 import hashlib
 import json
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -82,6 +83,7 @@ def facts(crew_id: str) -> dict:
     snap = health.snapshot(crew_id, ms)
     ind = snap["indicators"]
     fat = risk.get(snap["risks"], "fatigue")
+    ex_plan = goals.exercise_plan(ms["location"], fat["level"] if fat else 0)  # the one exercise target (ACT-02)
     place = LOCATIONS[ms["location"]]
     leg = ms["leg"]
     nxt = leg.get("next")
@@ -104,13 +106,50 @@ def facts(crew_id: str) -> dict:
                              "signals": [e.get("indicator") or e["checkin"] for e in fat["evidence"]]}},
         "escalation": [{"risk": e["risk"], "key": e["key"], "alternative": e["alternative"]} for e in advice.escalation(crew_id, ms["day"])],
         "week": _week_counts(crew_id, ms["day"]),
-        "exercise_target": EXERCISE_BY_PLACE[ms["location"]][1],
+        "exercise_plan": ex_plan, "exercise_target": ex_plan["minutes"],
+        "record": _record(crew_id),
+        # the highest alert or indicator level today, environment alerts included: an all-clear needs this at 0
+        "alert_level": max([snap["level"]] + [v["level"] for v in ind.values()]),
         "next_leg": {"location": nxt["location"], "label": nxt.get("label") or LOCATIONS[nxt["location"]]["name"],
                      "in_days": leg["days_to_next"], "gravity_key": LOCATIONS[nxt["location"]]["gravity_key"]} if nxt else None,
         "reading": _checkin_fact(crew_id, "reading", ms["day"], 14),
         "kss": _checkin_fact(crew_id, "kss", ms["day"], 1),
         "wellbeing": _checkin_fact(crew_id, "wellbeing", ms["day"], 14),
     }
+
+
+# Eligibility (ACT-01): a suggestion is withheld, with its reason, when the person's duty status or their own record rules it
+# out. Training is withheld under a rest status; the record terms are keyword matches on the person's own allergies,
+# conditions and medications (a prototype list for the medical team to replace; the decision stays theirs).
+# Direct load work only: the leg preparation item keeps its protocol link under a rest status (see the report).
+TRAINING = ("exercise", "bone")
+RECORD_TERMS = {
+    "exercise": ("heart", "cardiac", "asthma", "fracture", "hernia", "spine", "back", "joint", "knee", "hip", "ankle", "wrist", "shoulder"),
+    "bone": ("fracture", "osteo", "kidney stone"),
+    "prepare": ("heart", "cardiac", "asthma", "fracture", "hernia", "spine", "back", "joint", "knee", "hip", "ankle", "wrist", "shoulder"),
+    "water": ("kidney", "renal"),
+    "nap": ("sedative", "sleeping pill", "zolpidem", "hypnotic", "sleep aid"),
+}
+GENERAL_NOTE = "General guidance: the times and amounts are not set for you."
+# Any sentence that says all is well. It may appear only when no alert is raised and no care window is active (ACT-03).
+ALL_CLEAR = re.compile(r"everything is close|all (is )?(clear|well)|nothing to (report|flag)|no alerts?", re.I)
+
+
+def _record(crew_id: str) -> dict:
+    """The person's own allergies, conditions and medications, as the record holds them (private to them and the medical team)."""
+    r = RECORDS.get(crew_id) or {}
+    return {k: [str(x).strip() for x in (r.get(k) or []) if str(x).strip()] for k in ("allergies", "conditions", "medications")}
+
+
+def _withheld(f: dict, sid: str) -> Optional[str]:
+    """Why a suggestion is not offered to this person today, or None when it is eligible."""
+    duty = f["duty"]
+    if sid in TRAINING and duty.get("key") == "rest":
+        return f"Your duty status is {str(duty.get('label') or 'rest').lower()}, so training is withheld until the medical team clears it."
+    text = " ".join(x for k in ("allergies", "conditions", "medications") for x in f["record"][k])
+    if any(re.search(rf"\b{re.escape(t)}", text, re.I) for t in RECORD_TERMS.get(sid, ())):
+        return "Your record (allergies, conditions or medications) rules this out for now; the medical team decides."
+    return None
 
 
 def _pick(options: List[str], crew_id: str, day: int) -> str:
@@ -129,13 +168,15 @@ def _outside(f: dict, sid: str) -> tuple:
     delay = (f"Earth replies in {rep} each way", "delay") if rep != "Live" else None
     isolation = (f"Isolation is {iso['label'].lower()} here: {iso['here'].lower()}", None) if iso["level"] >= 1 and not f["learning"] else None
     hour = int(o["time"][:2]) if o.get("time") else 12
-    leg = (f"Day {o['leg_day']} of {o['leg_length']} on {o['leg_label']}", None) if o["leg_length"] >= 14 and not f["learning"] else None
+    # Only a day that falls inside the leg: before the plan starts (a real clock years out) "Day -3059 of 60" means nothing.
+    in_leg = 1 <= o["leg_day"] <= o["leg_length"]
+    leg = (f"Day {o['leg_day']} of {o['leg_length']} on {o['leg_label']}", None) if in_leg and o["leg_length"] >= 14 and not f["learning"] else None
     g = f["gravity_key"]
     pick = {
         "sleep": (f"It is {o['time']} on board, in the hours NASA says to avoid critical tasks (V1 6001)", None) if 1 <= hour < 7 else None,
         "nap": (f"It is {o['time']} on board, in the hours NASA says to avoid critical tasks (V1 6001)", None) if 1 <= hour < 7 else None,
         "social": isolation or leg,
-        "exercise": (f"The target at {o['place']} is {f['exercise_target']} min a day in {o['gravity']}", None) if not f["learning"] else None,
+        "exercise": (f"The target at {o['place']} is {f['exercise_plan']['target']} min a day in {o['gravity']}", None) if not f["learning"] else None,
         "bone": (f"In {o['gravity']} bones lose load every day without exercise", None) if g in ("g0", "gp") else None,
         "breathe": storm or isolation,
         "water": ("Thirst fades in 0 g", "sickness" if f["location"] == "rocket" else None) if g == "g0" else None,
@@ -147,16 +188,26 @@ def _outside(f: dict, sid: str) -> tuple:
     return pick or ("", None)
 
 
-def candidates(f: dict) -> List[dict]:
+def candidates(f: dict, skipped: Optional[List[dict]] = None) -> List[dict]:
+    """The eligible suggestions for today. A suggestion the person may not have is not returned; with `skipped` (a list),
+    each withheld one is appended there with its reason (`id`, `title`, `reason`)."""
     i, w, out, o = f["ind"], f["week"], [], f["outside"]
     fat = f["risk"]["fatigue"]  # the same layer the alerts use: no limits of our own in this file
     src = lambda *ks: [i[k]["source"] for k in ks if k in i]  # noqa: E731
+    ep = f["exercise_plan"]
 
-    def add(sid, area, priority, title, why, steps, goal, sources, inside="", outside=None):
+    def add(sid, area, priority, title, why, steps, goal, sources, inside="", outside=None, guidance=None):
+        reason = _withheld(f, sid)
+        if reason:
+            if skipped is not None:
+                skipped.append({"id": sid, "title": title, "reason": reason})
+            return
         line, proto = outside if outside is not None else _outside(f, sid)
+        g = guidance or "general"  # times and amounts are general guidance unless they come from the person's own data
         out.append({"id": sid, "area": area, "priority": priority, "title": title, "why": why, "steps": steps,
                     "goal": goal, "sources": sources, "verify": VERIFY.get(sid),
-                    "because_outside": line, "because_inside": inside, "protocol": proto})
+                    "because_outside": line, "because_inside": inside, "protocol": proto,
+                    "guidance": g, "guidance_note": GENERAL_NOTE if g == "general" else ""})
 
     # ---- from the environment first: what the place and the phase ask of everyone, with what the person's own numbers say about it
     if o["storm"] and not f["learning"]:
@@ -175,12 +226,12 @@ def candidates(f: dict) -> List[dict]:
             inside=(f"Your pulse is {hr['value']} against your normal {hr['normal']} and you have barely had water" if hr["level"] and wa["level"] and None not in (hr["value"], hr["normal"]) else ""),
             outside=("The first hours in 0 g: space sickness is common", "sickness"))
     if o["since_change"] is not None and o["since_change"] < 30 and not f["learning"]:
-        bp, hr = i["bp"], i["hr"]
+        sbp, hr = i["sbp"], i["hr"]
         add("readapt", "physical", 84, "Stand up slowly while your body relearns weight",
             "Lower pressure and a faster pulse than your normal when you stand are expected in the first weeks after 0 g.",
             ["Stand up in two steps: sit, wait, then stand", "500 mL of salted water on waking", "No solo suited walks this week"],
-            "500 mL of salted water on waking", src("bp", "hr"),
-            inside=("Your pressure or pulse is off your normal" if bp["level"] or hr["level"] else ""),
+            "500 mL of salted water on waking", src("sbp", "hr"),
+            inside=("Your pressure or pulse is off your normal" if sbp["level"] or hr["level"] else ""),
             outside=(f"Day {o['since_change'] + 1} in {o['gravity']} after months in 0 g", "regravity"))
 
     wb = f["wellbeing"]
@@ -221,10 +272,12 @@ def candidates(f: dict) -> List[dict]:
     ex = i["exer"]
     if not f["learning"] and ex["level"]:
         add("exercise", "physical", 78, "Win back your exercise minutes",
-            f"You average {ex['value']} min a day; the target here is {f['exercise_target']} min.",
+            f"You average {ex['value']} min a day; today's target is {ep['minutes']} min"
+            + (" (lighter for your fatigue risk)." if ep["pct"] else " here."),
             ["Book your exercise slot first thing in the day", "Split it in two blocks if the schedule is tight", "Resistance first, cardio second"],
             "Exercise in two blocks today", src("exer"),
-            inside=f"You average {ex['value']} min a day")
+            inside=f"You average {ex['value']} min a day",
+            guidance="personal" if ep["pct"] else "general")
 
     bone = i.get("bone")
     if bone and bone["level"] and bone["value"] is not None:
@@ -297,13 +350,18 @@ def candidates(f: dict) -> List[dict]:
         out.append({"id": alt["id"], "area": alt["area"], "priority": 92, "title": alt["title"],
                     "why": "The last two pieces of advice did not change your numbers, so here is a different kind of step.",
                     "steps": alt["steps"], "goal": alt["goal"], "sources": [f"advice:{f['crew_id']}:{e['key']}"], "verify": alt["verify"],
-                    "because_outside": "", "because_inside": "The last two pieces of advice did not change your numbers", "protocol": None})
+                    "because_outside": "", "because_inside": "The last two pieces of advice did not change your numbers", "protocol": None,
+                    "guidance": "general", "guidance_note": GENERAL_NOTE})
 
-    if len(out) < 3:
+    # ACT-03: an all-clear only when no alert is raised and no care window or duty restriction is active
+    calm = f["alert_level"] == 0 and f["duty"].get("key") in (None, "full") and not f["care"]
+    if len(out) < 3 and calm:
         add("keep", "mental", 10, "Keep doing what works",
             "Everything is close to your own normal this week.",
             ["Keep your streak", "Try one new test on the Tests page", "Ask a crewmate how they are"],
             None, [], inside="Everything is close to your own normal this week", outside=("", None))
+    if not calm:  # defence in depth: no all-clear sentence can reach a person who has an alert or a restriction
+        out = [s for s in out if not ALL_CLEAR.search(" ".join([s["title"], s["why"], s["because_inside"], s["because_outside"]]))]
     return sorted(out, key=lambda s: -s["priority"])
 
 
@@ -336,10 +394,10 @@ def rank_of(s: dict, chosen: Dict[str, dict]) -> dict:
             "accepted": c["accepted"], "dismissed": c["dismissed"]}
 
 
-def ranked(crew_id: str, f: dict) -> List[dict]:
+def ranked(crew_id: str, f: dict, skipped: Optional[List[dict]] = None) -> List[dict]:
     chosen = choices(crew_id)
     gone = {r["sid"] for r in db.q("SELECT sid FROM suggestion_feedback WHERE crew_id=? AND action='dismiss' AND day=?", (crew_id, f["day"]))}
-    items = [{**s, "rank": rank_of(s, chosen)} for s in candidates(f) if s["id"] not in gone]
+    items = [{**s, "rank": rank_of(s, chosen)} for s in candidates(f, skipped) if s["id"] not in gone]
     return sorted(items, key=lambda s: -s["rank"]["score"])[:6]
 
 
@@ -424,7 +482,8 @@ def build(crew_id: str, admit: Optional[Callable[[], Optional[int]]] = None) -> 
         wait = admit()
         if wait is not None:
             raise Busy(wait)
-    items = ranked(crew_id, f)
+    withheld: List[dict] = []
+    items = ranked(crew_id, f, withheld)
     configured = bool(getattr(provider, "configured", False))
     rewrites, reason, rejected, out, rules = _rewrite(provider, f, items)
     for s in items:
@@ -447,6 +506,7 @@ def build(crew_id: str, admit: Optional[Callable[[], Optional[int]]] = None) -> 
                 out.input_tokens if out else 0, out.output_tokens if out else 0)
     result = {"mode": mode, "provider": provider.name, "model": model, "configured": configured, "rewritten": n,
               "fallback_reason": reason, "rejected_numbers": rejected, "rejected_rules": rules, "day": f["day"], "items": items,
+              "withheld": withheld,
               "context": {"place": f["outside"]["place"], "in_force": f["outside"]["in_force"]}}
     _cache[crew_id] = {"key": key, "result": result}
     return copy.deepcopy(result)
@@ -468,7 +528,7 @@ def accept(crew_id: str, sid: str) -> dict:
     allg = db.get_setting("suggested_goals", {})
     mine = [g for g in allg.get(crew_id, []) if g["id"] != f"sg_{sid}"]
     mine.append({"id": f"sg_{sid}", "area": s["area"], "title": s["goal"], "from_day": f["day"], "to_day": f["day"] + 6,
-                 "verify": s.get("verify")})
+                 "verify": s.get("verify"), "guidance": s.get("guidance", "general")})
     allg[crew_id] = mine
     db.set_setting("suggested_goals", allg)
     record_choice(crew_id, sid, "accept", f["day"])

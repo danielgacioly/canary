@@ -66,8 +66,12 @@ function Describe({ P, onStart, onBack }: { P: Protocols; onStart: (id: string, 
 
 const mmss = (s: number) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`
 
+// One id per opening: a retry of the same opening (for example React running an effect twice) gets the same emergency back.
+const newToken = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
 /** `initialProtocol` opens that protocol directly; an unknown id falls back to the chooser. Without the prop, the protocol
- * id from the session (`emergencyPid`, set by a protocol's page or setEmergency(id)) is used. */
+ * id from the session (`emergencyPid`, set by a protocol's page or setEmergency(id)) is used. The patient is asked first, so
+ * the protocol and the report are about that person. */
 export default function GuidedResponse({ onClose, initialProtocol }: { onClose: () => void; initialProtocol?: string }) {
   const { me, mission, catalog, bump, toast, prefs, emergencyPid } = useSession()
   const initial = initialProtocol ?? emergencyPid ?? undefined
@@ -75,19 +79,36 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
   const [em, setEm] = useState<Emergency | null>(null)
   const [pid, setPid] = useState<string | null>(null)
   const [i, setI] = useState(0)
-  const [patient, setPatient] = useState<string | null>(null)
+  const [patient, setPatient] = useState<string | null>(null)  // chosen first: a crew id, or '' for someone not on the crew
   const [now, setNow] = useState(Date.now())
   const [stepAt, setStepAt] = useState(Date.now())
   const [voice, setVoice] = useState(prefs.voice)
   const [done, setDone] = useState(false)
   const [describing, setDescribing] = useState(false)  // "I don't know": the person says what they see, Canary suggests a protocol
+  const token = useRef(newToken())
 
   useEffect(() => {
     api.protocols().then(setP).catch(e => toast(`Could not load the protocols: ${errorText(e)}`))
-    api.startEmergency(me).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
+    api.startEmergency(me, token.current).then(setEm).catch(e => toast(`Could not open the emergency record: ${errorText(e)}`))
     const t = setInterval(() => setNow(Date.now()), 250)
     return () => { clearInterval(t); try { speechSynthesis.cancel() } catch { /* no speech */ } }
   }, [me])
+
+  // Log calls keep their order. One made before the emergency id exists waits in `pending` and is sent once it does.
+  const emRef = useRef<Emergency | null>(null)
+  const pending = useRef<{ text?: string; protocol?: string; patient?: string }[]>([])
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
+  const send = (p: { text?: string; protocol?: string; patient?: string }) => {
+    chain.current = chain.current.then(() => api.emergencyEvent(emRef.current!.id, p)).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`))
+  }
+  useEffect(() => {
+    emRef.current = em
+    if (em && pending.current.length) { const q = pending.current; pending.current = []; q.forEach(send) }
+  }, [em])  // eslint-disable-line react-hooks/exhaustive-deps
+  const log = (text: string, extra: { protocol?: string; patient?: string } = {}) => {
+    const p = { text, ...extra }
+    if (emRef.current) send(p); else pending.current.push(p)
+  }
 
   // Open the requested protocol once the list is loaded; log it once the emergency record exists.
   const opened = useRef(false)
@@ -101,12 +122,11 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     const id = unlogged.current
     if (!em || !P || !id) return
     unlogged.current = null
-    api.emergencyEvent(em.id, { text: `Protocol: ${P.protocols[id].name}`, protocol: id }).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`))
-  }, [em, P, pid])
-
-  const log = (text: string, extra: Record<string, unknown> = {}) => { if (em) api.emergencyEvent(em.id, { text, ...extra }).then(setEm).catch(e => toast(`The log did not save that step: ${errorText(e)}`)) }
+    log(`Protocol: ${P.protocols[id].name}`, { protocol: id })
+  }, [em, P, pid])  // eslint-disable-line react-hooks/exhaustive-deps
   const proto = pid && P ? P.protocols[pid] : null
   const step = proto?.steps[i]
+  const patientName = patient ? catalog?.crew.find(c => c.id === patient)?.name ?? patient : patient === '' ? 'Not a crew member' : null
 
   const eng = useEnglishVoice()
   // With no English voice the step stays silent: an English text read by a foreign voice is worse than none.
@@ -131,13 +151,15 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
     go(yes ? step.yes : step.no)
   }
   const finish = async (outcome: string) => {
+    await chain.current  // the log is complete before the report closes
     try {
-      if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient ?? undefined, protocol: pid ?? undefined })
+      if (em) await api.emergencyEvent(em.id, { close: true, outcome, patient: patient || undefined, protocol: pid ?? undefined })
     } catch (e) { toast(`The report was not closed: ${errorText(e)}. Press the button again.`); return }
     setDone(true); bump()
     toast(patient ? 'Follow-up goals added for the patient. Report queued for Earth.' : 'Report queued for Earth.')
   }
 
+  const illustrative = !!P && P.order.some(id => P.protocols[id]?.status === 'illustrative')
   const stepElapsed = (now - stepAt) / 1000
   return (
     <div className="er" role="dialog" aria-label="Guided Response">
@@ -157,10 +179,19 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
       <div className="er-body">
         <div className="col" style={{ gap: 18 }}>
           {!P && <span className="lbl">Loading protocols…</span>}
-          {P && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
-          {P && !proto && !done && !describing && (
+          {P && patient === null && !done && (
+            <div className="col" style={{ gap: 18 }}>
+              <p className="er-lead">Who is the patient?</p>
+              <div className="er-choices">
+                {catalog?.crew.map(c => <button key={c.id} className="btn er-btn big" onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}
+                <button className="btn er-btn big" onClick={() => { setPatient(''); log('Patient: not a crew member') }}>Someone else</button>
+              </div>
+            </div>
+          )}
+          {P && patient !== null && !proto && !done && describing && <Describe P={P} onStart={(id, text) => { log(`Described: ${text}`); pick(id) }} onBack={() => setDescribing(false)} />}
+          {P && patient !== null && !proto && !done && !describing && (
             <>
-              <p className="er-lead">Crew alerted. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
+              <p className="er-lead">Patient: <b>{patientName}</b>. Crew alerted. Pick what you see. If unsure, choose “I don’t know” and describe it.</p>
               <div className="proto-grid">
                 {P.order.map(id => (
                   <button key={id} className="proto" onClick={() => pick(id)}>
@@ -184,8 +215,6 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
                 <div className="yesno"><button className="y" onClick={() => answer(true)}>YES</button><button className="n" onClick={() => answer(false)}>NO</button></div>
               ) : step.end ? (
                 <div className="col">
-                  <p className="er-lead">Who was the patient?</p>
-                  <div className="er-choices">{catalog?.crew.map(c => <button key={c.id} className={`btn er-btn big ${patient === c.id ? 'pri' : ''}`} onClick={() => { setPatient(c.id); log(`Patient: ${c.name}`, { patient: c.id }) }}>{c.name}</button>)}</div>
                   <div className="er-choices" style={{ marginTop: 8 }}>
                     <button className="btn pri er-btn big" onClick={() => finish('stable')}>Patient stable: close and report</button>
                     <button className="btn er-btn big" onClick={() => finish('needs evacuation review')}>Not stable: escalate</button>
@@ -215,7 +244,12 @@ export default function GuidedResponse({ onClose, initialProtocol }: { onClose: 
               {(em?.log ?? []).slice().reverse().map(([t, x], k) => <div key={k} className="row small" style={{ alignItems: 'baseline' }}><span className="num dim">{mmss(t)}</span><span>{x}</span></div>)}
             </div>
           </details>
-          <p className="small dim">Protocols are illustrative and not clinically reviewed. They are data the medical team can replace.</p>
+          {illustrative && (
+            <span className="chip" data-testid="protocol-status" title={proto?.version ? `Protocol version ${proto.version}` : undefined}>
+              Illustrative — not clinically reviewed{proto?.version ? ` · v${proto.version}` : ''}
+            </span>
+          )}
+          <p className="small dim">They are data the medical team can replace.</p>
         </aside>
       </div>
     </div>

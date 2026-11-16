@@ -4,7 +4,7 @@ Code computes the facts; the model (when connected) only rewrites them as prose 
 (contracts.py, schema.md §7), with no tools. The draft is kept only when it validates, every line cites a
 source from the allowed list, and guard.unknown_numbers finds no number that is not in the facts; otherwise
 the template text is used (mode "template"). Sections are in priority order so the first lines are enough on
-a slow link. The astronaut sees the briefing and approves it before it is queued for Earth.
+a slow link. The astronaut can read their own briefing; the medical team reviews and approves it before it is queued for Earth.
 """
 import json
 import pathlib
@@ -137,21 +137,24 @@ def build(crew_id: str) -> dict:
     return get(bid)
 
 
-def approve(bid: int) -> Optional[dict]:
-    """Queue a draft for Earth. Only a draft is updated (WHERE status='draft'), so a second approval changes nothing and
-    queues no second message. None when the briefing does not exist or is not a draft any more (the route answers 404/409)."""
+def approve(bid: int) -> Tuple[Optional[dict], bool]:
+    """Queue a draft for Earth. Returns (the briefing, True) when this call queued it, and (the current briefing, False)
+    when it was already approved, so a second approval changes nothing and queues no second message. (None, False)
+    when the briefing does not exist (the route answers 404)."""
     with db._lock:  # the update and the message are one step: a draft cannot be queued twice
         b = get(bid)
-        if b is None or b["status"] != "draft":
-            return None
+        if b is None:
+            return None, False
+        if b["status"] != "draft":
+            return b, False
         delay = LOCATIONS[mission.state()["location"]]["delay_s"] / settings.delay_speedup
         now = time.time()
         if db.write("UPDATE briefings SET status='queued', sent_at=?, deliver_at=? WHERE id=? AND status='draft'",
                     (now, now + delay, bid)) != 1:
-            return None
+            return get(bid), False
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
              (b["crew_id"], "earth", "briefing", b["text"], now, now + delay))
-    return get(bid)
+    return get(bid), True
 
 
 def get(bid: int) -> Optional[dict]:

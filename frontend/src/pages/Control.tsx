@@ -2,13 +2,14 @@
 // It registers the crew and the mission (no accounts on board), follows each person the way
 // Earth may (operational status as the ship's medical team reports it, participation, hazards),
 // and exchanges delayed messages with the ship's medical console.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ControlOverview, MissionForm, SeatForm } from '../api/types'
+import type { AlertEvent, ControlDemo, ControlOverview, GroundForm, MissionForm, SeatForm } from '../api/types'
 import Timeline from '../components/Timeline'
 import { ActionError, Field, FormError, FormSummary, SubmitButton } from '../components/Field'
 import { Dot } from '../components/People'
+import EmergencyBanner from '../components/EmergencyBanner'
 import Hazards from '../components/Hazards'
 import PinPad from '../components/PinPad'
 import Stars from '../components/Stars'
@@ -17,6 +18,8 @@ import { useAction } from '../lib/useAction'
 import { useForm, type Errors } from '../lib/useForm'
 import * as v from '../lib/validate'
 import { clockLine } from '../lib/clock'
+import { useProtocolName } from '../lib/names'
+import { tourStage, setTourStage, useTourStage } from '../lib/tour'
 import { useApi, useSession } from '../state/session'
 import ControlData from './ControlData'
 
@@ -31,26 +34,47 @@ const EVA: [string, string][] = [['surface', 'Surface EVAs'], ['microgravity', '
 const emptySeat = (seat = ''): SeatForm => ({
   seat, name: '', role: '', home: '', pin: '', dob: '1990-01-01', sex: '', nationality: '', languages: [], agency: '', flights: 0,
   days_in_space: 0, height_cm: 170, weight_kg: 70, blood_type: '', skin_type: 'III', handedness: 'Right', vision: '', allergies: [],
-  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null,
+  medications: [], conditions: [], diet: '', vaccinations: '', emergency_contact: '', eva: 'surface', prior_dose_msv: null, cmo: false,
 })
-const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true }
+const emptyMission: MissionForm = { callsign: '', name: '', launch_date: '2035-06-01', preset: 'mars', rover: true, dose_waiver: false }
+const GROUND_ROLES: [string, string][] = [['mcc', 'MCC (Canary Control)'], ['flight_surgeon', 'Flight surgeon (medical console)']]
 
 export default function Control() {
   const [signed, setSigned] = useState(api.isControl())
-  if (!signed) return <ControlGate onOk={() => setSigned(true)} />
+  if (!signed) return <ControlGate onOk={() => { setSigned(true); if (tourStage() === 'control') setTourStage('connect') }} />
   return <ControlApp onSignOut={() => { api.controlSignOut(); setSigned(false) }} />
 }
 
 function ControlGate({ onOk }: { onOk: () => void }) {
   const nav = useNavigate()
+  const { catalog } = useSession()
+  const { data: accounts, error } = useApi(() => api.accountsPublic(), [])
+  const [who, setWho] = useState<string | null>(null)
+  const demo = catalog?.mode === 'demo'
+  const mcc = accounts?.ground.filter(g => g.role === 'mcc') ?? []
+  const person = mcc.find(g => g.id === who)
   return (
     <div className="control control-gate">
       <Stars />
       <div className="row control-top"><span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <button className="btn sm ghost right" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button></div>
-      <div className="control-gate-body">
+      <div className="control-gate-body" data-tour="gate">
         <p className="muted reveal lock-note">Mission Control's side of Canary: register the crew and the mission, follow each person the way Earth may, and talk to the ship's medical team.</p>
-        <PinPad title="Mission Control" subtitle="Enter the 4-digit Mission Control PIN" hint="PIN: 4242" onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        {error && <p className="err">{error}</p>}
+        {accounts && !mcc.length && (
+          <PinPad title="Canary Control first access" subtitle="Enter the first-access PIN. It works until an MCC account is registered." hint={demo ? 'PIN: 4242' : undefined}
+            onSubmit={async pin => { await api.controlSignIn(pin); onOk() }} />
+        )}
+        {accounts && mcc.length > 0 && !person && (
+          <div className="col" style={{ gap: 12, alignItems: 'center' }}>
+            <h2>Choose your MCC account</h2>
+            {mcc.map(g => <button key={g.id} className="btn" onClick={() => setWho(g.id)}>{g.name}</button>)}
+          </div>
+        )}
+        {person && (
+          <PinPad title={person.name} subtitle="Enter your 4-digit PIN" hint={demo && person.id === 'g-mcc1' ? 'Demo PIN: 4242' : undefined} onCancel={() => setWho(null)}
+            onSubmit={async pin => { await api.controlSignIn(pin, person.id); onOk() }} />
+        )}
       </div>
     </div>
   )
@@ -58,28 +82,46 @@ function ControlGate({ onOk }: { onOk: () => void }) {
 
 function ControlApp({ onSignOut }: { onSignOut: () => void }) {
   const nav = useNavigate()
-  const { bump, rev } = useSession()
+  const { bump, rev, toast, catalog } = useSession()
   const [ov, setOv] = useState<ControlOverview | null>(null)
   const [tab, setTab] = useState<Tab | null>(null)
-  useEffect(() => { api.controlOverview().then(o => { setOv(o); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
+  const stage = useTourStage()
+  useEffect(() => { api.controlOverview().then(o => { setOv(o); if (tourStage() === 'control' || tourStage() === 'connect') setTourStage(o.registered ? 'dashboard' : 'connect'); setTab(t => t ?? (o.registered ? 'dashboard' : 'register')) }).catch(onSignOut) }, [rev, onSignOut])
   if (!ov || !tab) return <div className="control"><Loading what="Canary Control" /></div>
-  const refresh = (o: ControlOverview) => { setOv(o); bump() }
-  const loadDemoData = async () => { refresh(await api.controlDemoData()); setTab('dashboard') }
+  // The first-access sign-in closes the moment an MCC account exists. The registration form knows the MCC PIN it just sent, so sign
+  // in again with it; if that does not work, ask for the PIN.
+  const registered = async (mcc?: { name: string; pin: string }) => {
+    if (!mcc) {  // no ground account was sent: the first-access sign-in stays valid
+      setTab('dashboard'); bump(); toast('Sent to Canary.')
+      if (tourStage() === 'connect') setTourStage('dashboard')
+      return
+    }
+    try {
+      const acc = await api.accountsPublic()
+      const m = acc.ground.find(g => g.role === 'mcc' && g.name === mcc?.name)
+      if (!m) throw new Error('no account')
+      await api.controlSignIn(mcc.pin, m.id)
+      setTab('dashboard'); bump(); toast('Sent to Canary. Signed in to Canary Control.')
+      if (tourStage() === 'connect') setTourStage('dashboard')
+    } catch {
+      bump(); toast('Registered. Sign in with an MCC account.'); onSignOut()
+    }
+  }
   return (
     <div className="control">
+      <EmergencyBanner />
       <header className="control-top">
         <span className="brand"><CanaryMark size={22} />CANARY CONTROL</span>
         <span className="small muted">{ov.registered ? `${ov.overview.callsign} · ${ov.mission.day_label} · ${clockLine(ov.mission.clock)} · ${ov.mission.place.name}` : 'No mission registered'}</span>
         <div className="right row" style={{ gap: 8 }}>
-          <button className="btn sm" onClick={() => nav('/crew')}><Icon name="back" />Back to the crew view</button>
+          <button className={`btn sm ${stage === 'dashboard' ? 'pri pulse' : ''}`} data-tour="enter" onClick={() => { if (stage === 'dashboard') setTourStage('board'); nav('/crew') }}>Enter Canary mode<Icon name="chev" /></button>
           <button className="btn sm ghost" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
       <div className="control-page">
-        <Tabs value={tab} onChange={setTab} options={[['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
-        {tab === 'dashboard' && <Dashboard ov={ov} onClear={async () => { refresh(await api.controlClear()); setTab('register') }}
-          onDemo={loadDemoData} onRegister={() => setTab('register')} />}
-        {tab === 'register' && <Register registered={ov.registered} onSaved={o => { refresh(o); setTab('dashboard') }} onDemo={loadDemoData} />}
+        <Tabs value={tab} onChange={setTab} options={ov.registered ? [['dashboard', 'Dashboard'], ['data', 'Data'], ['messages', 'Messages']] : [['dashboard', 'Dashboard'], ['register', 'Register crew and mission'], ['data', 'Data'], ['messages', 'Messages']]} />
+        {tab === 'dashboard' && <Dashboard ov={ov} onRegister={() => setTab('register')} />}
+        {tab === 'register' && !ov.registered && <Register demoMode={catalog?.mode === 'demo'} onSaved={registered} />}
         {tab === 'data' && <ControlData />}
         {tab === 'messages' && <ControlMessages delay={ov.mission.place.reply} />}
       </div>
@@ -88,20 +130,45 @@ function ControlApp({ onSignOut }: { onSignOut: () => void }) {
 }
 
 /* ---------------------------------------------------------------- dashboard */
-function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; onClear: () => Promise<void>; onDemo: () => Promise<void>; onRegister: () => void }) {
-  const [confirm, setConfirm] = useState<'clear' | 'demo' | null>(null)
-  const clear = useAction()
-  const demo = useAction()
+/** Open alert events, read-only: who, which alert, level, since when and whether somebody acknowledged it. No values. */
+function OpenAlerts() {
+  const { rev } = useSession()
+  const [events, setEvents] = useState<AlertEvent[] | null>(null)
+  useEffect(() => {
+    const load = () => api.alertEvents(true).then(r => setEvents(r.events)).catch(() => setEvents([]))
+    load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [rev])
+  if (!events?.length) return null
+  const what = (k: string) => k.replace(/^ind_/, '').replace(/_/g, ' ')
+  return (
+    <section className="rise" data-tour="ctl-alerts" style={{ ['--d' as string]: 1 }}>
+      <div className="section-head"><h2>Open alerts</h2><span className="sub">Who, which alert and whether the ship acknowledged it. The readings stay on board.</span></div>
+      <ul className="plain">
+        {events.map(e => (
+          <li key={e.id} className="row wrap" style={{ gap: 10 }}>
+            <span className={`alert-line s${e.level}`}><span className="dot" /><b>{e.name}</b></span>
+            <span className="grow">{what(e.key)}</span>
+            <span className="small muted num">level {e.level} · since day {e.opened_day}</span>
+            <span className="small muted">{e.acknowledged ? 'Acknowledged' : e.escalation_stage ? `Not acknowledged, escalated (step ${e.escalation_stage})` : 'Not acknowledged'}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function Dashboard({ ov, onRegister }: { ov: ControlOverview; onRegister: () => void }) {
+  const protocol = useProtocolName()
   if (!ov.registered) {
     return (
       <div className="empty-ctl rise">
         <h2>Nothing registered</h2>
-        <p className="muted">The crew terminals are waiting. Register the crew (one to six people) and the mission, or fill everything with the demo mission.</p>
+        <p className="muted">The crew terminals are waiting. Connect the crew (one to six people), bring in the mission data and send it to Canary.</p>
         <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
           <button className="btn pri" onClick={onRegister}>Register crew and mission</button>
-          <button className="btn" disabled={demo.busy} onClick={() => demo.run(onDemo)}>{demo.busy ? 'Loading…' : 'Use demo data'}</button>
         </div>
-        <ActionError error={demo.error} />
       </div>
     )
   }
@@ -115,7 +182,7 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
         <div className="stat"><div className="k">Mission dose</div><b>{ov.dose.mission_msv} mSv</b><div className="s">{ov.dose.pct_of_limit}% of the career limit</div></div>
       </div>
 
-      <section className="rise" style={{ ['--d' as string]: 1 }}>
+      <section className="rise" data-tour="ctl-crew" style={{ ['--d' as string]: 1 }}>
         <div className="section-head"><h2>Crew</h2><span className="sub">Operational status as the ship's medical team reports it. Health details stay on board.</span></div>
         <div className="ctl-crew">
           {ov.people.map(p => (
@@ -130,7 +197,9 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
         </div>
       </section>
 
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+      <OpenAlerts />
+
+      <section className="rise" data-tour="ctl-hazards" style={{ ['--d' as string]: 2 }}>
         <div className="section-head"><h2>Hazards at {ms.place.name}</h2></div>
         {ov.warnings.map(w => <div key={w.title} className="warning s2"><span className="dot" /><div className="grow"><b>{w.title}</b><p className="small muted">{w.todo.join(' · ')}</p></div></div>)}
         <Hazards items={ov.ridge} />
@@ -140,25 +209,15 @@ function Dashboard({ ov, onClear, onDemo, onRegister }: { ov: ControlOverview; o
         <div className="section-head"><h2>Emergencies</h2><span className="sub">Guided Response reports reach Earth after the signal delay</span></div>
         {ov.emergencies.length ? (
           <ul className="plain">{ov.emergencies.map(e => (
-            <li key={e.id}><b>{e.protocol ?? 'Triage'}</b> <span className="muted">· day {e.day} · {e.ended_at ? `closed, ${e.outcome}` : 'in progress'}</span></li>
+            <li key={e.id}><b>{protocol(e.protocol)}</b> <span className="muted">· day {e.day} · {e.ended_at ? `closed, ${e.outcome}` : 'in progress'}</span></li>
           ))}</ul>
         ) : <p className="muted">None so far.</p>}
       </section>
 
-      <section className="danger-zone rise" style={{ ['--d' as string]: 4 }}>
-        <div className="grow"><b>Use demo data</b><p className="small muted">Replace everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
-        {confirm === 'demo'
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn pri" disabled={demo.busy} onClick={() => demo.run(async () => { await onDemo(); setConfirm(null) })}>{demo.busy ? 'Loading…' : 'Replace with demo data'}</button></div>
-          : <button className="btn" onClick={() => setConfirm('demo')}>Use demo data</button>}
-        <ActionError error={demo.error} />
-      </section>
-
-      <section className="danger-zone rise" style={{ ['--d' as string]: 5 }}>
-        <div className="grow"><b>Start from zero</b><p className="small muted">Clear the crew and the mission. Crew terminals wait for Mission Control until you register again or use the demo data.</p></div>
-        {confirm === 'clear'
-          ? <div className="row"><button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button><button className="btn danger" disabled={clear.busy} onClick={() => clear.run(onClear)}>{clear.busy ? 'Clearing…' : 'Clear everything'}</button></div>
-          : <button className="btn" onClick={() => setConfirm('clear')}>Clear crew and mission</button>}
-        <ActionError error={clear.error} />
+      <section className="rise" style={{ ['--d' as string]: 4 }}>
+        <div className="section-head"><h2>Mission record</h2><span className="sub">The registered mission is locked. Only the demo reset starts over, and only in demo mode.</span></div>
+        <p className="small muted">Projected career dose, highest in the crew: {ov.career.projected_max_msv} mSv of {ov.career.limit_msv} mSv.
+          {ov.waiver ? ` Risk-acceptance waiver accepted by ${ov.ground.find(g => g.id === ov.waiver!.by)?.name ?? ov.waiver.by} on ${ov.waiver.at.slice(0, 10)}.` : ''}</p>
       </section>
     </>
   )
@@ -178,8 +237,14 @@ const items = (t: string) => t.split(',').map(x => x.trim()).filter(Boolean)
 
 function seatToValues(c: SeatForm, i: number): Values {
   const o: Values = {}
-  for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : val ?? ''
+  for (const [k, val] of Object.entries(c)) o[`crew.${i}.${k}`] = Array.isArray(val) ? val.join(', ') : k === 'cmo' ? (val ? 'yes' : '') : val ?? ''
   return o
+}
+/** A person's projected career dose (mSv): the dose carried in (typed, else estimated from days in space) plus the mission's. */
+function careerOf(f: Values, i: number, issRate: number, missionMsv: number): number {
+  const typed = v.parseNumber(str(f[`crew.${i}.prior_dose_msv`]))
+  const days = v.parseNumber(str(f[`crew.${i}.days_in_space`])) ?? 0
+  return (typed ?? days * issRate) + missionMsv
 }
 /** The form's values without person `j`: the people after it move up one place. */
 function withoutPerson(f: Values, j: number, n: number): Values {
@@ -193,10 +258,10 @@ function withoutPerson(f: Values, j: number, n: number): Values {
   }
   return out
 }
-const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes' })
+const toValues = (crew: SeatForm[], m: MissionForm): Values => ({ ...Object.assign({}, ...crew.map(seatToValues)), ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
 
 /** Every rule of the registration form, by field. The server repeats them (SeatIn, MissionRegIn, _check_registration). */
-function validateRegister(f: Values, n: number, presets: string[], roverPresets: string[]): Errors {
+function validateRegister(f: Values, n: number, gn: number, presets: string[], roverPresets: string[]): Errors {
   const e: Errors = {}
   const launch = str(f['mission.launch_date'])
   const pins = new Map<string, number>()
@@ -223,6 +288,16 @@ function validateRegister(f: Values, n: number, presets: string[], roverPresets:
     put('handedness', v.oneOf('Dominant hand', HAND)(g('handedness')))
     put('eva', v.oneOf('EVA role', EVA.map(x => x[0]))(g('eva')))
     put('prior_dose_msv', v.number('Dose from earlier flights', { min: 0, max: 600, unit: 'mSv', optional: true })(g('prior_dose_msv')))
+    put('cmo', g('cmo') === 'yes' && Array.from({ length: i }, (_, j) => j).some(j => str(f[`crew.${j}.cmo`]) === 'yes') ? 'Only one crew medical officer: another person already is one' : null)
+  })
+  const gpins = new Map<string, number>()  // ground accounts are no longer part of the form (gn is 0)
+  Array.from({ length: gn }, (_, i) => i).forEach(i => {
+    const g = (k: string) => str(f[`ground.${i}.${k}`])
+    e[`ground.${i}.name`] = v.length('Name', { min: 2, max: 60 })(g('name'))
+    e[`ground.${i}.role`] = v.oneOf('Role', GROUND_ROLES.map(x => x[0]))(g('role'))
+    const pin = v.pin4()(g('pin'))
+    e[`ground.${i}.pin`] = pin ?? (gpins.has(g('pin')) ? `PIN is already used by ground account ${gpins.get(g('pin'))! + 1}; each account needs its own` : null)
+    if (!pin) gpins.set(g('pin'), gpins.get(g('pin')) ?? i)
   })
   e['mission.callsign'] = v.length('Callsign', { min: 2, max: 24 })(str(f['mission.callsign']))
   e['mission.name'] = v.length('Mission name', { min: 2, max: 80 })(str(f['mission.name']))
@@ -232,17 +307,44 @@ function validateRegister(f: Values, n: number, presets: string[], roverPresets:
   return e
 }
 
-function Register({ registered, onSaved, onDemo }: { registered: boolean; onSaved: (o: ControlOverview) => void; onDemo: () => Promise<void> }) {
-  const loadDemo = useAction()
+const DEVICES: [string, string][] = [
+  ['Astroskin (CSA Bio-Monitor)', 'ECG, breathing, SpO₂, skin temperature'],
+  ['Actiwatch Spectrum', 'sleep and activity'],
+  ['Crew Active Dosimeter', 'personal radiation dose'],
+]
+const missionToValues = (m: MissionForm): Values => ({ ...Object.fromEntries(Object.entries(m).map(([k, x]) => [`mission.${k}`, x])), 'mission.rover': m.rover === false ? 'no' : 'yes', 'mission.dose_waiver': m.dose_waiver ? 'yes' : '' })
+/** What the form says about the people, the ground team and the mission, to tell whether it still equals the demo data (the waiver is the person's own choice). */
+const formSig = (f: Values) => JSON.stringify(Object.entries(f).filter(([k, x]) => /^(crew|mission)\./.test(k) && k !== 'mission.dose_waiver' && str(x) !== '').map(([k, x]) => [k, str(x)]).sort())
+type Sources = 'idle' | 'scanning' | 'none' | 'loaded'
+
+function Register({ demoMode, onSaved }: { demoMode: boolean; onSaved: (mcc?: { name: string; pin: string }) => void }) {
   const [step, setStep] = useState(0)
   const [count, setCount] = useState(1)
-  const [open, setOpen] = useState(0)
-  const { data: demo } = useApi(() => api.controlDemo(), [])
+  const [open, setOpen] = useState(demoMode ? -1 : 0)
+  const gcount = 0  // the registration is about the mission and the crew: ground accounts come from the mission package
+  const [scan, setScan] = useState<Sources>('idle')      // "Scan for crew devices"
+  const [crewDemo, setCrewDemo] = useState(false)         // the demo crew is in the form
+  const [devicesPaired, setDevicesPaired] = useState(false)  // "Use demo devices": each person's devices are paired (demo)
+  const [src, setSrc] = useState<Sources>('idle')         // "Connect mission sources"
+  const demoData = useRef<ControlDemo | null>(null)
+  const demoSig = useRef('')
+  const fetchDemo = useAction()
+  useEffect(() => {
+    if (scan !== 'scanning' && src !== 'scanning') return
+    const t = setTimeout(() => { setScan(x => (x === 'scanning' ? 'none' : x)); setSrc(x => (x === 'scanning' ? 'none' : x)) }, 2000)
+    return () => clearTimeout(t)
+  }, [scan, src])
+  const { data: demo } = useApi(() => api.controlOptions(), [])
   const presets = demo?.presets ?? { mars: 'Mars reference mission', iss: 'Six months on the ISS', moon: 'Lunar surface mission' }
   const roverPresets = demo?.rover_presets ?? ['mars', 'moon']
+  const needsWaiverFor = (f: Values) => {
+    const rover = roverPresets.includes(str(f['mission.preset'])) && f['mission.rover'] !== 'no'
+    const mission = demo?.mission_dose_msv[str(f['mission.preset'])]?.[rover ? 'rover' : 'plain'] ?? 0
+    return Array.from({ length: count }, (_, i) => careerOf(f, i, demo?.iss_dose_msv_per_day ?? 0.5, mission)).some(c => c > (demo?.career_limit_msv ?? 600))
+  }
   const form = useForm<Values>({
     initial: toValues([emptySeat()], emptyMission),
-    validate: f => validateRegister(f, count, Object.keys(presets), roverPresets),
+    validate: f => validateRegister(f, count, gcount, Object.keys(presets), roverPresets),
     submit: async f => {
       const g = (i: number, k: string) => str(f[`crew.${i}.${k}`]).trim()
       const crew = Array.from({ length: count }, (_, i): SeatForm => ({
@@ -251,18 +353,39 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
         height_cm: v.parseNumber(g(i, 'height_cm')) ?? 0, weight_kg: v.parseNumber(g(i, 'weight_kg')) ?? 0, blood_type: g(i, 'blood_type'), skin_type: g(i, 'skin_type'),
         handedness: g(i, 'handedness'), vision: g(i, 'vision'), allergies: items(g(i, 'allergies')), medications: items(g(i, 'medications')), conditions: items(g(i, 'conditions')),
         diet: g(i, 'diet'), vaccinations: g(i, 'vaccinations'), emergency_contact: g(i, 'emergency_contact'),
-        eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')),
+        eva: g(i, 'eva'), prior_dose_msv: v.parseNumber(g(i, 'prior_dose_msv')), cmo: g(i, 'cmo') === 'yes',
       }))
+      const ground: GroundForm[] = []
       const mission: MissionForm = { callsign: str(f['mission.callsign']).trim(), name: str(f['mission.name']).trim(), launch_date: str(f['mission.launch_date']), preset: str(f['mission.preset']),
-        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false }
-      onSaved(await api.controlRegister(crew, mission))
+        rover: roverPresets.includes(str(f['mission.preset'])) ? f['mission.rover'] !== 'no' : false, dose_waiver: false }
+      const mcc = demoMode && crewDemo && src === 'loaded' && formSig(f) === demoSig.current ? demoData.current?.ground.find(x => x.role === 'mcc') : undefined
+      // Still exactly the demo data: load the whole demo package (readings, goal history, story). Anything else is registered as typed.
+      if (demoMode && crewDemo && src === 'loaded' && formSig(f) === demoSig.current) await api.controlDemoData()
+      else await api.controlRegister(crew, mission, ground)
+      onSaved(mcc && { name: mcc.name, pin: mcc.pin })
     },
     // A wrong field can sit in a closed seat or on another step: open it so it can take the focus.
     reveal: key => {
       const m = /^crew\.(\d+)\./.exec(key)
-      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) setStep(1)
+      if (m) { setStep(0); setOpen(Number(m[1])) } else if (key.startsWith('mission.')) { setStep(1) }
     },
   })
+  const getDemo = async () => demoData.current ?? (demoData.current = await api.controlDemo())
+  const useDemoCrew = () => fetchDemo.run(async () => {
+    const d = await getDemo()
+    form.setValues(f => ({ ...Object.fromEntries(Object.entries(f).filter(([k]) => !/^(crew|ground)\./.test(k))), ...Object.assign({}, ...d.crew.map(seatToValues)) }))
+    setCount(d.crew.length); setOpen(-1); setCrewDemo(true)
+    demoSig.current = formSig({ ...Object.assign({}, ...d.crew.map(seatToValues)), ...missionToValues(d.mission) })
+  })
+  const loadDemoMission = () => fetchDemo.run(async () => {
+    const d = await getDemo()
+    form.setValues(f => ({ ...f, ...missionToValues(d.mission) }))
+    setSrc('loaded')
+  })
+  const clearForm = () => {
+    form.reset(toValues([emptySeat()], emptyMission))
+    setCount(1); setOpen(demoMode ? -1 : 0); setScan('idle'); setSrc('idle'); setCrewDemo(false); setDevicesPaired(false); setStep(0)
+  }
   const addPerson = () => {
     if (count >= MAX_PEOPLE) return
     form.setValues(f => ({ ...f, ...seatToValues(emptySeat(), count) }))
@@ -273,35 +396,46 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
     form.setValues(f => withoutPerson(f, j, count))
     setCount(count - 1); setOpen(o => (o === j ? -1 : o > j ? o - 1 : o))
   }
-  const seatNo = (key: string) => { const m = /^crew\.(\d+)\./.exec(key); return m ? `Person ${Number(m[1]) + 1}` : 'Mission' }
+  const seatNo = (key: string) => { const m = /^crew\.(\d+)\./.exec(key); return m ? `Person ${Number(m[1]) + 1}` : key.startsWith('ground') ? 'Ground team' : 'Mission' }
   const people = Array.from({ length: count }, (_, i) => i)
   const val = (k: string) => str(form.values[k])
   const next = (prefix: string, to: number) => { if (!form.check(k => k.startsWith(prefix)).length) setStep(to) }
   const { catalog } = useSession()
   const withRover = roverPresets.includes(val('mission.preset')) && val('mission.rover') !== 'no'
   const itinerary = demo && catalog ? demo.itineraries[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] : undefined
-  const allErrs = validateRegister(form.values, count, Object.keys(presets), roverPresets)
+  const needsWaiver = needsWaiverFor(form.values)
+  const missionDose = demo?.mission_dose_msv[val('mission.preset')]?.[withRover ? 'rover' : 'plain'] ?? 0
+  const careerMax = Math.max(0, ...people.map(i => careerOf(form.values, i, demo?.iss_dose_msv_per_day ?? 0.5, missionDose)))
+  const allErrs = validateRegister(form.values, count, gcount, Object.keys(presets), roverPresets)
   const seatBad = (i: number) => Object.keys(allErrs).filter(k => k.startsWith(`crew.${i}.`) && allErrs[k]).length
   const seatShown = (i: number) => form.visible.filter(x => x.key.startsWith(`crew.${i}.`)).length
   return (
     <form className="register" noValidate onSubmit={form.submit}>
       <div className="row wrap rise">
-        <div className="stepper">{['Crew', 'Mission', 'Review and save'].map((t, i) => (
+        <div className="stepper">{['Connect the crew', 'Mission data', 'Review and send'].map((t, i) => (
           <button type="button" key={t} className={i === step ? 'on' : i < step ? 'done' : ''} onClick={() => setStep(i)}><span className="num">{i + 1}</span>{t}</button>
         ))}</div>
       </div>
-      {registered && step === 0 && <p className="small muted rise">A crew is already registered. Saving replaces it and restarts the mission clock.</p>}
-      {!registered && step === 0 && (
-        <div className="set-row rise">
-          <div className="grow"><b>Use demo data</b><p className="small muted">Fill everything with the Odyssey 1 demo mission: four crew, the Mars itinerary, every reading and the demo story.</p></div>
-          <button type="button" className="btn" disabled={loadDemo.busy} onClick={() => loadDemo.run(onDemo)}>{loadDemo.busy ? 'Loading…' : 'Use demo data'}</button>
-          <ActionError error={loadDemo.error} />
-        </div>
-      )}
       {step < 2 && <FormSummary form={form} describe={seatNo} />}
 
       {step === 0 && (
         <div className="seats rise">
+          {demoMode && (
+            <div className="set-row" data-tour="crew-demo">
+              <div className="grow"><b>Crew members</b>
+                <p className="small muted">{crewDemo ? `The demo crew is in the form: ${count} people. Open Edit details to change anyone.` : 'Fill in each person below, or use the demo crew.'}</p></div>
+              {!crewDemo && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={useDemoCrew}>Use demo crew</button>}
+            </div>
+          )}
+          {demoMode && (
+            <div className="set-row" data-tour="scan">
+              <div className="grow"><b>Crew devices</b>
+                <p className="small muted">{devicesPaired ? 'The demo devices are paired to every person (demo).' : scan === 'scanning' ? 'Scanning for wristbands and crew devices…' : scan === 'none' ? 'No wristband or crew device found.' : 'Find the wristbands and monitors the crew wears.'}</p></div>
+              {!devicesPaired && scan !== 'none' && <button type="button" className="btn" disabled={scan === 'scanning'} onClick={() => setScan('scanning')}>{scan === 'scanning' ? 'Scanning…' : 'Scan for crew devices'}</button>}
+              {!devicesPaired && scan === 'none' && <button type="button" className="btn pri pulse" onClick={() => setDevicesPaired(true)}>Use demo devices</button>}
+            </div>
+          )}
+          {demoMode && <ActionError error={fetchDemo.error} />}
           {people.map(i => (
             <div key={i} className={`seat ${open === i ? 'open' : ''}`}>
               <button type="button" className="seat-head" aria-expanded={open === i} onClick={() => setOpen(o => (o === i ? -1 : i))}>
@@ -310,6 +444,12 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
                 {seatShown(i) ? <span className="small err">{seatShown(i)} to fix</span>
                   : <span className={`small ${seatBad(i) ? 'dim' : 'ok-text'}`}>{seatBad(i) ? 'Not complete' : 'Ready'}</span>}
               </button>
+              {(devicesPaired || crewDemo) && (
+                <div className="seat-devices small">
+                  {devicesPaired && DEVICES.map(([n, what]) => <div key={n}><b>{n}</b> <span className="muted">· {what}</span> <span className="dim">· Paired (demo)</span></div>)}
+                  <button type="button" className="link-btn" onClick={() => setOpen(o => (o === i ? -1 : i))}>{open === i ? 'Hide details' : 'Edit details'}</button>
+                </div>
+              )}
               {open === i && <SeatFields form={form} i={i} issRate={demo?.iss_dose_msv_per_day ?? 0.5} onRemove={count > 1 ? () => removePerson(i) : undefined} />}
             </div>
           ))}
@@ -323,6 +463,16 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
 
       {step === 1 && (
         <div className="form-grid rise">
+          {demoMode && (
+            <div className="set-row" style={{ gridColumn: '1 / -1' }} data-tour="sources">
+              <div className="grow"><b>Mission sources</b>
+                <p className="small muted">{src === 'loaded' ? `Demo mission loaded: ${(demoData.current?.counts.readings ?? 0).toLocaleString('en-US')} readings, ${(demoData.current?.counts.goal_entries ?? 0).toLocaleString('en-US')} goal entries, ${demoData.current?.counts.events ?? 0} events. The mission fields below are filled.`
+                  : src === 'scanning' ? 'Connecting to the flight plan, cabin sensors, ISS RAD / dosimeters and NASA DONKI…' : src === 'none' ? 'No live source found.' : 'Flight plan, cabin sensors, ISS RAD / dosimeters and NASA DONKI.'}</p></div>
+              {src !== 'loaded' && src !== 'none' && <button type="button" className="btn" disabled={src === 'scanning'} onClick={() => setSrc('scanning')}>{src === 'scanning' ? 'Connecting…' : 'Connect mission sources'}</button>}
+              {src === 'none' && <button type="button" className="btn pri pulse" disabled={fetchDemo.busy} onClick={loadDemoMission}>Load demo mission data</button>}
+            </div>
+          )}
+          {demoMode && <div style={{ gridColumn: '1 / -1' }}><ActionError error={fetchDemo.error} /></div>}
           <Field form={form} name="mission.callsign" label="Callsign" placeholder="e.g. Odyssey 1" hint="2 to 24 characters" maxLength={24} />
           <Field form={form} name="mission.name" label="Mission name" placeholder="e.g. Mars reference mission" hint="2 to 80 characters" maxLength={80} />
           <Field form={form} name="mission.launch_date" label="Launch date" type="date" hint="Between 2025 and 2100" />
@@ -343,11 +493,14 @@ function Register({ registered, onSaved, onDemo }: { registered: boolean; onSave
           <div className="scroll"><table className="t"><thead><tr><th>#</th><th>Name</th><th>Role</th><th>Agency</th><th>Blood</th><th>Allergies</th><th>EVA</th><th className="num">Earlier dose</th><th>PIN</th></tr></thead>
             <tbody>{people.map(i => <tr key={i}><td className="num">{i + 1}</td><td><b>{val(`crew.${i}.name`)}</b></td><td>{val(`crew.${i}.role`)}</td><td>{val(`crew.${i}.agency`)}</td><td>{val(`crew.${i}.blood_type`)}</td><td>{val(`crew.${i}.allergies`) || 'None'}</td><td>{EVA.find(x => x[0] === val(`crew.${i}.eva`))?.[1]}</td><td className="num">{val(`crew.${i}.prior_dose_msv`) ? `${val(`crew.${i}.prior_dose_msv`)} mSv` : 'Estimated'}</td><td className="num">{val(`crew.${i}.pin`) ? '••••' : '—'}</td></tr>)}</tbody></table></div>
           {itinerary && <Timeline legs={itinerary} places={catalog?.locations ?? {}} />}
+          <p>Projected career dose, highest in the crew: <b>{Math.round(careerMax * 10) / 10} mSv</b> <span className="muted">of {demo?.career_limit_msv ?? 600} mSv (the mission adds {Math.round(missionDose * 10) / 10} mSv)</span>{needsWaiver ? <span className="muted"> · This exceeds the NASA career limit (NASA-STD-3001 Vol 1, 4.2.10). For information.</span> : null}</p>
+          {devicesPaired && <p className="small muted">Devices paired (demo) for each person: {DEVICES.map(d => d[0]).join(', ')}.</p>}
           <p className="small muted">Saving sends this registration to the ship. Each astronaut opens their space with the PIN set here and can change it on board.</p>
           <FormSummary form={form} describe={seatNo} />
           <FormError form={form} />
-          <div className="row"><button type="button" className="btn ghost" onClick={() => setStep(1)}><Icon name="back" />Mission</button><span className="grow" />
-            <SubmitButton form={form}>Save and activate Canary</SubmitButton></div>
+          <div className="row wrap">
+            <button type="button" className="btn ghost" onClick={clearForm}>Clear form</button><span className="grow" />
+            <span data-tour="save"><SubmitButton form={form} busyLabel="Sending…">Save and send to Canary</SubmitButton></span></div>
         </div>
       )}
     </form>
@@ -376,7 +529,9 @@ function SeatFields({ form, i, issRate, onRemove }: { form: ReturnType<typeof us
         <Field form={form} name={n('dob')} label="Date of birth" type="date" hint={`Age ${SEAT_AGE[0]}–${SEAT_AGE[1]} at launch`} />
         {sel('sex', 'Sex', SEX)}{txt('nationality', nationality[1], { max: nationality[2] })}{list('languages', 'Languages')}{txt('agency', agency[1], { max: agency[2] })}
         {num('flights', 'Previous flights', v.range(0, 20))}{num('days_in_space', 'Days in space before', v.range(0, 1000, 'days'))}
-        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each person" inputMode="numeric" maxLength={4} autoComplete="off" /></div>
+        <Field form={form} name={n('pin')} label="First PIN (4 digits)" hint="Different for each person" inputMode="numeric" maxLength={4} autoComplete="off" />
+        <div className="field"><label><input type="checkbox" checked={str(form.values[n('cmo')]) === 'yes'} onChange={e => form.set(n('cmo'), e.target.checked ? 'yes' : '')} /> Crew medical officer</label>
+          {form.error(n('cmo')) ? <span className="err">{form.error(n('cmo'))}</span> : <span className="hint">At most one per crew. Signs in to the medical console with their crew PIN.</span>}</div></div>
       <h3>Body</h3>
       <div className="form-grid">{num('height_cm', 'Height (cm)', v.range(140, 210, 'cm'))}{num('weight_kg', 'Weight (kg)', v.range(40, 150, 'kg'))}{sel('blood_type', 'Blood type', BLOOD)}{sel('skin_type', 'Skin type (Fitzpatrick)', SKIN, true)}
         {sel('handedness', 'Dominant hand', HAND, true)}{txt('vision', vision[1], { ph: 'e.g. No correction', max: vision[2] })}</div>
@@ -395,13 +550,20 @@ function SeatFields({ form, i, issRate, onRemove }: { form: ReturnType<typeof us
 function ControlMessages({ delay }: { delay: string }) {
   const { bump } = useSession()
   const { data } = useApi(() => api.messages(), [])
+  const { data: accounts } = useApi(() => api.accountsPublic(), [])
+  const mccIds = useMemo(() => new Set((accounts?.ground ?? []).filter(g => g.role === 'mcc').map(g => g.id)), [accounts])
   const [, tick] = useState(0)
+  useEffect(() => {  // the signal arrived: fetch the text (at most every 2 s, in case the clocks differ)
+    if (!data?.some(m => m.in_transit && m.deliver_at <= Date.now() / 1000)) return
+    const t = setTimeout(bump, 2000)
+    return () => clearTimeout(t)
+  }, [data, bump])
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [])
-  const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || m.sender === 'mission-control'), [data])
+  const traffic = useMemo(() => (data ?? []).filter(m => ['mission-control', 'earth'].includes(m.recipient) || mccIds.has(m.sender)), [data, mccIds])
   const form = useForm({
     initial: { text: '' },
     validate: f => ({ text: v.length('Message', { max: 1000 })(f.text) }),
-    submit: async f => { await api.send('mission-control', 'medical', f.text.trim()); form.reset({ text: '' }); bump() },
+    submit: async f => { await api.send('control', 'medical', f.text.trim()); form.reset({ text: '' }); bump() },
   })
   return (
     <div className="grid g2 rise">
@@ -416,12 +578,12 @@ function ControlMessages({ delay }: { delay: string }) {
         <h2 className="traffic-h">Traffic with the ship</h2>
         <div className="col" style={{ gap: 12 }}>{traffic.map(m => {
           const eta = Math.max(0, Math.round(m.deliver_at - Date.now() / 1000))
-          const out = m.sender === 'mission-control'
+          const out = mccIds.has(m.sender)
           return (
             <div key={m.id} className={`msg ${out ? 'out' : 'in'}`}>
-              <div className="row small"><b>{out ? 'Mission Control → medical team' : `${m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
+              <div className="row small"><b>{out ? 'Mission Control → medical team' : `${accounts?.crew.find(c => c.id === m.sender)?.name ?? accounts?.ground.find(g => g.id === m.sender)?.name ?? m.sender} → ${m.recipient === 'earth' ? 'Earth' : 'Mission Control'}`}</b><span className="tag">{m.kind}</span>
                 <span className="num dim right">{eta ? `${out ? 'arrives' : 'arriving'} in ${eta}s` : out ? 'delivered' : 'received'}</span></div>
-              <div className="muted pre-line">{m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
+              <div className="muted pre-line">{m.in_transit ? `In transit, arrives in ${eta}s` : m.text.length > 400 ? `${m.text.slice(0, 400).trimEnd()}…` : m.text}</div>
             </div>)
         })}{!traffic.length && <p className="muted">No traffic yet.</p>}</div>
       </section>

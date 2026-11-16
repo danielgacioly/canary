@@ -53,8 +53,7 @@ def _prepare_env(dry: bool) -> str:
     os.environ["CANARY_DAY_SYNC"] = "0"
     os.environ["CANARY_PBKDF2_ITERATIONS"] = "1000"
     os.environ.setdefault("CANARY_MISSION_PACKAGE", "odyssey1-mars")
-    for k, v in (("CANARY_CREW_PINS", ",".join(f"{c}:{p}" for c, p in DEMO_PINS.items())),
-                 ("CANARY_MEDICAL_PIN", "1961")):
+    for k, v in (("CANARY_CREW_PINS", ",".join(f"{c}:{p}" for c, p in DEMO_PINS.items())),):
         os.environ.setdefault(k, v)
     return db_path
 
@@ -316,12 +315,14 @@ class Session:
         self.scenario: Optional[str] = None
 
     def setup(self, key: str, sc: dict) -> List[str]:
-        """reset -> mars preset -> mission day -> check-ins. Returns setup errors (empty when fine)."""
+        """reset -> mission day -> check-ins. Returns setup errors (empty when fine)."""
         errs = []
+        ctl = self.control()
+        # the demo reset already loads the bundled mars package (its plan is locked once registered, so no preset here)
         for method, path, body in (("post", "/api/demo/reset", None),
-                                   ("post", "/api/plan/preset", {"preset": "mars"}),
                                    ("put", "/api/mission", sc["mission"])):
-            r = getattr(self.c, method)(path, json=body) if body is not None else getattr(self.c, method)(path)
+            kw = {"json": body} if body is not None else {}
+            r = getattr(self.c, method)(path, headers=ctl, **kw)
             if r.status_code != 200:
                 errs.append(f"{method.upper()} {path} -> {r.status_code}")
         self.sign_in_all()   # tokens are stateless HMACs and survive the reset; this only fills gaps
@@ -333,6 +334,15 @@ class Session:
         self.scenario = key
         return errs
 
+    def control(self) -> Dict[str, str]:
+        """Canary Control's sign-in (the demo reset and the mission step need it): the demo MCC account, else the bootstrap PIN."""
+        r = self.c.post("/api/control/session", json={"account_id": "g-mcc1", "pin": "4242"})
+        if r.status_code != 200:
+            r = self.c.post("/api/control/session", json={"pin": "4242"})
+        if r.status_code != 200:
+            raise SystemExit(f"control sign-in failed: {r.status_code} {r.text[:200]}")
+        return {"Authorization": "Bearer " + r.json()["token"]}
+
     def sign_in_all(self) -> None:
         for cid, pin in DEMO_PINS.items():
             if cid not in self.tokens:
@@ -341,7 +351,7 @@ class Session:
                     raise SystemExit(f"sign-in failed for {cid}: {r.status_code} {r.text[:200]}")
                 self.tokens[cid] = r.json()["token"]
         if self.medical is None:
-            r = self.c.post("/api/medical/session", json={"pin": os.environ.get("CANARY_MEDICAL_PIN", "1961")})
+            r = self.c.post("/api/medical/session", json={"account_id": "k", "pin": DEMO_PINS["k"]})
             if r.status_code != 200:
                 raise SystemExit(f"medical sign-in failed: {r.status_code} {r.text[:200]}")
             self.medical = r.json()["token"]
@@ -351,7 +361,7 @@ class Session:
             return {}
         if who == "medical":
             return {"Authorization": f"Bearer {self.medical}"}
-        return {"X-Canary-Viewer": self.tokens[who]}
+        return {"Authorization": "Bearer " + self.tokens[who]}
 
 
 # ---------------------------------------------------------------- reading an answer
@@ -546,7 +556,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     how = _install_provider(args.dry)
     client = TestClient(app)
     s = Session(client)
-    s.c.post("/api/demo/reset")
+    s.c.post("/api/demo/reset", headers=s.control())
     s.sign_in_all()
 
     order = {k: i for i, k in enumerate(C.SCENARIOS)}

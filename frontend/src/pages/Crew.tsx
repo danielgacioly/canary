@@ -7,15 +7,15 @@ import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
 import { Loading } from '../components/ui'
 import { protocolPath } from './Protocols'
-import { clockLine } from '../lib/clock'
-import { useApi, useSession } from '../state/session'
+import { useApi, useSession, useSignedApi } from '../state/session'
 
 export default function Crew() {
   const { me, catalog } = useSession()
-  const { data, error } = useApi(() => api.overview(), [])
+  const { data, error, locked } = useSignedApi(() => api.overview(), [])
+  if (locked) return <div className="page"><p className="waiting">Sign in to your space to see the crew.</p></div>
   const { data: plan } = useApi(() => api.plan(), [])
   const nav = useNavigate()
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API. Is the backend running on port 8000?</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!data || !catalog) return <Loading what="crew" />
   const n = data.people.length
   if (n === 0) return <div className="page"><p className="waiting">No one is registered on this terminal. Mission Control registers the crew.</p></div>
@@ -29,13 +29,10 @@ export default function Crew() {
   return (
     <div className="page">
       <div className="head rise">
-        <div>
-          <h1>{headline}</h1>
-          <p className="sub">{ms.day_label} · {clockLine(ms.clock)} · {ms.place.name}</p>
-        </div>
+        <div><h1>{headline}</h1></div>
       </div>
 
-      <section className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
+      <section data-tour="crew-home" className="detail-card constellation rise" style={{ ['--d' as string]: 1 }}>
         <div className="orbit">
           {data.people.map((p, i) => (
             <button key={p.id} className="member rise" style={{ ['--d' as string]: i + 2 }} aria-label={`Open ${p.name}'s space`}
@@ -45,17 +42,17 @@ export default function Crew() {
               <span className="small muted">{p.role}</span>
               <span className="routine" title="Routine goals done today">
                 <span className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></span>
-                <span className="small dim num">{p.today.done}/{p.today.total} today</span>
+                <span className="small dim num">{p.today.done}/{p.today.total} routine goals</span>
               </span>
             </button>
           ))}
         </div>
       </section>
 
-      <section className="rise" style={{ ['--d' as string]: 2 }}>
+      <section data-tour="hazards" className="rise" style={{ ['--d' as string]: 2 }}>
         <div className="section-head">
-          <h2>Hazards here today</h2>
-          <span className="sub">NASA's five hazards of spaceflight, at {ms.place.name}. Tap one to see what it acts on.</span>
+          <h2>Hazards at {ms.place.name}</h2>
+          <span className="sub">Tap one to see what it affects.</span>
         </div>
         {data.warnings.map(w => (
           <div key={w.id} className={`warning s${w.level}`}>
@@ -64,13 +61,12 @@ export default function Crew() {
           </div>
         ))}
         <Hazards items={data.ridge} />
-        <p className="small muted" style={{ marginTop: 14 }}>EVA, dose and what is in force today are on the <Link className="link" to="/protocols">Protocols</Link> page.</p>
       </section>
 
       <section className="rise" style={{ ['--d' as string]: 3 }}>
         <div className="section-head">
           <h2>Crew missions</h2>
-          <span className="sub">{data.team_done} of {data.team_total} done this week · crew streak {data.crew_streak} {data.crew_streak === 1 ? 'day' : 'days'}</span>
+          <span className="sub">{data.team_done} of {data.team_total} done this week{data.crew_streak > 0 && ` · ${data.crew_streak}-day crew streak`}</span>
           <button className="link right" onClick={() => nav('/ranking')}>Ranking</button>
         </div>
         <div className="team-grid">{data.team.map(t => <TeamRow key={t.id} t={t} />)}</div>

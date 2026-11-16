@@ -41,8 +41,8 @@ export function plainGuard(ids: string[]): string[] {
 }
 
 const MODE: Record<string, [string, string]> = {
-  ai: ['AI answer', 's0'], grounded: ['Rule-based, from your data', 's0'], refused: ['Out of scope', 's1'],
-  emergency: ['Emergency: use Guided Response', 's2'], unknown: ['Not in the data', 's1'],
+  ai: ['AI answer', 's0'], grounded: ['From your data', 's0'], refused: ['Out of scope', 's1'],
+  emergency: ['Emergency: use Guided Response', 's2'], unknown: ['Not in your data', 's1'],
   fallback: ['Model unavailable: rule-based answer', 's1'],
 }
 // Any mode the backend adds later still renders instead of crashing.
@@ -62,7 +62,7 @@ const RISK_NAMES: Record<string, string> = {
 const SUGGEST = ['How am I doing today?', 'Why is my sleep off?', 'What does space do to my bones?', 'Is my pulse normal?', 'What can help me sleep better tonight?']
 
 export default function AskCanary({ onClose }: { onClose: () => void }) {
-  const { me, catalog, setEmergency, toast } = useSession()
+  const { me, catalog, setEmergency, askSeed, clearAskSeed, toast } = useSession()
   const navigate = useNavigate()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [items, setItems] = useState<AssistantAnswer[]>([])
@@ -101,6 +101,14 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
       throw e
     } finally { setBusy(false) }
   }
+  // An alert's "Ask why" opens the drawer with its question: ask it once, then forget it.
+  useEffect(() => {
+    if (!askSeed || !me) return
+    const q = askSeed
+    clearAskSeed()
+    sug.run(() => ask(q))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askSeed, me])
   const form = useForm({
     initial: { q: '' },
     validate: f => ({ q: v.length('Question', { max: 500 })(f.q) }),
@@ -149,7 +157,7 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
     if (kind === 'protocol') return btn(() => { onClose(); setEmergency(arg || true) })
     if (kind === 'send_briefing' && me) return btn(async () => {
       await api.briefing(me)
-      toast('Briefing draft ready. Approve it under My space, Health, Briefings before it is queued for Earth.')
+      toast('Briefing draft ready. The medical team approves it before it is queued for Earth.')
     })
     const why = kind === 'contact_cmo' ? 'Talk to the crew medical officer in person or over crew comms. Messaging from here is not available yet.'
       : medical ? `This action (${ra.id}) is not available here yet.` : 'This action is not available here yet.'
@@ -174,8 +182,11 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
       <div className="scrim soft ask-scrim" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="ask-title" ref={drawer}>
         <div className="row drawer-head">
-          <div><h2 id="ask-title">Ask Canary</h2><div className="small muted">Explains your data. Never diagnoses.</div></div>
-          <button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" size={15} /></button>
+          <div>
+            <h2 id="ask-title">Ask Canary</h2>
+            <div className="small muted">Explains your data, with a source for each answer. Never diagnoses.{status && !status.configured && ' Answers come from fixed rules.'}</div>
+          </div>
+          <button className="btn sm ghost right" onClick={onClose} aria-label="Close Ask Canary"><Icon name="close" size={15} /></button>
         </div>
         <div className="drawer-body">
           <div className="slot">
@@ -189,8 +200,8 @@ export default function AskCanary({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="chat" role="log" aria-live="polite">
-          {!me && <p className="muted small"><b className="ink">Enter your space first.</b> Canary answers only about your own data, and only once you have entered. Tap your name under My health.</p>}
-          {me && !items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. Emergencies go to the red button.</p>}
+          {!me && <p className="muted small"><b className="ink">Open My space first.</b> Canary answers only about your own data.</p>}
+          {me && !items.length && <p className="muted small">Ask about your numbers, a body system or what to do today. For an emergency, hold the red button.</p>}
           {items.map(a => (
             <div key={a.id} className="col" style={{ gap: 8 }}>
               {a.asked_by === 'medical' && <span className="tag ask-who">Asked by the medical team</span>}

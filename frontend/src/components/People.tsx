@@ -63,7 +63,7 @@ export function ProfilePicker({ preselect = null, title = 'Choose your profile' 
       </div>
       {person && (
         <PinModal onCancel={close}>
-          <PinPad key={person.id} title={`Hello, ${person.name.split(' ')[0]}`} subtitle="Enter your 4-digit PIN" hint={DEMO_PINS[person.id] ? `Demo PIN: ${DEMO_PINS[person.id]}` : undefined} onCancel={close}
+          <PinPad key={person.id} title={`Hello, ${person.name.split(' ')[0]}`} subtitle="Enter your 4-digit PIN" hint={catalog.mode === 'demo' && DEMO_PINS[person.id] ? `Demo PIN: ${DEMO_PINS[person.id]}` : undefined} onCancel={close}
             onSubmit={async pin => { await api.crewSignIn(person.id, pin); setMe(person.id); setParams({}, { replace: true }) }} />
         </PinModal>
       )}

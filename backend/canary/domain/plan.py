@@ -19,6 +19,8 @@ PRESETS = {
         {"location": "mars", "start": 210, "end": 299, "label": "Surface stay, Gale crater"},
         {"location": "mars_rover", "start": 300, "end": 313, "label": "Pressurized rover traverse to Mount Sharp"},
         {"location": "mars", "start": 314, "end": 720, "label": "Surface stay, Gale crater"},
+        {"location": "transit", "start": 721, "end": 930, "label": "Return cruise to Earth"},
+        {"location": "earth", "start": 931, "end": 1000, "label": "Landing, recovery and rehabilitation"},
     ]},
     "iss": {"name": "Six months on the ISS", "legs": [
         {"location": "earth", "start": -60, "end": -1, "label": "Pre-flight training and baseline"},
@@ -64,6 +66,14 @@ def validate(name: str, legs: List[dict]) -> dict:
             raise ValueError(f"leg {i + 1} ends before it starts")
         if i and l["start"] <= legs[i - 1]["end"]:
             raise ValueError(f"leg {i + 1} overlaps leg {i}")
+        if i and l["start"] != legs[i - 1]["end"] + 1:
+            raise ValueError(f"leg {i + 1} does not follow leg {i} on the next day: a day is missing between them")
+    # Before launch and after landing the plan says what happens: the days before the first leg count as Earth (pre-flight),
+    # the plan must reach launch day 0 with a leg that starts on it, and after its last day the last leg stays in force.
+    if legs[0]["start"] > 0:
+        raise ValueError("the plan must reach launch day 0: the first leg starts after it")
+    if not any(l["start"] == 0 for l in legs):
+        raise ValueError("a leg must start on launch day 0")
     return {"name": (name or "Mission plan")[:80], "legs": legs}
 
 
@@ -132,8 +142,15 @@ def leg_at(day: int) -> dict:
     i = leg_index(day)
     l = legs[i]
     nxt = legs[i + 1] if i + 1 < len(legs) else None
-    return {**l, "index": i, "day_in_leg": day - l["start"] + 1, "length": l["end"] - l["start"] + 1,
+    extra = {"direction": transit_direction(i)} if l["location"] == "transit" else {}
+    return {**l, **extra, "index": i, "day_in_leg": day - l["start"] + 1, "length": l["end"] - l["start"] + 1,
             "next": nxt, "days_to_next": (nxt["start"] - day) if nxt else None}
+
+
+def transit_direction(index: int) -> str:
+    """"out" for a transit leg before the crew reached Mars, "back" for one after (the return cruise)."""
+    legs = get()["legs"]
+    return "back" if any(LOCATIONS[l["location"]].get("body") == "mars" for l in legs[:index]) else "out"
 
 
 def landing_day(day: int, body: Optional[str]) -> int:

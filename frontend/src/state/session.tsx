@@ -1,7 +1,7 @@
 // Shared app state: the mission clock, who entered their private space (no accounts), and a revision
 // counter that every screen watches to refetch after anything changes.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { Catalog, Mission, Scene } from '../api/types'
 import { applyPrefs, loadPrefs, savePrefs, type Prefs } from './prefs'
 
@@ -28,6 +28,11 @@ interface Session {
   emergencyPid: string | null
   askOpen: boolean
   setAskOpen: (v: boolean) => void
+  /** Open Ask Canary and ask this question straight away (the "Ask why" of an alert). */
+  askAbout: (q: string) => void
+  /** The question waiting to be asked when the drawer opens; the drawer clears it. */
+  askSeed: string | null
+  clearAskSeed: () => void
   toast: (t: string) => void
   toasts: { id: number; t: string }[]
   /** Profile photos by crew id (data URLs). */
@@ -51,12 +56,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [mission, setMission] = useState<Mission | null>(null)
   const [scenes, setScenes] = useState<Scene[]>([])
   // A remembered person without a session token is not signed in.
-  const [me, setMeState] = useState<string | null>(load('canary.viewer') ? load('canary.me') : null)
+  const [me, setMeState] = useState<string | null>(api.hasCrewSession() ? load('canary.me') : null)
   const [rev, setRev] = useState(0)
   const [emergency, setEmergency] = useState<boolean | string>(false)
   const startProtocol = useCallback((id: string | null) => setEmergency(id ?? true), [])
   const emergencyPid = typeof emergency === 'string' ? emergency : null
   const [askOpen, setAskOpen] = useState(false)
+  const [askSeed, setAskSeed] = useState<string | null>(null)
+  const askAbout = useCallback((q: string) => { setAskSeed(q); setAskOpen(true) }, [])
+  const clearAskSeed = useCallback(() => setAskSeed(null), [])
   const [toasts, setToasts] = useState<{ id: number; t: string }[]>([])
   const tid = useRef(0)
   const [photos, setPhotos] = useState<Record<string, string>>({})
@@ -65,7 +73,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [rev])  // Mission Control can re-register the crew
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
   useEffect(() => { api.scenes().then(setScenes).catch(() => setScenes([])) }, [rev])
-  useEffect(() => { api.photos().then(setPhotos).catch(() => undefined) }, [rev])
+  // Photos need a sign-in (the crew's own pages): nobody signed in gets none, and a refused call leaves none.
+  useEffect(() => {
+    if (!api.signedIn()) { setPhotos({}); return }
+    api.photos().then(setPhotos).catch(() => setPhotos({}))
+  }, [rev])
   useEffect(() => {
     applyPrefs(prefs)
     if (prefs.theme !== 'system' || typeof matchMedia !== 'function') return
@@ -100,8 +112,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [bump])
   const setLocation = useCallback(async (loc: string | null) => { setMission(await api.setLocation(loc)); bump() }, [bump])
 
-  const value = useMemo(() => ({ catalog, mission, scenes, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, setAskOpen, toast, toasts, photos, prefs, setPref }),
-    [catalog, mission, scenes, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, toast, toasts, photos, prefs, setPref])
+  const value = useMemo(() => ({ catalog, mission, scenes, setMission, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, setAskOpen, askAbout, askSeed, clearAskSeed, toast, toasts, photos, prefs, setPref }),
+    [catalog, mission, scenes, me, setMe, rev, bump, setStep, setLocation, emergency, setEmergency, startProtocol, emergencyPid, askOpen, askAbout, askSeed, clearAskSeed, toast, toasts, photos, prefs, setPref])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
@@ -109,6 +121,17 @@ export function useSession(): Session {
   const s = useContext(Ctx)
   if (!s) throw new Error('useSession outside SessionProvider')
   return s
+}
+
+/** Like useApi, for calls that need a sign-in: with nobody signed in the call is not made, and a 401 answer is `locked`
+ * (the screen says to sign in) instead of an error. */
+export function useSignedApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
+  const signed = api.signedIn()
+  const r = useApi<T | 'locked'>(() => (signed
+    ? fn().catch(e => { if (e instanceof ApiError && e.status === 401) return 'locked' as const; throw e })
+    : Promise.resolve('locked' as const)), [signed, ...deps])
+  const locked = !signed || r.data === 'locked'
+  return { data: locked ? null : (r.data as T | null), error: locked ? null : r.error, locked, setData: r.setData }
 }
 
 /** Fetch with the session revision as a dependency: any mutation anywhere refreshes every screen. */

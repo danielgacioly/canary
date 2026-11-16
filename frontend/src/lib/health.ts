@@ -1,5 +1,5 @@
 // Small readings of the detail the Health tab and the EVA card share.
-import type { CrewDetail, HazardId, Indicator, Level, Risk, Alert } from '../api/types'
+import type { Assessment, CrewDetail, HazardId, Indicator, Level, LimitsMeta, Risk, Alert } from '../api/types'
 
 /** Bone is stored as the % change since launch; NASA's line is a share of the pre-flight value (standards.py: 100 - loss). */
 export const bonePctOfPreflight = (i: Indicator): number | null => (i.value === null ? null : 100 + i.value)
@@ -25,10 +25,24 @@ export function missingNote(i: Indicator): string | null {
   return learningNote(i)
 }
 
-/** "Learning your normal: 2 of 5" while the person has too few measurements to have a normal of their own. */
+/** "Learning your normal (2 of 5 readings)" while the person has too few measurements to have a normal of their own.
+ *  The count leaves out today's reading, so with none counted yet it says how many are needed instead of "0 of 5". */
 export function learningNote(i: Indicator): string | null {
-  if (i.baseline_from === 'learning' || (i.learning && i.baseline === null)) return `Learning your normal: ${i.baseline_n} of ${i.baseline_need ?? 5}`
-  return null
+  if (!(i.baseline_from === 'learning' || (i.learning && i.baseline === null))) return null
+  const need = i.baseline_need ?? 5
+  return i.baseline_n > 0 ? `Learning your normal (${i.baseline_n} of ${need} readings)` : `Learning your normal (needs ${need} readings)`
+}
+
+/** True when at least one indicator has a current value and a normal of the person's own to compare it with.
+ *  Without one, nothing can be called "within your normal". */
+export const hasOwnNormal = (d: CrewDetail): boolean => Object.values(d.indicators).some(i => i.value !== null && i.baseline !== null)
+
+/** When something started, counted back from the day being looked at: "started today", "started 5 days ago". */
+export function startedText(since: number | null | undefined, today: number): string | null {
+  if (since === null || since === undefined) return null
+  const n = today - since
+  if (n <= 0) return 'started today'
+  return n === 1 ? 'started yesterday' : `started ${n} days ago`
 }
 
 /** The word for where the dose in a person's page comes from; nothing for a dose that is fully measured or unknown. */
@@ -58,17 +72,39 @@ export function attention(alerts: Alert[], risks: Risk[]): Attention[] {
   return rows.sort((a, b) => b.level - a.level || (a.since ?? 1e9) - (b.since ?? 1e9))
 }
 
-/** The NASA line a chart draws, in the chart's own unit. VO2max: the item (V1 4001 microgravity EVA, V1 4002 surface EVA) says which
- *  minimum applies today (standards.py LIMITS); strength: 80% of the pre-flight value; bone: 95% of pre-flight. Only in flight. */
-export function nasaLine(k: string, i: Indicator): { y: number; text: string; item: string; url: string } | null {
+/** The NASA line a chart draws, in the chart's own unit, read from the backend's limits (GET /api/catalog `limits`).
+ *  VO2max: the item (V1 4001 microgravity EVA, V1 4002 surface EVA) says which minimum applies today; strength: the
+ *  limit % of the pre-flight value; bone: the limit % of pre-flight. Only in flight. */
+export function nasaLine(k: string, i: Indicator, lim?: LimitsMeta): { y: number; text: string; item: string; url: string } | null {
   const s = i.standard
-  if (!s) return null
+  if (!s || !lim) return null
   const base = { item: s.item, url: s.url }
-  if (k === 'vo2') return { ...base, y: s.item === 'V1 4001' ? 32.9 : 36.5, text: `${s.item === 'V1 4001' ? 32.9 : 36.5} ${i.unit}` }
-  if (k === 'grip' && i.baseline !== null && i.baseline) return { ...base, y: 0.8 * i.baseline, text: `${(0.8 * i.baseline).toFixed(i.dp)} ${i.unit} (80% of pre-flight)` }
-  if (k === 'bone') return { ...base, y: 95, text: '95% of pre-flight' }
+  if (k === 'vo2') {
+    const y = s.item === 'V1 4001' ? lim.vo2.microgravity : lim.vo2.surface
+    return { ...base, y, text: `${y} ${lim.vo2.unit}` }
+  }
+  if (k === 'grip' && i.baseline !== null && i.baseline) {
+    const y = (lim.grip.limit_pct / 100) * i.baseline
+    return { ...base, y, text: `${y.toFixed(i.dp)} ${i.unit} (${lim.grip.limit_pct}% of pre-flight)` }
+  }
+  if (k === 'bone') return { ...base, y: lim.bone.limit_pct, text: `${lim.bone.limit_pct}% of pre-flight` }
   return null
 }
+
+/** The short NASA limit of an indicator that has one (a percent of pre-flight), for tables; null for the others. */
+export function genericLimit(k: string, lim?: LimitsMeta): string | null {
+  if (!lim) return null
+  if (k === 'grip') return `${lim.grip.limit_pct}% of pre-flight`
+  if (k === 'bone') return `${lim.bone.limit_pct}% of pre-flight`
+  return null
+}
+
+/** The words a screen shows in place of a value when the state is not "assessed". Null when it is assessed. */
+export const ASSESS_WORD: Record<Assessment, string | null> = { assessed: null, insufficient_data: 'No data', stale_data: 'Stale', not_applicable: 'Not applicable' }
+/** True when the state is anything but assessed: such a value never gets a normal (green) look. */
+export const notAssessed = (a?: Assessment): boolean => !!a && a !== 'assessed'
+/** The label of a non-assessed state, or null. */
+export const assessWord = (a?: Assessment): string | null => (a ? ASSESS_WORD[a] : null)
 
 /** Words for where an indicator's numbers come from, the same on every chart. */
 export const ORIGIN = { simulated: 'Simulated', real: 'Real NASA data', user: 'You typed', none: 'Not measured' } as const

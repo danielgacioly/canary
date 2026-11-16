@@ -23,12 +23,13 @@ It compares every astronaut with **their own normal**, turns early warnings into
 10. [The 3D body](#the-3d-body)
 11. [Project layout](#project-layout)
 12. [API](#api)
-13. [How it maps to the judging criteria](#how-it-maps-to-the-judging-criteria)
-14. [What to build next](#what-to-build-next)
-15. [Input checks](#input-checks)
-16. [Limits, honestly](#limits-honestly)
-17. [Use of SI tools](#use-of-si-tools)
-18. [Credits and licences](#credits-and-licences)
+13. [Operations](#operations)
+14. [How it maps to the judging criteria](#how-it-maps-to-the-judging-criteria)
+15. [What to build next](#what-to-build-next)
+16. [Input checks](#input-checks)
+17. [Limits, honestly](#limits-honestly)
+18. [Use of SI tools](#use-of-si-tools)
+19. [Credits and licences](#credits-and-licences)
 
 ---
 
@@ -107,7 +108,7 @@ Keep unused API keys empty and restart the backend after changes. `.env` is igno
 | `CANARY_INGEST_KEY` | empty | secret a sensor, wearable or lab sends in the `X-Canary-Key` header of `POST /api/observations`. Empty: ingest is off (503). Control › Data only says "configured" or "off", never the key. See [Live data](#live-data) |
 | `CANARY_MISSION_PACKAGE` | `odyssey1-mars` | bundled package (a folder under `data/missions`) loaded on the first start, when the database holds no data and no crew, and by **Reset demo**. Set it to `""` for an empty start: no crew, no readings, no scenes. See [Mission data](#mission-data) |
 | `CANARY_MISSIONS_DIR` | `data/missions` | where bundled packages are looked up by name |
-| `CANARY_DAY_SYNC` | `1` | `1` starts the background thread that notices a new mission day and runs what a new day triggers (advice follow-ups, critical-alert notices); `0` leaves that to the next write |
+| `CANARY_DAY_SYNC` | `1` | `1` starts the background thread that notices a new mission day and runs what a new day triggers (advice follow-ups, critical-alert messages); `0` leaves that to the next write |
 | `CANARY_DAY_SYNC_SECONDS` | `600` | how often that thread looks (and, with `CANARY_LIVE_SPACE_WEATHER=1`, asks DONKI) |
 | `CANARY_WARM` | `1` | `1` computes each person's health once at start-up so the first click is quick; `0` skips it |
 | `CANARY_PBKDF2_ITERATIONS` | `100000` | rounds of the PIN hash. Leave it alone: a stored hash does not record the count, so changing it locks every stored PIN out. The test suite sets it low to run fast |
@@ -125,17 +126,16 @@ A sidebar in three groups (**Crew**: Crew, Tests, Mission plan, Ranking; **Your 
 | **Mission** (`/mission`, the callsign chip in the top bar) | The mission and the crew as a whole, public on board: callsign and name, launch date, today's mission date, destination, where the crew is now, a card per astronaut (role, agency, home, nationality, languages, previous flights; no health) and the itinerary. From here, **Switch to Mission Control mode** |
 | **Canary Control** (`/control`, Mission Control mode) | The other side of the system, in its own mode with its own accent. Opens with the Mission Control PIN (demo `4242`). **Dashboard**: callsign, mission time, signal delay and dose; each astronaut with the operational status the ship's medical team reports, goals today and the last self-test; the five hazards; emergencies; **Start from zero** clears crew and mission (and the scenes of a loaded package). **Register crew and mission**: a list of one to six people, each with every field of My information plus a first PIN (add and remove people), a **Fill with the demo crew and mission** button, then callsign, name, launch date and mission profile, then review and **Save and activate Canary**. **Data**: load a bundled package or upload a zip or CSV files, the mission clock, whether sensor ingest is on, readings received (dates and counts, never values) and space events (see [Live data](#live-data)). **Messages**: write to the ship's medical team and read the traffic coming down, all with the real signal delay |
 | **Crew** (home) | Every registered astronaut (one to six) as neutral dots with today's routine. **Hazards here today**: NASA's five hazards of spaceflight (radiation, isolation, distance, gravity, closed environment) rated low, moderate or high for the current place, a solar storm warning on top when one hits; tap a hazard to see which body systems it acts on. **Crew missions** in their own full-width section with the crew streak. **Who sees what** folded at the bottom. No status, no scores, no vitals, no averages |
-| **My space** (private, under Your health) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, seven tabs: **Health**, **Goals**, **Suggestions**, **Patches**, **Dashboard** (every chart), **My information** and **Settings** (profile photo, Change PIN, Lock). Signed in, your profile at the foot of the sidebar opens a menu with **Open my space**, **My settings** and **Lock my space** |
+| **My space** (private, under Your health) | Locked, it shows only a padlock, **Choose your profile** and four profile buttons; a profile asks for its 4-digit PIN. Inside, six tabs: **Health**, **Goals** (with the patches), **Suggestions**, **Trends** (every chart), **My information** and **Settings** (profile photo, Change PIN, Lock). Signed in, your profile at the foot of the sidebar opens a menu with **Open my space**, **My settings** and **Lock my space** |
 | My space · **Health** | Top: the 3D body and, beside it, one sentence on how you are, up to three numbered steps and your Physical and Mental scores. The **Physical / Mental** switch changes the body's lens and the numbers below it: Physical shows only the physical systems, Mental only the mental facets, always as number tiles (value, your normal, status colour). Beside the body the right column stacks **Needs attention** (alerts and NASA risks above level 0, one line each, with the hazards they come from), **Ready for EVA?** (VO2max, grip strength and bone against NASA-STD-3001, for the place you are at; "No EVA in your role" when the role has none) and the scores. Click a part of the body or a tile and the top area becomes that system (what it means, what to do, a check to run, its risks and its "How to measure and why"), without repeating the numbers; for radiation it shows the career dose bar. The body column always matches the height of that panel. Charts are on the Dashboard tab |
-| My space · **Goals** | One line of summary (done today, streak, 7-day completion), then **Physical** and **Mental** as separate, roomy lists with their own progress, then the crew missions. No points, no levels: goals are goals |
+| My space · **Goals** | One line of summary (done today and, when there is one, the streak), then **Physical** and **Mental** as separate lists with their own progress; a goal already done keeps only its title. At the foot, the patches earned and the closest one to earn next. Crew missions live on the Crew page. No points, no levels: goals are goals |
 | My space · **Suggestions** | The AI slot's third entry. Personal recommendations built from your numbers against your own normal, how often you met each goal this week, your test results and the next leg of the plan: protect your sleep window, more time with the crew, read more (or keep going with the book you logged), start a small hobby (sketching the view, a crewmate's language, the plant chamber), breathing after shift, exercise, hydration, preparing for the next gravity change, staying close to home, talking to someone. Each card says why with your own numbers, gives three steps and can be added to your goals for 7 days |
 | My space · **My information** | The personal record Mission Control registered before flight, read-only: identity (name, date of birth, age that follows the mission clock, sex, nationality, home, languages), body (height, weight, BMI, blood type, Fitzpatrick skin type, dominant hand, vision), medical (allergies, medications, conditions, diet, vaccinations) and mission (role, agency, previous flights and days in space, emergency contact through family support). Private to the astronaut and the medical team; corrections go through the flight surgeon |
-| My space · **Patches** | The nine mission patches on their own page, with progress towards the ones not earned yet |
 | **Tests** (Crew group, private results) | Choose your profile and enter the PIN, then run any test or log: **Cognition** (reaction time, processing speed as a digit-symbol task, working memory as a digit span, the kinds of task in NASA's Cognition battery), **How you feel** (mood and stress, Karolinska Sleepiness Scale, NASA-TLX workload, PHQ-2 and GAD-2 wellbeing), **Body** (vital signs, Amsler grid, symptoms) and **Logs** (sleep diary, reading, a three-line journal whose text is never saved). Each row shows the last result and folds a **How and why** (see [How to measure and why](#how-to-measure-and-why)); a saved check ends on a result screen that compares it with your own normal and with the population range, and the vitals form takes the optional photo described under [Who sees what](#who-sees-what). Results feed your health, complete matching goals and can raise a gentle alert (very sleepy, a hard stretch, strong symptoms) |
-| My space · **Dashboard** | The last 30 days of every indicator against your normal, each chart with its own axis around the data, a NASA limit line where the standard has one (VO2max, grip, bone; bone is drawn as % of pre-flight with a 7-day average) and a tag for where the numbers come from (simulated, real NASA data, or typed by you). Then goals done in the last 14 days and **Blood**: a picker for every analyte of the real NASA blood and metabolic panels (OSD-569 and OSD-575) with the laboratory range for your sex and the out-of-range points coloured |
+| My space · **Trends** (route `/me/dashboard`) | The last 30 days of every indicator against your normal (a measure with no reading in the window is named once in a single line instead of an empty chart), each chart with its own axis around the data, a NASA limit line where the standard has one (VO2max, grip, bone; bone is drawn as % of pre-flight with a 7-day average) and a tag for where the numbers come from (simulated, real NASA data, or typed by you). Then goals done in the last 14 days and **Blood**: a picker for every analyte of the real NASA blood and metabolic panels (OSD-569 and OSD-575) with the laboratory range for your sex and the out-of-range points coloured |
 | **Medical console** (Support group, PIN) | Six tabs. **Triage**: one flat row per astronaut with operational status and its reason, the care window, the two top alerts and the red NASA risks, the critical alerts sent (folded) and a table of every indicator for everyone side by side, with a **NASA limit** column and a **Career dose** row. **Briefings** (drafts for Earth, approve), **Prescribe** (a goal for one astronaut), **Alert rules** (watch and act thresholds for the whole crew), **Messages** and **Emergencies**. A person's page adds Ready for EVA?, the risks with evidence and origin, the care events, the career radiation dose and the photos of the display kept with their vitals check-ins |
 | **Settings** | For the terminal: theme (dark, light, match device), larger text, higher contrast, reduce motion, read Guided Response steps aloud, show the demo bar, replay the intro, reset the demo |
-| **Ranking** | One headline (who leads, by how many goals), what counts, then one row per person: medal, goals done in the last 7 days as a bar, the gap to the person ahead, completion, streak and patches |
+| **Ranking** | One headline (who leads, by how many goals), what counts, then one row per person: medal, name and goals done in the last 7 days as a bar |
 | **Mission plan** | The registered itinerary read for health: a timeline with every leg listed underneath (the leg the crew is on now is always open by default, also after the clock moves; pick another to look ahead), the leg's gravity, radiation, Earth delay and hospital distance, its five hazards, what the body faces, what Canary changes, and the projected mission dose against the career limit. Editing the plan belongs to the admin flow |
 
 Always reachable: the **crew dots** and **Hold for emergency** (top right) opens Guided Response; **Where you are** (top left) simulates any place; the sidebar holds **Ask Canary**, **Medical console** (4-digit PIN) and **About & data**; the **demo bar** at the bottom drives the story.
@@ -175,15 +175,15 @@ Tests keep this: no crew-wide endpoint returns another person's career dose, ris
 How the API enforces it:
 
 - **Operational status is medical-only.** Diagnoses such as "Fit for all duties" or "Off critical tasks" are visible to the medical team and to the person themself in their private space. The crew never sees anyone's status; the Crew page shows only whether EVA is possible at all (environment) and says the medical team clears each person.
-- **Entry is by PIN.** `POST /api/crew/{id}/session {"pin"}` returns a signed token `{id}.{exp}.{sig}` (HMAC-SHA256 over `crew:{id}:{exp}`, one hour). The web app keeps it in `sessionStorage` and sends it in the `X-Canary-Viewer` header; a bare id, a forged or an expired token is nobody (403 on private routes). Five wrong PINs in 60 seconds lock that person for a minute (429). `PUT /api/crew/{id}/pin` changes your PIN (needs your token and the current PIN). The medical console works the same way with its own PIN and a bearer token.
+- **Entry is by PIN.** `POST /api/crew/{id}/session {"pin"}` returns a signed token `{kind}.{id}.{roles}.{exp}.{jti}.{sig}` (HMAC-SHA256, one hour). Every sign-in (crew, medical, control) is sent the same way, as `Authorization: Bearer <token>`, and the token's kind says which one it is; the web app keeps the tokens in `sessionStorage` and sends the one that fits the call. A bare id, a forged, expired or revoked token is nobody (403 on private routes, 401 elsewhere). Five wrong PINs in 60 seconds lock that person for a minute (429). `PUT /api/crew/{id}/pin` changes your PIN (needs your token and the current PIN). The medical console (`POST /api/medical/session`) and Canary Control (`POST /api/control/session`) work the same way with their own PINs.
 - **Check-in photos (C2).** On a vital-signs check-in you can add a photo of the device's display (`<input capture="environment">` on a phone). The browser shrinks it to 1024 px on the long edge as a JPEG before sending; `POST /api/checkins` takes it as the optional `photo` data URL, for vitals only (PNG, JPEG or WebP checked by its first bytes, at most 600 KB, else 422 with field `photo`). It lives in its own table, `checkin_photos(checkin_id, crew_id, data_url, created_at)`, never in the check-in payload, so it feeds no chart, alert or assistant answer: the numbers typed are what counts, the photo is evidence. `GET /api/checkins/{id}` and the crew detail only say `has_photo`; `GET /api/checkins/{id}/{checkin_id}/photo` returns it to that person and the medical team (403 to anyone else), and a demo reset deletes it. It never appears in the crew overview, leaderboard, mission overview or Canary Control.
 - `GET /api/crew/overview` is the only crew-wide view: participation (goals done today, streaks), hazards, crew missions. No status, indicators, scores or alerts, and no averages, because with four people an average gives individuals away.
 - `GET /api/crew/{id}` answers only the astronaut (session token) and the medical team (bearer token). There is no sharing switch: health never leaves those two.
 - Goals, check-ins, Ask Canary and briefings answer only the astronaut and the medical team. Suggestions answer only the astronaut. `GET /api/crew` with full summaries is medical-only.
 - **Questions are not private from the medical team.** A question the medical team asks is stored with `asked_by: medical`, and the astronaut's history labels it "Asked by the medical team". The medical team can read every question and answer in the assistant audit.
-- **Briefings.** Only the astronaut or the medical team can approve a draft, once (404 for an unknown id, 409 after that). An approved briefing is private: the astronaut and the medical team see it in the message feed, the crew and Mission Control do not.
+- **Briefings.** Only the medical team approves a briefing, once; the astronaut sees their own briefings read-only (404 for an unknown id, 409 after that). An approved briefing is private: the astronaut and the medical team see it in the message feed, the crew and Mission Control do not.
 - Operational status (shown only to the person and the medical team) comes from personal alerts only: any act-level alert means off critical tasks; watch-level alerts that change what someone may do (pulse, pressure, oxygen, temperature, reaction time, space sickness, re-adaptation, Amsler) mean no EVA. Slow trends such as bone are followed in private. Storms are crew hazards, not personal status. After a closed emergency the status is at least the protocol's `ops` until the end of the care window, with `reason` and `until_day` (see [After an emergency](#after-an-emergency-and-who-is-told)).
-- **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per episode (`crew_id`, `alert_id`, `since_day`); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The list is in `GET /api/medical/overview` → `notices`.
+- **Critical alerts are delivered.** A personal level-2 alert writes one `alert` message to the crew medical officer, once per alert event (the stored event records the `level2` recipient); if the medical officer is the patient, it goes to the substitute (the commander). One `alert_earth` note with the briefing facts is queued for Earth with the place's delay. Both kinds are visible only to their recipient and the medical console (the `/api/messages` filter is the same as for `advice`); the crew sees nothing. The events themselves, with who was told and who acknowledged, are in `GET /api/alerts/events`.
 - Guided Response itself is a crew-wide event (the whole crew is alerted, and `GET /api/emergencies` lists protocol, patient and outcome as before). What follows it, the care window, the restricted status and the tightened thresholds, is private to the person and the medical team (`care_events` in `GET /api/crew/{id}` and the medical overview).
 
 ### Mission plan
@@ -470,13 +470,13 @@ Each protocol in `data/protocols.json` carries `window_days` (the care window, w
 - `ops` in the patient's `operational status` is at least the protocol's, and says `reason` and `until_day` (the last restricted day);
 - the patient's thresholds are multiplied by `factor` (default 0.8: 1.5σ becomes 1.2σ and 2.5σ becomes 2.0σ) for every indicator, and `sensitive_until` appears on those indicators. Nobody else's thresholds change. The medical team sets it with `PUT /api/medical/care-sensitivity {factor}` (0.5 to 1.0).
 
-`notify.sync` runs in the routes that write (`PUT /api/mission`, `POST /api/checkins` for that person, and the close of an emergency), never in a GET, and writes nothing twice: the `notices` primary key is the episode. An alert that stays active longer than the 60-day look-back is the same episode for notices.
+`notify.sync` runs in the routes that write (`PUT /api/mission`, `POST /api/checkins` for that person, and the close of an emergency), never in a GET, and writes nothing twice: the stored alert event is the episode: an alert that stays active, however long, is one event, and the officer is told once when it reaches level 2.
 
 ### Where a value comes from and how old it is
 
 `telemetry.observation()` returns `{value, origin, source, day}` and is the only reader behind `current()`, `series()` and the assistant's trends:
 
-1. A self check-in of that day wins: `origin: "user"`, `source: "checkin:<crew>:<kind>:day<D>"`. Fields read: mood (mood, stress), pvt (ms), sleep (hours), vitals (hr, bp, temp, spo2), dsst (correct), span (span), kss (level), tlx (raw). Other tests are stored but are not indicators (amsler, symptoms and wellbeing feed their own alert rules; reading and journal only complete goals).
+1. A self check-in of that day wins: `origin: "user"`, `source: "checkin:<crew>:<kind>:day<D>"`. Fields read: mood (mood, stress), pvt (ms), sleep (hours), vitals (hr, sbp, temp, spo2), dsst (correct), span (span), kss (level), tlx (raw). Other tests are stored but are not indicators (amsler, symptoms and wellbeing feed their own alert rules; reading and journal only complete goals).
 2. Otherwise the last stored observation up to that day, with the origin of the row (`simulated` or `real`). A reading older than the indicator's `max_age` is stale and does not count as a current value.
 
 Each indicator in `GET /api/crew/{id}` also says `origin` (where today's value came from), `last_measured_day` and `age_days` (days since the person last measured it themselves; `null` if never). The four cognitive and self-report indicators (`dsst`, `span`, `kss`, `tlx`, Brain & mind) follow the same baseline, spread and thresholds as the others.
@@ -495,7 +495,8 @@ Canary compares every number with three references: the two below and NASA's fli
 | Indicator | Unit | Low | High | Critical (below / above) | Source | Verified |
 | --- | --- | --- | --- | --- | --- | :---: |
 | `hr` Resting pulse | bpm | 40 | 100 | 30 / 150 | MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption | partly |
-| `bp` Blood pressure | mmHg | 90 | 129 | 70 / 180 | Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption | partly |
+| `sbp` Systolic pressure | mmHg | 90 | 129 | 70 / 180 | Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption | partly |
+| `dbp` Diastolic pressure | mmHg | 60 | 79 | 40 / 120 | Diastolic pressure. AHA: normal below 80, stage 1 hypertension 80 to 89, stage 2 from 90, hypertensive crisis above 120. MedlinePlus: 60 as the lower edge of 90/60 for a healthy adult. Critical low 40: prototype assumption | partly |
 | `spo2` Blood oxygen | % | 95 | 100 | 89 / - | MedlinePlus: normal 95 to 100%; contact your provider at 92% or lower; 88% or lower needs immediate medical attention (critical below 89) | yes |
 | `temp` Temperature | °C | 36.1 | 37.2 | 35 / 39.3 | MedlinePlus: an adult probably has a fever above 37.2 to 37.5 °C by mouth (the app flags from 37.2, the lower edge); contact a provider right away for a fever that stays at 39.4 °C or above (critical above 39.3). MedlinePlus lists 36.5 to 37.3 as the usual range; the low edge 36.1 is kept so a cool personal normal (36.4) is not flagged every day (a prototype choice). MedlinePlus: hypothermia is a body temperature below 35 °C (critical low 35) | partly |
 | `gluc` Fasting glucose | mg/dL | 70 | 99 | 54 / - | ADA: below 70 mg/dL is low blood glucose and needs treatment (the 15-15 rule). High 99: the fasting reference range of the Inspiration4 laboratory (65 to 99, OSD-575). Critical 54: the ADA and EASD joint statement (2017) says below 54 mg/dL is serious, clinically important hypoglycaemia | yes |
@@ -553,8 +554,8 @@ question ─► guard.precheck ──► emergency → "hold EMERGENCY" · diagn
 | --- | --- |
 | `assistant/providers.py` | `GeminiProvider` and `AnthropicProvider` (shared guarded tool loop), `NullProvider` (no key), `LocalProvider` (slot for an on-board model) |
 | `assistant/chat.py` | Entry 1: a question about one person, from that person or the medical team. `ask(crew_id, question, viewer)` |
-| `assistant/briefing.py` | Entry 2: weekly briefing. Code computes the facts, the model rewrites them as a `BriefingDraft`; any unknown number or rule violation (`guard.text_violations`) keeps the template; `mode` is `ai` or `template` |
-| `assistant/suggestions.py` | Entry 3: suggestions in My space. Rules write them; a model may only rephrase the reason, checked by `guard.unknown_numbers` and `guard.text_violations`. Reused until its inputs change (day, facts, feedback, provider); `mode` is `ai` or `rules` |
+| `assistant/briefing.py` | Entry 2: weekly briefing. Code computes the facts, the model rewrites them as a `BriefingDraft`; any unknown number or rule violation (`guard.text_violations`) keeps the template; `mode` is `ai` or `template`. Only the medical team approves a briefing; the astronaut sees their own briefings read-only |
+| `assistant/suggestions.py` | Entry 3: suggestions in My space. Rules write them; a model may only rephrase the reason, checked by `guard.unknown_numbers` and `guard.text_violations`. Reused until its inputs change (day, facts, feedback, provider); `mode` is `ai` or `rules`. Accepted suggestions become goals for 7 days |
 | `assistant/tools.py` | 10 strict tools (`get_status`, `get_indicator`, `explain_system`, `get_risks`, `get_protocol`, `list_goals`, `get_checkins`, `get_weekly_summary`, `get_dose_and_eva`, `search_knowledge`), bound to the signed-in viewer; `route()` picks them by rule when no model runs, and an off-topic question gets none |
 | `assistant/guard.py` + `data/guard_rules.json` | Rule bank with ids (`G-DOSE-02`, `G-PRIV-01`…) in English, Portuguese and Spanish. Text is folded first (invisible characters removed, accents and full-width letters normalised). Precheck before the model, postcheck after; `text_violations` checks briefing lines and suggestion rewrites |
 | `assistant/kb/` | Knowledge base in `kb.db`: protocols, body-system cards, places, NASA sources, hazards, the privacy contract, self-tests, risk cards (`RISK-*`) and care windows after a closed emergency (`CARE-*`). Hybrid BM25 (FTS5) + vectors (sqlite-vec), filtered by gravity and place; BM25 only when no embedder is available. At startup the API compares the file's corpus hash with the code and rebuilds it in the background when they differ (`kb/freshness.py`) |
@@ -707,7 +708,7 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/alerts/{id}/{alert}/seen` | Mark today's episode of an alert as seen (the person only) |
 | `GET/PUT /api/medical/exercise-adjust` | Maximum lightening of the day's exercise under fatigue (medical console) |
 | `GET/PUT /api/medical/care-sensitivity` | How much tighter the patient's thresholds are during the care window after an emergency (medical console) |
-| `GET /api/medical/overview` → `notices`, `care_events` | Critical alerts sent to the medical officer, and each person's closed emergencies (medical console) |
+| `GET /api/medical/overview` → `care_events` | Each person's closed emergencies (medical console); alerts are in `GET /api/alerts/events` |
 | `GET /api/crew/{id}` → `risks` | Risk layer: level, score, trend, since_day and evidence |
 | `GET /api/crew/{id}` → `indicators[*].standard`, `standard_profile`, `dose.career_msv` | NASA-STD-3001 check of each indicator, the person's EVA role and earlier dose, the career dose |
 | `GET /api/catalog` → `standards` | What Canary checks against NASA-STD-3001, with the items, and what it cannot check |
@@ -715,9 +716,74 @@ Full, interactive documentation at `/docs`. The main routes:
 | `GET /api/medical/assistant-audit` | Recent assistant questions: who asked (`asked_by`), mode, tools, guard flags, latency (medical team only) |
 | `GET /api/assistant/history/{id}` | The person's own questions and answers, with `asked_by` (medical questions are labelled) |
 | `POST /api/briefings` · `GET /api/briefings/{crew_id}` | Build a weekly briefing draft (self, 3 a minute), list the person's briefings (self or medical) |
-| `POST /api/briefings/{bid}/approve` | Queue a draft for Earth: the astronaut or the medical team, once (404 for an unknown id, 409 when it is no longer a draft) |
+| `POST /api/briefings/{bid}/approve` | Queue a draft for Earth: the medical team only, once (404 for an unknown id, 409 when it is no longer a draft) |
 | `GET /api/suggestions/{id}`, `POST /api/suggestions/{id}/accept`, `POST /api/suggestions/{id}/dismiss` | My space suggestions: astronaut only (6 builds a minute); a repeat with the same inputs reuses the last build |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
+
+---
+
+## Operations
+
+**One process.** Run the API as one process with one worker (`make serve`, or `uvicorn canary.main:app` without `--workers`). The rate limits of the assistant, the suggestion cache and the request metrics live in memory, so each worker would keep its own counts. The PIN lock-outs and the audit trail are in SQLite and survive a restart. Two processes on one database file are not supported.
+
+**Tokens across restarts.** Sessions are signed with `CANARY_TOKEN_SECRET`. Without it the server draws a new secret at every start, so every session ends at a restart. Set it in any deployment.
+
+**Health and metrics.**
+
+| Route | Who | What it says |
+| --- | --- | --- |
+| `GET /api/health/live` | anyone | the process answers (use for liveness: restart only when this fails) |
+| `GET /api/health/ready` | anyone | the database and the knowledge base `backend/kb.db` can be read; `503` with the failing check otherwise (use for load balancer traffic) |
+| `GET /api/metrics` | Mission Control sign-in | request counts, errors and p50/p95 latency per route, since the process started (in memory, not kept) |
+
+Background work (the story warm-up, the day sync and the evaluation after an ingest) logs its failures, with a traceback, to the `canary` logger instead of swallowing them; a failed knowledge base rebuild logs a warning and the API keeps running.
+
+**Security headers.** Every response carries a Content-Security-Policy that allows only the app's own origin (scripts, styles, fonts, models, images, data and blob URLs for photos), `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`. Every `/api` response is `Cache-Control: no-store`. The app loads no fonts or scripts from another server; the fonts are the system's.
+
+**TLS and the reverse proxy.** The app does not terminate TLS and does not send `Strict-Transport-Security`. Anywhere but a laptop:
+
+- put a reverse proxy in front (nginx, Caddy or a cloud load balancer) and serve everything over HTTPS only; set HSTS at the proxy;
+- forward only to the one process; do not expose port 8000 directly;
+- the lock-outs count wrong PINs per client address. Behind a proxy every request comes from the proxy's address unless the server is told to trust it: run `uvicorn canary.main:app --proxy-headers --forwarded-allow-ips=<proxy address>` so the real client address is used. Without it, one wrong-PIN streak can lock out everyone who uses the proxy;
+- set the proxy's body limit above the largest upload the app accepts (`MAX_UPLOAD_BYTES` in `backend/canary/domain/data.py`, 120 MB for a mission package);
+- set `CANARY_CORS_ORIGINS` only when the web app is served from another origin than the API (the built app is served by the API itself).
+
+**Data: where it lives, backup and restore.** All the mission data is one SQLite file: `CANARY_DB` (default `backend/canary.db`). Keep it on a persistent volume, never inside the container image or the source tree.
+
+- Backup while the server runs: `sqlite3 backend/canary.db ".backup '/backups/canary-YYYYMMDD.db'"`. This is a consistent copy; do not copy the live file with `cp`.
+- Restore: stop the server, put the backup at `CANARY_DB`, start the server, then check `GET /api/health/ready` and, signed in as Mission Control or a flight surgeon, `GET /api/audit/verify` (the audit chain must say `ok: true`).
+- The knowledge base `backend/kb.db` is not backed up: it is built from the shipped corpus (`make index`) and rebuilt at start-up when it does not match.
+- Keep `CANARY_TOKEN_SECRET` with the backup's configuration; a restored database does not work with a different secret for sessions that were open.
+
+**CI recipe (not yet in the repository).** A GitHub Actions job that runs the same checks as `make test` and builds the app:
+
+```yaml
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CANARY_EMBEDDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: make setup
+      - run: make test
+      - run: make build
+```
+
+**End-to-end plan (not yet built).** A browser test suite (Playwright is the planned tool) against `make serve` on a fresh database, run as a job after `make test`:
+
+1. The intro ends on the crew screen with no sign-in, and that screen shows no health values.
+2. A crew PIN signs in to My space; five wrong PINs pause sign-in with the wait shown.
+3. Only the medical console can approve a briefing; the crew member it is about cannot.
+4. Opening Guided Response shows the red banner on every other screen with the name and the protocol only.
+5. Stopping the API shows the offline banner; starting it again clears the banner.
+6. An unknown `/api` path returns JSON 404, and the security headers are present.
 
 ---
 

@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { CheckinResult } from '../api/types'
 import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
+import { Modal, ModalTitle } from '../components/Modal'
 import { Icon } from '../components/ui'
 import { fitJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
@@ -24,8 +25,12 @@ const rndN = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - l
 const pickOne = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]
 
 /** A quiet button that only fills the fields; the person still checks them and submits. */
+// Values filled by the button are sent with origin 'sample': the server keeps them but never lets them raise an alert.
+let sampled = false
 function SampleButton({ onFill }: { onFill: () => void }) {
-  return <button type="button" className="link-btn sample-btn" onClick={onFill}>Fill with sample values</button>
+  const { catalog } = useSession()
+  if (catalog?.mode !== 'demo') return null
+  return <button type="button" className="link-btn sample-btn" onClick={() => { sampled = true; onFill() }}>Fill with sample values</button>
 }
 
 const ResultCtx = createContext<(r: Saved) => void>(() => {})
@@ -35,11 +40,10 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
   // After a successful save the form is replaced by a short result step: no long toast.
   const [saved, setSaved] = useState<Saved | null>(null)
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose}>
         <div className="row" style={{ marginBottom: 12 }}>
-          <h2>{CHECK_TITLE[kind]}</h2>
-          <button className="btn sm ghost right" onClick={onClose}><Icon name="close" size={15} /></button>
+          <ModalTitle>{CHECK_TITLE[kind]}</ModalTitle>
+          <button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" size={15} /></button>
         </div>
         {saved ? <Result saved={saved} onDone={onClose} /> : (
           <ResultCtx.Provider value={setSaved}>
@@ -58,8 +62,7 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
             {kind === 'journal' && <Journal />}
           </ResultCtx.Provider>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -80,9 +83,11 @@ function Result({ saved: { r, note }, onDone }: { saved: Saved; onDone: () => vo
 function useSubmit() {
   const { me, bump } = useSession()
   const show = useContext(ResultCtx)
+  useEffect(() => { sampled = false }, [])
   return async (kind: CheckKind, payload: Record<string, unknown>, note?: string, photo?: string) => {
     if (!me) throw new Error('Enter your PIN in My space first.')
-    const r = await api.checkin(me, kind, payload, photo)
+    const r = await api.checkin(me, kind, payload, photo, sampled ? 'sample' : undefined)
+    sampled = false
     bump(); show({ r, note })
   }
 }
@@ -107,14 +112,23 @@ function Pvt() {
     tm.current = window.setTimeout(() => { t0.current = performance.now(); setSt('go') }, 1200 + Math.random() * 2600)
   }
   const avg = rts.length ? Math.round(rts.reduce((a, b) => a + b) / rts.length) : 0
+  const label = st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · press Space or Enter for the next` : 'Press Space or Enter to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW. Press Space or Enter' : 'Too early. Press Space or Enter to retry'
+  // Keyboard: Space or Enter does the same as a tap. Auto-repeat is ignored so a held key counts once.
+  const onKey = (e: { key: string; repeat: boolean; preventDefault: () => void }) => {
+    if ((e.key === ' ' || e.key === 'Enter') && rts.length < 5) { e.preventDefault(); if (!e.repeat) tap() }
+  }
   return (
     <div className="col">
-      <p className="muted">Tap the box the moment it turns red. Five rounds. It measures the tiredness you do not feel.</p>
+      <p className="muted">Tap the box the moment it turns red, or press Space or Enter. Five rounds. It measures the tiredness you do not feel.</p>
       {rts.length < 5 && <SampleButton onFill={() => { clearTimeout(tm.current); setSt('idle'); setRts(Array.from({ length: 5 }, () => rndN(230, 340))) }} />}
       {rts.length < 5 ? (
-        <div className={`pvt ${st === 'go' ? 'go' : ''}`} onPointerDown={tap} role="button" tabIndex={0}>
-          {st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · tap for the next` : 'Tap to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW' : 'Too early. Tap to retry'}
-        </div>
+        <>
+          <div className={`pvt ${st === 'go' ? 'go' : ''}`} onPointerDown={tap} onKeyDown={onKey} role="button" tabIndex={0}
+            aria-label={`Reaction test, round ${Math.min(rts.length + 1, 5)} of 5`}>
+            {label}
+          </div>
+          <p className="sr-only" role="status" aria-live="assertive">{label}</p>
+        </>
       ) : (
         <div className="col pvt-avg"><span className="lbl">Average</span><b className="num big">{avg} ms</b>
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>
@@ -170,7 +184,7 @@ function Amsler() {
 
 const VITALS = [
   { k: 'hr', label: 'Pulse', unit: 'bpm', min: 25, max: 250 },
-  { k: 'bp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
+  { k: 'sbp', label: 'Systolic pressure', unit: 'mmHg', min: 60, max: 260 },
   { k: 'temp', label: 'Temperature', unit: '°C', min: 30, max: 45, decimals: 1 },
   { k: 'spo2', label: 'Oxygen', unit: '%', min: 50, max: 100, integer: true },
 ] as const
@@ -183,7 +197,7 @@ function Vitals() {
   const [photoErr, setPhotoErr] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
   const form = useForm({
-    initial: { hr: '', bp: '', temp: '', spo2: '', photo: '' },
+    initial: { hr: '', sbp: '', temp: '', spo2: '', photo: '' },
     validate: f => {
       const e: Record<string, string | null> = {}
       for (const { k, label, unit, min, max, ...o } of VITALS) e[k] = v.number(label, { min, max, unit, optional: true, ...o })(f[k])
@@ -210,7 +224,7 @@ function Vitals() {
   return (
     <form className="col" style={{ gap: 12 }} noValidate onSubmit={form.submit}>
       <p className="muted">From the on-board device, or type them in. Empty fields keep the sensor value.</p>
-      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), bp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
+      <SampleButton onFill={() => form.setValues({ hr: rnd(56, 74), sbp: rnd(106, 124), temp: rnd(36.4, 37, 1), spo2: rnd(96, 99) })} />
       <div className="grid g2">
         {VITALS.map(({ k, label, unit, min, max, ...o }) => (
           <Field key={k} form={form} name={k} label={`${label} (${unit})`} hint={`${v.range(min, max, unit)}${'decimals' in o ? ', one decimal' : 'integer' in o ? ', whole number' : ''}`} inputMode="decimal" autoComplete="off" />

@@ -1,7 +1,7 @@
 """Briefings: who may approve one, what state it must be in, and who may read it in the message feed (plan.md, schema.md §7).
 
-The astronaut approves their own briefing; the medical team may approve any. Nobody else, and nobody signed out, may approve
-or read it. Approving is idempotent: the second approval is refused and queues no second message to Earth.
+Only the medical team approves a briefing. The astronaut it is about may read it once approved, but may not approve it; nobody
+else, and nobody signed out, may approve or read it. Approving is idempotent: the second approval is refused and queues no second message to Earth.
 """
 import os
 import tempfile
@@ -12,33 +12,32 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from canary import db  # noqa: E402
-from canary.config import settings  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import PINS, control_headers, medical_headers, reset_demo  # noqa: E402
 
 client = TestClient(app)
-PINS = {"h": "1001", "k": "1002", "a": "1003", "t": "1004"}
 
 
 @pytest.fixture(autouse=True)
 def fresh():
-    client.post("/api/demo/reset")
+    reset_demo(client)
     client.put("/api/mission", json={"step": 2})
     yield
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def as_(cid):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]}).json()["token"]}
+    r = client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]})
+    assert r.status_code == 200, r.text
+    return {"Authorization": "Bearer " + r.json()["token"]}
 
 
 def medical():
-    tok = client.post("/api/medical/session", json={"pin": settings.medical_pin}).json()["token"]
-    return {"Authorization": f"Bearer {tok}"}
+    return medical_headers(client)
 
 
 def control():
-    tok = client.post("/api/control/session", json={"pin": settings.control_pin}).json()["token"]
-    return {"X-Canary-Control": tok}
+    return control_headers(client)
 
 
 def new_briefing(cid="h"):
@@ -59,21 +58,21 @@ def test_approve_without_a_token_is_refused():
 def test_another_crew_member_may_not_approve():
     b = new_briefing()
     r = client.post(f"/api/briefings/{b['id']}/approve", headers=as_("k"))
-    assert r.status_code == 403
+    assert r.status_code == 401  # signed in, but not the medical team: refused before the briefing is looked at
     assert earth_briefings() == []
 
 
 def test_mission_control_may_not_approve():
     b = new_briefing()
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=control()).status_code == 403
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=control()).status_code == 401
     assert earth_briefings() == []
 
 
-def test_owner_approves_once_and_one_message_goes_to_earth():
+def test_owner_may_not_approve_their_own_briefing():
     b = new_briefing()
     r = client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h"))
-    assert r.status_code == 200 and r.json()["status"] == "queued"
-    assert len(earth_briefings()) == 1
+    assert r.status_code == 401
+    assert b["status"] == "draft" and earth_briefings() == []
 
 
 def test_medical_team_may_approve():
@@ -82,17 +81,16 @@ def test_medical_team_may_approve():
     assert r.status_code == 200 and r.json()["status"] == "queued"
 
 
-def test_second_approval_is_a_conflict_and_queues_nothing_more():
+def test_second_approval_is_idempotent_and_queues_nothing_more():
     b = new_briefing()
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h")).status_code == 200
-    r = client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h"))
-    assert r.status_code == 409
-    assert client.post(f"/api/briefings/{b['id']}/approve", headers=medical()).status_code == 409
+    assert client.post(f"/api/briefings/{b['id']}/approve", headers=medical()).status_code == 200
+    again = client.post(f"/api/briefings/{b['id']}/approve", headers=medical())
+    assert again.status_code == 200 and again.json()["status"] == "queued"
     assert len(earth_briefings()) == 1
 
 
 def test_unknown_briefing_is_not_found():
-    r = client.post("/api/briefings/999999/approve", headers=as_("h"))
+    r = client.post("/api/briefings/999999/approve", headers=medical())
     assert r.status_code == 404
 
 
@@ -100,7 +98,7 @@ def test_unknown_briefing_is_not_found():
 
 def _approved_text():
     b = new_briefing()
-    client.post(f"/api/briefings/{b['id']}/approve", headers=as_("h"))
+    client.post(f"/api/briefings/{b['id']}/approve", headers=medical())
     rows = earth_briefings()
     assert len(rows) == 1
     return rows[0]["text"], b
@@ -127,6 +125,15 @@ def test_owner_sees_their_own_approved_briefing_in_the_feed():
 
 def test_owner_sees_the_briefing_only_when_signed_in_as_them():
     _approved_text()
-    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages", headers=as_("k")).json())
-    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages", headers=control()).json())
-    assert not any(m["kind"] == "briefing" for m in client.get("/api/messages").json())
+    assert not _briefings_in_feed(as_("k"))
+    assert not _briefings_in_feed(control())
+    assert client.get("/api/messages").status_code == 401  # signed out: no feed at all
+    assert not _briefings_in_feed()
+
+
+def _briefings_in_feed(headers=None) -> list:
+    """The briefing messages a caller gets from the feed; an error answer (no sign-in, or not a person) gives none."""
+    r = client.get("/api/messages", headers=headers or {})
+    if r.status_code != 200:
+        return []
+    return [m for m in r.json() if m.get("kind") == "briefing"]

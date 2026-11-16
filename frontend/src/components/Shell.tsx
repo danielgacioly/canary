@@ -6,10 +6,12 @@ import { ActionError } from './Field'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
 import { clockLine } from '../lib/clock'
-import { useApi, useSession } from '../state/session'
+import { useSignedApi, useSession } from '../state/session'
 import { WaitingForControl } from '../pages/MissionInfo'
+import EmergencyBanner from './EmergencyBanner'
 import { CrewDots, Dot } from './People'
 import { CanaryMark, Icon } from './ui'
+import { Modal, ModalTitle } from './Modal'
 
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your health".
 const NAV: { group: string; items: [string, string, string][] }[] = [
@@ -18,21 +20,22 @@ const NAV: { group: string; items: [string, string, string][] }[] = [
 ]
 
 export default function Shell() {
-  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs } = useSession()
+  const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
-  const { data: crew } = useApi(() => api.overview(), [])
+  const { data: crew } = useSignedApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
   return (
     <div className="shell">
+      <EmergencyBanner />
       <aside className="side">
         <NavLink to="/crew" className="brand"><CanaryMark />CANARY</NavLink>
         {NAV.map(g => (
           <div key={g.group}>
             <div className="group">{g.group}</div>
             {g.items.map(([to, icon, label]) => (
-              <NavLink key={to} to={to} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
+              <NavLink key={to} to={to} aria-label={label} data-tour={to === '/me' ? 'my-space' : undefined} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
                 <Icon name={icon} /><span>{label}</span>
                 {to === '/me' && !me && <span className="count" style={{ color: 'var(--dim)' }}><Icon name="lock" size={13} /></span>}
               </NavLink>
@@ -40,10 +43,10 @@ export default function Shell() {
           </div>
         ))}
         <div className="group">Support</div>
-        <button className="nav" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
-        <NavLink to="/medical" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
-        <NavLink to="/settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
-        <NavLink to="/about" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
+        <button className="nav" aria-label="Ask Canary" onClick={() => setAskOpen(true)}><Icon name="ask" /><span>Ask Canary</span></button>
+        <NavLink to="/medical" aria-label="Medical console" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="med" /><span>Medical console</span></NavLink>
+        <NavLink to="/settings" aria-label="Settings" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="gear" /><span>Settings</span></NavLink>
+        <NavLink to="/about" aria-label="About and data" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><Icon name="info" /><span>About & data</span></NavLink>
         <div className="foot"><ProfileChip mine={mine} /></div>
       </aside>
 
@@ -51,21 +54,24 @@ export default function Shell() {
         <header className="topbar">
           {mission && (
             <>
-              <button className="fact" onClick={() => setWhere(true)} title="Change where you are">
-                <span>Where you are</span><b>{mission.place.name} ▾</b>
-              </button>
+              {catalog?.mode === 'demo' ? (
+                <button className="fact" onClick={() => setWhere(true)} title="Simulate another place (demo)">
+                  <span>Where you are</span><b>{mission.place.name} ▾</b>
+                </button>
+              ) : <div className="fact"><span>Where you are</span><b>{mission.place.name}</b></div>}
               <div className="fact"><span>Mission time</span><b className="num">{mission.day_label}</b>{mission.clock && <span className="clock-line">{clockLine(mission.clock)}</span>}</div>
               <div className="fact opt"><span>Earth replies</span><b>{mission.place.reply}</b></div>
               {crew?.space_weather.active && <span className="storm-chip s2"><span className="dot" />Solar storm</span>}
             </>
           )}
-          <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <CrewDots people={crew.people} />}<HoldButton onFire={() => setEmergency(true)} /></div>
+          <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <span data-tour="crew-dots"><CrewDots people={crew.people} /></span>}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
-        {mission && !mission.registered ? <WaitingForControl /> : <Outlet />}
+        {/* Keyed by the signed-in person: a switch of profile remounts the page, so no state or fetched data of the last person stays. */}
+        {mission && !mission.registered ? <WaitingForControl /> : <Outlet key={me ?? 'guest'} />}
       </div>
 
-      {prefs.storyBar && mission?.registered && <StoryBar />}
-      {where && <WherePicker onClose={() => setWhere(false)} />}
+      {catalog?.mode === 'demo' && prefs.storyBar && mission?.registered && <StoryBar />}
+      {where && catalog?.mode === 'demo' && <WherePicker onClose={() => setWhere(false)} />}
       {emergency && <GuidedResponse onClose={() => setEmergency(false)} />}
       {askOpen && <AskCanary onClose={() => setAskOpen(false)} />}
       <div className="toasts">{toasts.map(t => <div key={t.id} className="toast">{t.t}</div>)}</div>
@@ -80,7 +86,7 @@ export function HoldButton({ onFire }: { onFire: () => void }) {
   const start = () => { setHold(true); t.current = window.setTimeout(() => { setHold(false); onFire() }, 1000) }
   const stop = () => { setHold(false); clearTimeout(t.current) }
   return (
-    <button className={`sos ${hold ? 'hold' : ''}`} onPointerDown={start} onPointerUp={stop} onPointerLeave={stop}
+    <button data-tour="sos" className={`sos ${hold ? 'hold' : ''}`} onPointerDown={start} onPointerUp={stop} onPointerLeave={stop}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFire() } }} aria-label="Emergency: hold for one second">
       <i className="ring" /><span>{hold ? 'Keep holding…' : 'Hold for emergency'}</span>
     </button>
@@ -95,7 +101,7 @@ function StoryBar() {
   if (!mission || !catalog || scenes.length === 0 || !mission.story) return null
   const go = (i: number) => { move.run(() => setStep(i)) }
   return (
-    <div className="story">
+    <div className="story" data-tour="story">
       <span className="small story-step">Demo {mission.step + 1}/{mission.steps}</span>
       <div className="dots">{scenes.map((_, i) => <button key={i} className={i === mission.step && !mission.custom_day ? 'on' : ''} onClick={() => go(i)} aria-label={`Story step ${i + 1}`} disabled={busy} />)}</div>
       <p className="grow">{mission.custom_day ? <><b className="ink">Free navigation.</b> You picked day {mission.day} on the mission plan. Press a dot to return to the story.</> : <><b className="ink">{mission.story.when}.</b> {mission.story.text}</>}</p>
@@ -116,17 +122,15 @@ function WherePicker({ onClose }: { onClose: () => void }) {
   const pick = useAction()
   if (!mission) return null
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal wide" onClick={e => e.stopPropagation()}>
-        <div className="row"><h2>Where are you?</h2><button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
+    <Modal onClose={onClose} wide>
+        <div className="row"><ModalTitle>Where are you?</ModalTitle><button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
         <p className="muted place-lead">
           The mission plan puts you at <b className="ink">{mission.leg.label || mission.leg.location}</b> today. Pick another place to simulate it, or <button className="link" onClick={() => { onClose(); nav('/plan') }}>edit the mission plan</button>.
         </p>
         <PlaceGrid current={mission.location} onPick={(k, name) => { pick.run(async () => { await setLocation(k); toast(`Simulating: ${name}`); onClose() }) }} />
         <ActionError error={pick.error} />
         {mission.location_override && <button className="btn" style={{ marginTop: 16 }} disabled={pick.busy} onClick={() => pick.run(async () => { await setLocation(null); onClose() })}>Back to the mission plan</button>}
-      </div>
-    </div>
+    </Modal>
   )
 }
 

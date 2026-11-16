@@ -11,7 +11,7 @@ import logging
 from typing import Callable, List, Optional
 
 from ..config import settings
-from . import data, mission, plan
+from . import data, dose, mission, plan
 
 log = logging.getLogger("canary.live")
 WINDOW_DAYS = 30
@@ -53,7 +53,7 @@ def import_donki(fetch: Optional[Fetch] = None) -> int:
                     continue
                 day = (dt.date.fromisoformat(when) - launch).days
                 loc = plan.location_at(day)
-                if loc == "earth":  # on the ground the particles do not reach the crew
+                if not dose.applies("sep", loc)["applies"]:  # on the ground, and on the Mars surface, DONKI's L1 events do not reach the crew
                     continue
                 data.add_space_event({"id": eid, "kind": "sep", "start_day": day, "end_day": day, "locations": [loc],
                                       "extra_dose_msv": 0, "origin": "donki", "source": "nasa:donki",

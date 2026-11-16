@@ -66,7 +66,7 @@ def is_done(crew_id: str, goal_id: str, day: int, today: int, log: Optional[Dict
 
 
 def medical_goals(crew_id: str, day: int) -> List[dict]:
-    rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=?", (crew_id, day, day))
+    rows = db.q("SELECT * FROM medical_goals WHERE (who=? OR who='all') AND from_day<=? AND to_day>=? AND voided_at IS NULL", (crew_id, day, day))
     return [{"id": f"med_{r['id']}", "area": r["area"], "title": r["title"], "why": r["why"],
              "by": "medical"} for r in rows]
 
@@ -80,18 +80,26 @@ def exercise_adjust() -> dict:
     return {**EXERCISE_ADJUST, **db.get_setting("exercise_adjust", {})}
 
 
+def exercise_plan(loc: str, fatigue_level: int) -> dict:
+    """The one exercise target for a day: the place's target, lightened when the fatigue risk is at watch or act (within the
+    medical limit). The routine goal, the suggestions and the crew view all read this, so they never disagree."""
+    cfg = exercise_adjust()
+    target = EXERCISE_BY_PLACE[loc][1]
+    pct = min(int(cfg["by_level"].get(str(fatigue_level), 0)), int(cfg["max_pct"])) if fatigue_level else 0
+    pct = max(pct, 0)
+    minutes = int(round(target * (100 - pct) / 100)) if pct else target
+    return {"target": target, "minutes": minutes, "pct": pct, "max_pct": int(cfg["max_pct"])}
+
+
 def _exercise_goal(g: dict, loc: str, fatigue_level: int) -> dict:
     """The routine exercise goal; lighter, and says why, when the fatigue risk is at watch or act (within the medical limit)."""
     base = {"title": _title(g, loc), "why": g["why"]}
-    cfg = exercise_adjust()
-    pct = min(int(cfg["by_level"].get(str(fatigue_level), 0)), int(cfg["max_pct"]))
-    if not fatigue_level or pct <= 0:
+    p = exercise_plan(loc, fatigue_level)
+    if not p["pct"]:
         return base
-    target = EXERCISE_BY_PLACE[loc][1]
-    minutes = int(round(target * (100 - pct) / 100))
-    return {"title": f"{base['title']} (lighter today: about {minutes} min instead of {target})",
-            "why": f"Your fatigue risk is up, so today's load is {pct}% lower, within the {cfg['max_pct']}% limit your medical team set. Rest is part of training.",
-            "adjusted": {"pct": pct, "minutes": minutes, "target": target, "reason": "fatigue", "max_pct": int(cfg["max_pct"])}}
+    return {"title": f"{base['title']} (lighter today: about {p['minutes']} min instead of {p['target']})",
+            "why": f"Your fatigue risk is up, so today's load is {p['pct']}% lower, within the {p['max_pct']}% limit your medical team set. Rest is part of training.",
+            "adjusted": {"pct": p["pct"], "minutes": p["minutes"], "target": p["target"], "reason": "fatigue", "max_pct": p["max_pct"]}}
 
 
 def suggested(crew_id: str, day: int) -> List[dict]:
@@ -119,7 +127,8 @@ def personal_today(crew_id: str, ms: dict, snap: Optional[dict] = None) -> List[
     for g in medical_goals(crew_id, day):
         out.append({**g, "done": is_done(crew_id, g["id"], day, day, log)})
     for g in suggested(crew_id, day):
-        out.append({"id": g["id"], "area": g["area"], "title": g["title"], "why": "You added this from Suggestions.",
+        note = "" if g.get("guidance") == "personal" else " General guidance: the times and amounts are not set for you."
+        out.append({"id": g["id"], "area": g["area"], "title": g["title"], "why": "You added this from Suggestions." + note,
                     "by": "suggestion", "done": is_done(crew_id, g["id"], day, day, log),
                     **({"verify": g["verify"]} if g.get("verify") else {})})
     for g in out:  # the experiment behind a goal: pending until its check day, then improved / same / worse
@@ -145,28 +154,35 @@ def _start(crew_id: str, today: int) -> int:
     return min(first, today)
 
 
+def _place_on(d: int, today: int) -> str:
+    """The place of a day as the screen shows it (RULE-08): today's place is the one the crew set ("Where are you?") when
+    they set one, else the plan's; any other day is the plan's."""
+    override = (mission._get() or {}).get("location")
+    return override if d == today and override else plan.location_at(d)
+
+
 def _history(crew_id: str, today: int) -> dict:
     """Per-day completions from the first history day to today, routine goals only. `today` is always a key."""
     log = _log(crew_id)
     now = mission.mission_time()
-    extra_by_day: Dict[int, int] = {}  # goals added by an alert, the medical team or a suggestion, done
-    for (ld, gid), v in log.items():
-        if v[0] and gid.startswith(("al_", "med_", "sg_")):
-            extra_by_day[ld] = extra_by_day.get(ld, 0) + 1
     days = {}
     for d in range(_start(crew_id, today), today + 1):
-        ids = daily_goal_ids(plan.location_at(d))
+        ids = daily_goal_ids(_place_on(d, today))  # RULE-08: today's place is the one the screen shows
         done = [gid for gid in ids if is_done(crew_id, gid, d, today, log, now)]
-        extra = extra_by_day.get(d, 0)
-        days[d] = {"done": done, "total": len(ids), "count": len(done) + extra}
+        days[d] = {"done": done, "total": len(ids), "count": len(done)}  # routine goals only: one definition everywhere
     return days
+
+
+def day_met(entry: dict) -> bool:
+    """The one definition of a kept day: at least STREAK_RATE of the routine goals done. Streaks and the crew day use it."""
+    return bool(entry.get("total")) and len(entry["done"]) / entry["total"] >= STREAK_RATE
 
 
 def _streak(days: dict, today: int) -> int:
     n, d = 0, today - 1
-    if days[today]["total"] and len(days[today]["done"]) / days[today]["total"] >= STREAK_RATE:
+    if day_met(days[today]):
         n += 1
-    while d in days and len(days[d]["done"]) / days[d]["total"] >= STREAK_RATE:
+    while d in days and day_met(days[d]):
         n += 1
         d -= 1
     return n
@@ -252,8 +268,7 @@ def crew_streak(today: int, histories: Dict[str, dict]) -> int:
     quorum = crew_quorum()
 
     def ok(d: int) -> bool:
-        return sum(1 for c in CREW if d in histories[c["id"]] and histories[c["id"]][d]["total"]
-                   and len(histories[c["id"]][d]["done"]) / histories[c["id"]][d]["total"] >= STREAK_RATE) >= quorum
+        return sum(1 for c in CREW if d in histories[c["id"]] and day_met(histories[c["id"]][d])) >= quorum
     n = 1 if ok(today) else 0
     d = today - 1
     while ok(d):

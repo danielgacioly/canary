@@ -11,16 +11,21 @@ Two rounds in a row without improvement for the same risk escalate: a different 
 message for the crew medical officer (or the substitute), once. Canary never prescribes: the alternatives below are
 the same kind of everyday step the suggestions already offer.
 """
+import math
 import time
 from typing import Dict, List, Optional
 
 from .. import db
+from . import assumptions as A
 from . import risk, telemetry
 from .catalog import CREW_BY_ID
 
 # Prototype assumptions (no published rule says how much a number must move for an advice to have "worked").
-MARGIN = 0.5  # personal spreads: the average deviation must move by at least this much to count as improved / worse: bad moves by at least this much = improved / worse, less = same
+MARGIN = A.value("advice.margin")  # personal spreads: the average deviation must move by at least this much to count as improved or worse
 SOURCE = {"source": "prototype assumption", "verified": False}
+# Adherence: the goal must have been ticked on at least this share of the days between the start and the check.
+# Prototype assumption. Without it, a change in a number says nothing about the advice, so no outcome is given.
+ADHERENCE_MIN = 0.7
 
 ALTERNATIVES: Dict[str, List[dict]] = {
     "fatigue": [
@@ -68,14 +73,25 @@ def start(crew_id: str, goal_id: str, origin: str, verify: Optional[dict], day: 
                 (crew_id, goal_id, origin, ind, risk_of(ind), day, day + int(verify["after_days"]), start_bad, time.time()))
 
 
+def _adhered(row: dict) -> bool:
+    """Was the goal recorded as done on enough of the days from the start up to the check day? Read from the goal log."""
+    span = max(1, int(row["check_day"]) - int(row["start_day"]))
+    n = db.q("SELECT COUNT(*) n FROM goal_log WHERE crew_id=? AND goal_id=? AND day>=? AND day<? AND done=1",
+             (row["crew_id"], row["goal_id"], row["start_day"], row["check_day"]))[0]["n"]
+    return n >= math.ceil(ADHERENCE_MIN * span)
+
+
 def outcome(row: dict, day: int) -> str:
-    """pending until check_day; then improved / same / worse from how far the indicator moved by check_day, or no_data
-    when nothing was measured around check_day."""
+    """pending until check_day. Then: no_data when nothing was measured around check_day; no_adherence when the goal was
+    not done often enough in between; otherwise improved / same / worse from how far the indicator moved. The outcome
+    compares the numbers before and after. It never says the advice caused the change."""
     if day < row["check_day"]:
         return "pending"
     end = _bad(row["crew_id"], row["indicator"], row["check_day"])
     if end is None:
         return "no_data"
+    if not _adhered(row):
+        return "no_adherence"
     delta = end - row["start_bad"]
     return "improved" if delta <= -MARGIN else "worse" if delta >= MARGIN else "same"
 
@@ -117,7 +133,7 @@ def _rounds(crew_id: str, rid: str, day: int) -> List[dict]:
     out = []
     for start_day, rs in groups.items():
         sts = [outcome(r, day) for r in rs]
-        if all(x == "no_data" for x in sts):  # a round nobody could measure says nothing: it is neither progress nor failure
+        if not any(x in ("improved", "same", "worse") for x in sts):  # a round nobody could measure or follow says nothing
             continue
         out.append({"start_day": start_day, "check_day": max(r["check_day"] for r in rs),
                     "improved": "improved" in sts, "indicators": sorted({r["indicator"] for r in rs}),

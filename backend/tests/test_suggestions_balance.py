@@ -13,6 +13,8 @@ from canary.assistant import suggestions  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import protocols  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 
 client = TestClient(app)
 
@@ -21,11 +23,11 @@ client = TestClient(app)
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     monkeypatch.setattr(settings, "live_space_weather", False)
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def tok(cid, pin):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 H, K = lambda: tok("h", "1001"), lambda: tok("k", "1002")  # noqa: E731
@@ -36,7 +38,7 @@ def items(cid="h", pin="1001"):
 
 
 def go(step):
-    client.put("/api/mission", json={"step": step})
+    client.put("/api/mission", json={"step": step}, headers=control_headers(client))
 
 
 def test_every_suggestion_carries_both_reasons_a_protocol_and_its_rank():
@@ -115,7 +117,7 @@ def test_suggestions_and_choices_are_private():
         for headers in (K(), {}):
             r = (client.post if post else client.get)(path, headers=headers)
             assert r.status_code == 403, (path, r.status_code)
-    med = {"Authorization": "Bearer " + client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]}
+    med = medical_headers(client)
     assert client.get("/api/suggestions/h", headers=med).status_code == 403  # the medical team reads the medical console, not these
 
 

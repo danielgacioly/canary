@@ -1,0 +1,79 @@
+/* ---------- intro scenes (flat: solid fills, no gradients, no glow) ---------- */
+.scene { width: 100%; height: 100%; max-height: min(70vh, 640px); display: block; }
+.intro-visual { position: relative; z-index: 1; height: min(76vh, 700px); display: flex; align-items: center; justify-content: center; }
+.intro-visual > * { animation: fade 700ms var(--ease-out) both; }
+
+/* bird */
+.bird-body, .bird-tail { fill: var(--canary, #f2c230); }
+.bird-wing { fill: #d9a91c; transform-box: fill-box; transform-origin: 30% 90%; }
+.bird-beak { fill: #e9963a; }
+.bird-eye { fill: #0b0d11; }
+.bird.flying .bird-wing { animation: flap 260ms ease-in-out infinite alternate; }
+@keyframes flap { from { transform: rotate(-18deg) scaleY(1); } to { transform: rotate(24deg) scaleY(-0.55); } }
+.breathe { animation: breathe-bird 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes breathe-bird { 0%, 100% { scale: 1; } 50% { scale: 1.045; } }
+
+/* mine */
+.mine-air { fill: #0d1016; }
+.rock { fill: #232935; stroke: #343b4a; stroke-width: 1.5; }
+.timber { fill: #7a5a38; }
+.rail { stroke: #5b6270; stroke-width: 3; }
+.sleeper { stroke: #3e3226; stroke-width: 5; }
+.wire { fill: #5b6270; }
+.lamp-body { fill: #2b2f38; stroke: #5b6270; stroke-width: 1.5; }
+.lamp-flame { fill: #f2b84a; animation: flicker 3.2s ease-in-out infinite; }
+.lamp-light { fill: #f2c230; opacity: .13; animation: lamp 3.2s ease-in-out infinite; }
+@keyframes flicker { 0%, 100% { opacity: 1; } 40% { opacity: .82; } 55% { opacity: .95; } 70% { opacity: .78; } }
+@keyframes lamp { 0%, 100% { opacity: .13; } 40% { opacity: .1; } 70% { opacity: .09; } }
+.cage-bar { fill: none; stroke: #c3cad6; stroke-width: 2.2; stroke-linecap: round; }
+.cage-bar.thin { stroke-width: 1.4; }
+.cage-base { fill: #5b6270; }
+.cage { animation: sway 5s ease-in-out infinite; transform-box: view-box; transform-origin: 180px 118px; }
+@keyframes sway { 0%, 100% { rotate: -1.2deg; } 50% { rotate: 1.2deg; } }
+.dust { fill: #c9b98a; opacity: 0; animation: dust 4.5s linear infinite; }
+@keyframes dust { 0% { opacity: 0; translate: 0 0; } 20% { opacity: .7; } 100% { opacity: 0; translate: 14px -26px; } }
+
+/* flight */
+.sky { fill: #0a0c12; }
+.orbit { fill: none; stroke: #39404f; stroke-width: 1.2; stroke-dasharray: 3 6; }
+.moon { fill: #9aa2b1; } .crater { fill: #7b8390; }
+.mars { fill: #c1502e; } .mars-line { fill: none; stroke: #a0401f; stroke-width: 2; }
+.ground { fill: #1d222c; }
+.frame { fill: none; stroke: #7a5a38; stroke-width: 3.5; stroke-linejoin: round; }
+.frame-wheel { fill: none; stroke: #7a5a38; stroke-width: 3; }
+.door { transform-box: fill-box; transform-origin: 0% 100%; animation: door 600ms 200ms var(--ease-out) both; }
+@keyframes door { from { rotate: 48deg; } to { rotate: 0deg; } }
+.trail { fill: none; stroke: var(--canary, #f2c230); stroke-width: 1.6; stroke-dasharray: 2 7; opacity: .55;
+  stroke-dashoffset: 0; animation: trail 4.6s 0.4s cubic-bezier(.4, 0, .2, 1) both; }
+.trail.still { animation: none; }
+@keyframes trail { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* data chapter */
+.data-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; width: 100%; }
+.data-col { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 2px solid var(--line-2);
+  animation: draw 700ms var(--ease-out) both; animation-delay: calc(300ms + var(--k) * 180ms); }
+.data-col:first-child { border-top-color: var(--accent); }
+.data-col:nth-child(2) { border-top-color: var(--canary, #f2c230); }
+.data-col h3 { font-size: 16px; }
+.data-col ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.data-col li { display: flex; flex-direction: column; gap: 2px; }
+.data-col a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.data-col a:hover { text-decoration-color: var(--ink); }
+.intro-stage.wide { grid-template-columns: 1fr; align-content: center; gap: 28px; }
+
+/* how it works: the steps ahead */
+.steps-ahead { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.steps-ahead li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: baseline; animation: reveal 600ms var(--ease-out) both; }
+.steps-ahead li b { display: block; }
+.steps-ahead .n { font: 600 13px var(--f-mono); color: var(--dim); }
+
+@media (max-width: 760px) {
+  .intro-visual { height: 38vh; order: -1; }
+  .data-cols { grid-template-columns: 1fr; gap: 18px; }
+}
+:root[data-motion="reduce"] .scene *, :root[data-motion="reduce"] .data-col, :root[data-motion="reduce"] .steps-ahead li { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .scene *, .data-col, .steps-ahead li { animation: none !important; } }
+
+.intro-visual .intro-holo { width: 100%; }
+
+.scene.photo { width: 100%; height: auto; max-height: min(70vh, 640px); object-fit: cover; border-radius: 14px; }

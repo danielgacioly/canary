@@ -15,8 +15,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from .. import db
-from . import data, plan, registry
-from .catalog import LOCATIONS, day_label
+from . import data, dose, plan, registry, spacetime
+from .catalog import LOCATIONS, day_label, reply_text
 from .validation import FieldError
 
 log = logging.getLogger("canary.clock")
@@ -97,6 +97,42 @@ def _scene_step(scenes: List[dict], s: dict, day: int) -> int:
     return next((i for i, sc in enumerate(scenes) if sc["day"] == day), 0)
 
 
+def mission_datetime() -> datetime:
+    """The mission clock as a UTC instant: the mission date and the time of day (GMT)."""
+    h, m = (int(x) for x in mission_time().split(":"))
+    d = mission_date()
+    return datetime(d.year, d.month, d.day, h, m, tzinfo=timezone.utc)
+
+
+def launch_datetime() -> datetime:
+    """Launch as a UTC instant: 00:00 GMT of the launch date (the registry holds a date, not a time)."""
+    d = launch_date()
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+
+
+def site_longitude() -> float:
+    """Longitude of the Mars site in degrees east (setting `site_longitude_east_deg`; Jezero crater by default)."""
+    v = db.get_setting("site_longitude_east_deg")
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else spacetime.A.value("mars.site_longitude_east_deg")
+
+
+def timing(day: int, loc: str, leg: dict) -> dict:
+    """MET, GMT, Mars time (on Mars), and the light time to Earth for the place and the instant of the mission clock."""
+    now, launch = mission_datetime(), launch_datetime()
+    light, down = spacetime.one_way_light_s(loc, now, leg, launch)
+    out = {"met": spacetime.met(launch, now), "gmt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "one_way_light_s": round(light, 2), "blackout": down,
+           "mars_time": None, "sol": None}
+    if LOCATIONS[loc].get("body") == "mars":
+        landing_day = plan.landing_day(day, "mars") if loc == leg["location"] else 0
+        landing = launch + timedelta(days=landing_day)
+        lon = site_longitude()
+        out["sol"] = spacetime.sol_since(landing, now)
+        out["mars_time"] = {"msd": round(spacetime.msd(now), 4), "mtc": spacetime.hms(spacetime.mtc_hours(now)),
+                            "lmst": spacetime.hms(spacetime.lmst_hours(now, lon)), "site_longitude_east_deg": lon,
+                            "sol_s": spacetime.A.value("mars.sol_s"), "landing": landing.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    return out
+
+
 def state() -> dict:
     s = _get()
     day = mission_day()
@@ -105,15 +141,23 @@ def state() -> dict:
     sc = scenes[step] if scenes else None
     leg = plan.leg_at(day)
     loc = s["location"] or plan.location_at(day)
+    t = timing(day, loc, leg)
+    place = {"id": loc, **LOCATIONS[loc], "delay_s": t["one_way_light_s"], "reply": reply_text(t["one_way_light_s"]),
+             "one_way_light_s": t["one_way_light_s"], "blackout": t["blackout"]}
+    if loc == "transit" and leg.get("direction") == "back":
+        place.update(name="Transit to Earth", sub="Deep space, homeward")
+    label = f"Sol {t['sol']}" if t["sol"] is not None else day_label(day, loc, 0)
     return {
         "step": step,
         "steps": len(scenes),
         "story": {"day": sc["day"], "loc": sc["location"], "me": sc["person"], "storm": sc["storm"], "text": sc["text"], "when": sc["when"]} if sc else None,
         "day": day,
-        "day_label": day_label(day, loc, plan.landing_day(day, LOCATIONS[loc].get("body")) if loc == leg["location"] else 0),
+        "day_label": label if day >= 0 else day_label(day, loc, 0),
+        "met": t["met"], "gmt": t["gmt"], "sol": t["sol"], "mars_time": t["mars_time"],
+        "one_way_light_s": t["one_way_light_s"], "blackout": t["blackout"],
         "location": loc,
-        "place": {"id": loc, **LOCATIONS[loc]},
-        "storm": data.storm_at(day, loc),
+        "place": place,
+        "storm": dose.active_storm(day, loc),
         "suggested_user": (sc["person"] or None) if sc else None,
         "learning": loc == "earth" and day < 0,
         "leg": leg,

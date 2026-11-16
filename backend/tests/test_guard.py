@@ -59,7 +59,9 @@ def demo_crew():
     from fastapi.testclient import TestClient
 
     from canary.main import app
-    TestClient(app).post("/api/demo/reset")
+    from tests.golden_capture import control_headers
+    c = TestClient(app)
+    c.post("/api/demo/reset", headers=control_headers(c))
     yield
 
 
@@ -591,7 +593,9 @@ def registered_crew():
             {"name": "Jonas Berg", "role": "Pilot", "seat": "j2", "pin": "1357"}]
     registry.register(crew, {"callsign": "Test", "name": "Registry test", "launch_date": "2036-03-01", "preset": "mars"})
     yield
-    TestClient(app).post("/api/demo/reset")
+    from tests.golden_capture import control_headers
+    c = TestClient(app)
+    c.post("/api/demo/reset", headers=control_headers(c))
 
 
 def test_other_person_rule_follows_the_registry(registered_crew):

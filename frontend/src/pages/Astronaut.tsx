@@ -7,12 +7,13 @@ import BodyView, { RiskBlock } from '../components/BodyView'
 import EvaReadiness from '../components/EvaReadiness'
 import RadiationBar from '../components/RadiationBar'
 import { Dot } from '../components/People'
-import { Icon, Loading, Patch, Spark } from '../components/ui'
-import { fmtValue, missingNote, num } from '../lib/health'
+import { Icon, Loading, Spark } from '../components/ui'
+import { assessWord, fmtValue, missingNote, notAssessed, num } from '../lib/health'
 import { ActionError } from '../components/Field'
 import { useAction } from '../lib/useAction'
-import { useApi, useSession } from '../state/session'
+import { useApi, useSession, useSignedApi } from '../state/session'
 import { useState } from 'react'
+import RulesNote from '../components/RulesNote'
 
 export default function Astronaut() {
   const { id = '' } = useParams()
@@ -26,50 +27,100 @@ function Other({ id }: { id: string }) {
     if (e instanceof ApiError && e.status === 403) return 'private' as const
     throw e
   }), [id])
-  const { data: o } = useApi(() => api.overview(), [])
+  const { data: o } = useSignedApi(() => api.overview(), [])
   if (error) return <div className="page"><p className="muted">{error}</p></div>
   if (!d) return <Loading what="crew member" />
   if (d === 'private') {
     const person = o?.people.find(p => p.id === id)
     return person ? <PublicCard p={person} /> : <Loading what="crew member" />
   }
-  const p = d.profile
+  // Indicators never read in the window get no row of dashes: they are named once under the table.
+  const all = Object.values(d.indicators)
+  const read = all.filter(i => i.value !== null || (d.trends[i.id] ?? []).some(([, y]) => y !== null))
+  const unread = all.filter(i => !read.includes(i))
   return (
     <div className="page">
       <Link to="/crew" className="back"><Icon name="back" />Crew</Link>
       <div className="head rise">
         <Dot p={d.crew} ops={d.ops} size="md" />
-        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · {d.crew.home} · {p.goals_week} goals this week · {p.badges_earned} patches</p></div>
-        {d.ops && <div className="right ops-right"><span className="small dim">Operational status</span><span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span></div>}
+        <div><h1>{d.crew.name}</h1><p className="sub">{d.crew.role} · medical team view</p></div>
+        {d.ops && <div className="right ops-right"><span className="small dim">Operational status</span>{notAssessed(d.assessment) ? <span className="status nodata"><span className="dot" />{assessWord(d.assessment)}</span> : <span className={`status s${d.ops.level}`}><span className="dot" />{d.ops.label}</span>}</div>}
       </div>
-      <p className="muted rise med-note"><b>Medical team view.</b> Everything about {d.crew.name.split(' ')[0]}, including alerts and advice.</p>
       <BodyView key={d.crew.id} d={d} self={false} />
       <section className="rise"><EvaReadiness d={d} self={false} /></section>
       <RisksAndCare d={d} />
+      {d.access === 'medical' && <CorrectValue d={d} />}
       <section className="rise">
         <div className="section-head"><h2>All numbers</h2><span className="sub">last 30 days against their own normal</span></div>
-        <div className="scroll"><table className="t">
-          <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
-          <tbody>{Object.values(d.indicators).map(i => (
-            <tr key={i.id}>
-              <td><b>{i.name}</b><div className="small dim">{i.area}</div></td>
-              <td className="num">{fmtValue(i)} {i.value !== null && <span className="dim">{i.unit}</span>}{missingNote(i) && <div className="small dim">{missingNote(i)}</div>}</td>
-              <td className="num muted">{num(i.baseline, i.dp)}</td>
-              <td><Spark data={d.trends[i.id]} base={i.baseline ?? undefined} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
-            </tr>))}</tbody>
-        </table></div>
+        {read.length > 0 && (
+          <div className="scroll"><table className="t">
+            <thead><tr><th>Indicator</th><th>Now</th><th>Their normal</th><th>Last 30 days</th></tr></thead>
+            <tbody>{read.map(i => (
+              <tr key={i.id}>
+                <td><b>{i.name}</b><div className="small dim">{i.area}</div></td>
+                <td className="num">{fmtValue(i)} {i.value !== null && <span className="dim">{i.unit}</span>}{missingNote(i) && <div className="small dim">{missingNote(i)}</div>}</td>
+                <td className="num muted">{num(i.baseline, i.dp)}</td>
+                <td><Spark data={d.trends[i.id]} base={i.baseline ?? undefined} color={i.area === 'mental' ? 'var(--mental)' : 'var(--physical)'} w={120} h={28} /></td>
+              </tr>))}</tbody>
+          </table></div>
+        )}
+        {unread.length > 0 && <p className="small muted">No readings yet: {unread.map(i => i.name).join(', ')}.</p>}
       </section>
       <VitalsPhotos d={d} />
-      <section>
-        <div className="section-head"><h2>Patches</h2></div>
-        <div className="patches">{p.badges.map(b => (
-          <div key={b.id} className={`patch ${b.earned ? '' : 'off'}`}><Patch id={b.id} earned={b.earned} /><b>{b.name}</b><span className="small muted">{b.desc}</span></div>))}</div>
-      </section>
     </div>
   )
 }
 
-/** Photos of the display kept with recent vitals check-ins: the person and the medical team only. */
+/** EDIT-01: the medical team corrects a value on record. The old value stays, with who changed it and why; open requests from the crew are listed here. */
+function CorrectValue({ d }: { d: CrewDetail }) {
+  const { bump, toast } = useSession()
+  const open = useApi(() => api.corrections(), [d.crew.id])
+  const first = d.crew.name.split(' ')[0]
+  const [h, setH] = useState({ value: '', reason: '' })
+  const [m, setM] = useState({ id: '', value: '', reason: '' })
+  const saveH = useAction(), saveM = useAction()
+  const hOk = Number(h.value) >= 140 && Number(h.value) <= 210 && h.reason.trim().length >= 3
+  const mOk = Number.isInteger(Number(m.id)) && Number(m.id) > 0 && m.value.trim() !== '' && Number.isFinite(Number(m.value)) && m.reason.trim().length >= 3
+  const requests = (open.data?.requests ?? []).filter(r => r.crew_id === d.crew.id)
+  const FIELD: Record<string, string> = { height_cm: 'Height', mission_name: 'Mission name', measurement: 'Measurement' }
+  return (
+    <section className="rise">
+      <div className="section-head"><h2>Correct a value</h2><span className="sub">The old value stays on record, with who changed it and why</span></div>
+      <div className="grid g2">
+        <form className="col correct-form" noValidate onSubmit={e => {
+          e.preventDefault()
+          if (hOk) saveH.run(async () => { await api.correctHeight(d.crew.id, Number(h.value), h.reason.trim()); setH({ value: '', reason: '' }); bump(); toast(`${first}'s height corrected`) })
+        }}>
+          <span className="lbl">Height (cm)</span>
+          <input type="number" inputMode="decimal" min={140} max={210} aria-label="Corrected height in centimetres" value={h.value} onChange={e => setH({ ...h, value: e.target.value })} />
+          <input aria-label="Why the height changes" maxLength={300} value={h.reason} onChange={e => setH({ ...h, reason: e.target.value })} placeholder="Why (3 to 300 characters)" />
+          <ActionError error={saveH.error} />
+          <button className="btn sm" disabled={!hOk || saveH.busy}>{saveH.busy ? 'Saving…' : 'Correct height'}</button>
+        </form>
+        <form className="col correct-form" noValidate onSubmit={e => {
+          e.preventDefault()
+          if (mOk) saveM.run(async () => { await api.correctMeasurement(Number(m.id), Number(m.value), m.reason.trim()); setM({ id: '', value: '', reason: '' }); bump(); toast('Measurement corrected') })
+        }}>
+          <span className="lbl">A measurement</span>
+          <input type="number" inputMode="numeric" min={1} aria-label="Measurement id" value={m.id} onChange={e => setM({ ...m, id: e.target.value })} placeholder="Measurement id" />
+          <input type="number" inputMode="decimal" aria-label="Corrected value" value={m.value} onChange={e => setM({ ...m, value: e.target.value })} placeholder="Corrected value" />
+          <input aria-label="Why the measurement changes" maxLength={300} value={m.reason} onChange={e => setM({ ...m, reason: e.target.value })} placeholder="Why (3 to 300 characters)" />
+          <ActionError error={saveM.error} />
+          <button className="btn sm" disabled={!mOk || saveM.busy}>{saveM.busy ? 'Saving…' : 'Correct measurement'}</button>
+        </form>
+      </div>
+      <div className="section-head" style={{ marginTop: 18 }}><h3>Open requests from {first}</h3></div>
+      {requests.length ? (
+        <ul className="plain correct-list">{requests.map(r => (
+          <li key={r.id} className="small">
+            <b>{FIELD[r.field] ?? r.field}</b>{r.target ? ` ${r.target}` : ''}{r.proposed !== null && r.proposed !== undefined ? <span> → {String(r.proposed)}</span> : null}
+            <span className="muted"> · {r.reason}</span>
+          </li>))}</ul>
+      ) : <p className="small muted">{open.error ? 'Could not load the requests.' : `No open correction requests from ${first}.`}</p>}
+    </section>
+  )
+}
+
 /** The medical view of one person: every risk with its evidence and where the data comes from, the care windows, the career dose. */
 function RisksAndCare({ d }: { d: CrewDetail }) {
   const raised = d.risks.filter(r => r.level > 0).sort((a, b) => b.level - a.level)
@@ -79,8 +130,9 @@ function RisksAndCare({ d }: { d: CrewDetail }) {
       <section className="rise">
         <div className="section-head"><h2>Risks</h2><span className="sub">with the evidence behind each one</span></div>
         {raised.length === 0 && <p className="muted">Nothing is raised.</p>}
-        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} />)}</div>
+        <div className="risk-list">{raised.map(r => <RiskBlock key={r.id} r={r} today={d.mission.day} />)}</div>
         {quiet.length > 0 && <p className="small dim">{raised.length ? 'Not raised' : 'Checked'}: {quiet.map(r => r.name).join(', ')}.</p>}
+        <RulesNote review={d.rules_review} />
       </section>
       {d.care_events.length > 0 && (
         <section className="rise">
@@ -144,12 +196,12 @@ function PublicCard({ p }: { p: Person }) {
           <h2>Today's routine</h2>
           <div className="big-num num" style={{ margin: '10px 0' }}>{p.today.done}<small>of {p.today.total} goals</small></div>
           <div className="bar-track"><i style={{ width: `${(100 * p.today.done) / Math.max(1, p.today.total)}%` }} /></div>
-          <p className="small muted" style={{ marginTop: 10 }}>{p.today.streak ? `${p.today.streak}-day streak.` : 'No streak running.'} Participation is shared; results are not.</p>
+          {p.today.streak > 0 && <p className="small muted" style={{ marginTop: 10 }}>{p.today.streak}-day streak</p>}
         </div>
         <div className="detail-card rise gate-mini" style={{ ['--d' as string]: 2 }}>
           <span className="lock"><Icon name="lock" size={20} /></span>
           <h2>{first}'s health is private</h2>
-          <p className="muted">The crew sees only how {first} is doing with goals, nothing more. Numbers, alerts, advice and operational status stay with {first} and the medical team.</p>
+          <p className="muted">The crew sees only {first}'s goals done. Numbers, alerts and operational status stay with {first} and the medical team.</p>
           <Link to="/medical" className="link">Medical team: open the console</Link>
         </div>
       </section>

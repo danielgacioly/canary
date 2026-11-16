@@ -13,6 +13,8 @@ from canary import db  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.domain import advice, data, dose, goals, health, live, mission, notify, plan, registry, risk  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import reset_demo  # noqa: E402
+from tests.support import GROUND, control_headers, crew_headers, empty, fresh as fresh_demo, medical_headers  # noqa: E402,F401
 
 client = TestClient(app)
 LAUNCH = dt.date(2035, 6, 1)
@@ -22,40 +24,40 @@ LAUNCH = dt.date(2035, 6, 1)
 def fresh(monkeypatch):
     monkeypatch.setattr(settings, "mission_package", "odyssey1-mars")
     monkeypatch.setattr(settings, "live_space_weather", False)
-    client.post("/api/demo/reset")
+    reset_demo(client)
     yield
-    client.post("/api/demo/reset")
+    reset_demo(client)
 
 
 def ctl():
-    return {"X-Canary-Control": client.post("/api/control/session", json={"pin": "4242"}).json()["token"]}
+    return control_headers(client)
 
 
 def me(cid="h", pin="1001"):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": pin}).json()["token"]}
 
 
 def medical():
-    return {"Authorization": "Bearer " + client.post("/api/medical/session", json={"pin": "1961"}).json()["token"]}
+    return medical_headers(client)
 
 
 def day(d):
-    return client.put("/api/mission", json={"day": d}).json()
+    return client.put("/api/mission", json={"day": d}, headers=control_headers(client)).json()
 
 
 def empty_database(monkeypatch):
     """No package at all: the app starts empty (no measurements, no scenes), then Mission Control registers the demo crew."""
     monkeypatch.setattr(settings, "mission_package", "")
-    assert client.post("/api/demo/reset").status_code == 200
+    assert reset_demo(client).status_code == 200
     form = data.demo_form()
-    assert client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"], "mission": form["mission"]}).status_code == 200
+    assert client.post("/api/control/register", headers=ctl(), json={"crew": form["crew"], "mission": form["mission"], "ground": form["ground"]}).status_code == 200
 
 
 # ---------------------------------------------------------------- clock
 def test_the_demo_starts_on_the_package_date_and_a_scene_jump_sets_the_simulated_date():
     ms = client.get("/api/mission").json()
     assert ms["day"] == -30 and ms["clock"] == {"mode": "simulated", "date": "2035-05-02", "time": "12:00"} and not ms["custom_day"]
-    ms = client.put("/api/mission", json={"step": 3}).json()
+    ms = client.put("/api/mission", json={"step": 3}, headers=control_headers(client)).json()
     assert ms["day"] == 152 and ms["step"] == 3 and ms["storm"] == "sep" and not ms["custom_day"]
     assert ms["clock"]["date"] == (LAUNCH + dt.timedelta(days=152)).isoformat() and ms["clock"]["mode"] == "simulated"
     assert ms["story"]["day"] == 152 and ms["steps"] == 6 and ms["suggested_user"] == "h"
@@ -63,18 +65,18 @@ def test_the_demo_starts_on_the_package_date_and_a_scene_jump_sets_the_simulated
 
 
 def test_a_scene_jump_clears_the_place_the_crew_had_chosen():
-    client.put("/api/mission", json={"step": 3, "location": "earth"})  # step first, then the override
+    client.put("/api/mission", json={"step": 3, "location": "earth"}, headers=control_headers(client))  # step first, then the override
     assert client.get("/api/mission").json()["location_override"] is True
-    ms = client.put("/api/mission", json={"step": 4}).json()
+    ms = client.put("/api/mission", json={"step": 4}, headers=control_headers(client)).json()
     assert ms["location"] == "transit" and ms["location_override"] is False
 
 
 def test_set_day_moves_the_date_and_forgets_the_scene():
-    client.put("/api/mission", json={"step": 3})
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     ms = day(10)
     assert ms["day"] == 10 and ms["custom_day"] and ms["clock"]["date"] == (LAUNCH + dt.timedelta(days=10)).isoformat()
     assert db.get_setting("mission")["scene"] is None
-    assert client.put("/api/mission", json={"clear_day": True}).json()["clock"]["mode"] == "real"
+    assert client.put("/api/mission", json={"clear_day": True}, headers=control_headers(client)).json()["clock"]["mode"] == "real"
 
 
 def test_with_the_launch_date_yesterday_the_real_date_gives_day_one(monkeypatch):
@@ -111,6 +113,7 @@ def test_the_control_clock_refuses_bad_input(body, field):
 
 def test_the_control_clock_needs_the_control_session():
     assert client.put("/api/control/clock", json={"real": True}).status_code in (401, 403)
+    assert client.put("/api/control/clock", json={"real": True}, headers=me()).status_code in (401, 403)
 
 
 def test_a_day_change_runs_the_sync_once_per_day(monkeypatch):
@@ -124,7 +127,7 @@ def test_a_day_change_runs_the_sync_once_per_day(monkeypatch):
     assert mission.sync_day() is True and calls[2:] == [("advice", 5), ("notify", 5)]
     client.put("/api/control/clock", json={"date": "2035-06-11"}, headers=ctl())  # a clock change syncs at once
     assert calls[4:] == [("advice", 10), ("notify", 10)]
-    client.put("/api/mission", json={"step": 3})
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     assert calls[6:] == [("advice", 152), ("notify", 152)]
 
 
@@ -139,7 +142,7 @@ def test_the_app_starts_empty_without_scenes_and_the_story_calls_do_not_crash(mo
     empty_database(monkeypatch)
     ms = client.get("/api/mission").json()
     assert ms["steps"] == 0 and ms["story"] is None and ms["suggested_user"] is None and ms["step"] == 0
-    r = client.put("/api/mission", json={"step": 2})
+    r = client.put("/api/mission", json={"step": 2}, headers=control_headers(client))
     assert r.status_code == 200 and r.json()["story"] is None
     assert client.get("/api/catalog").json()["story"] == []
 
@@ -169,7 +172,9 @@ def test_a_storm_event_turns_on_the_storm_the_radiation_evidence_and_the_immune_
     assert not any("storm is in progress" in e["text"] for e in rad["evidence"])
     ms, rad, immune = look(X)
     assert ms["storm"] == "sep"
-    assert rad["level"] == 2 and any("A radiation storm is in progress (simulated)" in e["text"] for e in rad["evidence"])
+    # the cabin dosimeter still reads its quiet rate that day: the shelter rule (measured rate above 3x the quiet rate) is not met,
+    # so the event is a watch, and the text says why, from the event itself
+    assert rad["level"] == 1 and any("No shelter ordered" in e["text"] and "source: test" in e["text"].lower().replace("source: test", "source: test") for e in rad["evidence"])
     assert any(a["id"] == "storm" for a in health.snapshot("h", ms)["alerts"])
     assert immune == "Blood count due after the radiation storm."
     ms, rad, immune = look(X + 1)  # the storm was one day long; the follow-up goes on
@@ -190,18 +195,18 @@ def test_a_storm_at_another_place_does_not_hit_the_crew():
 
 def test_the_demo_storms_still_come_from_the_events_table():
     assert {e["id"]: (e["kind"], e["start_day"], e["locations"]) for e in data.events()} == {"replay-2024-05-10-sep": ("sep", 152, ["transit", "moon"]), "replay-2024-05-20-rad": ("mars", 222, ["mars"])}
-    assert client.put("/api/mission", json={"step": 5}).json()["storm"] == "mars"
+    assert client.put("/api/mission", json={"step": 5}, headers=control_headers(client)).json()["storm"] == "mars"
     # the Mars surface storm adds no dose, so it calls for no blood count
     assert health.snapshot("h", mission.state())["systems"]["immune"]["note"] != "Blood count due after the radiation storm."
     assert data.storm_at(152, "transit") == "sep" and data.storm_at(152, "earth") is None and data.storm_at(153, "transit") is None
 
 
 def test_space_weather_carries_the_active_event():
-    client.put("/api/mission", json={"step": 3})
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     sw = client.get("/api/space-weather").json()
     assert sw["active"] and sw["headline"] == "Solar particle storm in progress"
-    assert sw["event"] == {"id": "replay-2024-05-10-sep", "kind": "sep", "origin": "real", "source": "nasa:donki", "live": False}
-    client.put("/api/mission", json={"step": 0})
+    assert sw["event"] == {"id": "replay-2024-05-10-sep", "kind": "sep", "origin": "simulated", "source": "simulated", "live": False}
+    client.put("/api/mission", json={"step": 0}, headers=control_headers(client))
     sw = client.get("/api/space-weather").json()
     assert not sw["active"] and sw["headline"] == "Calm" and "event" not in sw
 
@@ -255,7 +260,7 @@ def test_donki_import_does_nothing_offline_or_off_or_on_a_simulated_clock(monkey
 
 # ---------------------------------------------------------------- dose
 def rows(crew, values, origin="real"):
-    return [{"crew_id": crew, "indicator": "dose_rate", "value": v, "unit": "mSv/day", "day": d, "origin": origin,
+    return [{"crew_id": crew, "indicator": "dose_eq_rate", "value": v, "unit": "mSv/day", "day": d, "origin": origin,
              "method": "dosimeter", "source": "test:dosimeter"} for d, v in values.items()]
 
 
@@ -299,15 +304,15 @@ def test_a_personal_dosimeter_wins_over_the_cabin_for_that_person_only(monkeypat
 
 def test_the_projection_uses_the_plan_after_today_and_names_the_day_the_limit_is_passed():
     p = dose.projection(None, 100, 0.0)
-    assert p["cross_day"] == 516 and p["mission_msv"] == dose.mission(None, 100)["msv"]
+    assert p["cross_day"] == 513 and p["mission_msv"] == dose.mission(None, 100)["msv"]
 
 
 def test_crew_wide_pages_never_show_a_personal_dosimeter_but_the_person_does():
-    client.put("/api/mission", json={"step": 3})
+    client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
     paths = ["/api/crew/overview", "/api/mission/overview", "/api/plan/conditions", "/api/leaderboard", "/api/space-weather"]
 
     def crew_wide():
-        out = {p: client.get(p).json() for p in paths}
+        out = {p: client.get(p, headers=ctl()).json() for p in paths}
         out["control"] = client.get("/api/control/overview", headers=ctl()).json()
         out["medical-list-dose"] = client.get("/api/crew", headers=medical()).json()["dose"]
         return out
@@ -315,7 +320,7 @@ def test_crew_wide_pages_never_show_a_personal_dosimeter_but_the_person_does():
     from tests import golden_capture as gc
     before = gc.normalise(crew_wide())
     own_before = client.get("/api/crew/h", headers=me()).json()
-    cabin = data.daily("cabin", "dose_rate", 0, 151)
+    cabin = data.daily("cabin", "dose_eq_rate", 0, 151)
     data.add_observations(rows("h", {d: round(v[0] + 0.1, 2) for d, v in cabin.items()}))  # 15 mSv more than the cabin read
     assert gc.normalise(crew_wide()) == before
     own = client.get("/api/crew/h", headers=me()).json()

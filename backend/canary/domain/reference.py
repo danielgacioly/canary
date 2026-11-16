@@ -36,10 +36,14 @@ POPULATION: Dict[str, dict] = {
     "hr": {"low": 40, "high": 100, "critical_low": 30, "critical_high": 150,
            "source": "MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption",
            "checked": [f"high 100 bpm: {MEDLINE_VITALS}", f"athletes 40 to 60 bpm: {MEDLINE_PULSE}"], "verified": False},
-    "bp": {"low": 90, "high": 129, "critical_low": 70, "critical_high": 180,
-           "source": "Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. "
-                     "MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption",
-           "checked": [f"130 = stage 1 hypertension, above 180 = severe: {AHA_BP}", f"low 90: {MEDLINE_VITALS}"], "verified": False},
+    "sbp": {"low": 90, "high": 129, "critical_low": 70, "critical_high": 180,
+            "source": "Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. "
+                      "MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption",
+            "checked": [f"130 = stage 1 hypertension, above 180 = severe: {AHA_BP}", f"low 90: {MEDLINE_VITALS}"], "verified": False},
+    "dbp": {"low": 60, "high": 79, "critical_low": 40, "critical_high": 120,
+            "source": "Diastolic pressure. AHA: normal below 80, stage 1 hypertension 80 to 89, stage 2 from 90, hypertensive crisis above 120. "
+                      "MedlinePlus: 60 as the lower edge of 90/60 for a healthy adult. Critical low 40: prototype assumption",
+            "checked": [f"80 = stage 1 hypertension, above 120 = crisis: {AHA_BP}", f"low 60: {MEDLINE_VITALS}"], "verified": False},
     "spo2": {"low": 95, "high": 100, "critical_low": 89, "critical_high": None,
              "source": "MedlinePlus: normal 95 to 100%; contact your provider at 92% or lower; 88% or lower needs immediate medical attention (critical below 89)",
              "checked": [f"95 to 100, 92 and 88: {MEDLINE_OXIMETRY}"], "verified": True},
@@ -75,27 +79,51 @@ POPULATION: Dict[str, dict] = {
 NO_RANGE_SOURCE = "No population range: the scale is personal or relative to your own pre-flight."
 
 
-def _pick(v: Sexed, sex: str) -> Num:
-    return v.get(sex) if isinstance(v, dict) else v
+# Sex policy (DATA-08). A reference range that differs by sex is read for "F" or "M". Any other value ("Other", or no sex
+# registered) has no range of its own, so it takes the WIDEST combined range: the lowest lower limit and the highest upper
+# limit of the two. A person is then never flagged by a limit that only one sex has; the check says so in `sex_policy`.
+SEX_POLICY = "widest combined range (F and M) for a sex other than F or M, or none registered"
+_SIDE_WIDEST = {"low": min, "critical_low": min, "high": max, "critical_high": max}
 
 
-def check(ind: str, sex: str, value: float) -> dict:
-    """{"low","high","status","source","verified"}. status: "in", "out" or "critical". No entry: always "in"."""
+def _pick(v: Sexed, sex: Optional[str], side: str = "low") -> Num:
+    """The limit of one side for one sex. A pair with no F or M value for `sex` gives the widest of the pair."""
+    if not isinstance(v, dict):
+        return v
+    if sex in v:
+        return v[sex]
+    vals = [x for x in v.values() if x is not None]
+    return _SIDE_WIDEST.get(side, min)(vals) if vals else None
+
+
+def sex_policy(sex: Optional[str]) -> Optional[str]:
+    """None when the sex has its own ranges, else the text of the policy (only "F" and "M" have their own)."""
+    return None if sex in ("F", "M") else SEX_POLICY
+
+
+def pick_sex(v: Sexed, sex: Optional[str], side: str = "low") -> Num:
+    """Public form of the sex policy, for the other modules that read a sex-dependent range (exam ranges in risk.py)."""
+    return _pick(v, sex, side)
+
+
+def check(ind: str, sex: Optional[str], value: float) -> dict:
+    """{"low","high","status","source","verified","sex_policy"}. status: "in", "out" or "critical". No entry: always "in".
+    `sex_policy` is None for F and M, else the widest-range text (DATA-08)."""
     P = POPULATION.get(ind)
     if value is None:  # no reading: no verdict
-        return {"low": None, "high": None, "status": "no_data", "source": None, "verified": False}
+        return {"low": None, "high": None, "status": "no_data", "source": None, "verified": False, "sex_policy": None}
     if P is None:
-        return {"low": None, "high": None, "status": "in", "source": NO_RANGE_SOURCE, "verified": False}
+        return {"low": None, "high": None, "status": "in", "source": NO_RANGE_SOURCE, "verified": False, "sex_policy": None}
     v = round(value, INDICATORS[ind]["dp"])
-    low, high = _pick(P["low"], sex), _pick(P["high"], sex)
-    cl, ch = _pick(P["critical_low"], sex), _pick(P["critical_high"], sex)
+    low, high = _pick(P["low"], sex, "low"), _pick(P["high"], sex, "high")
+    cl, ch = _pick(P["critical_low"], sex, "critical_low"), _pick(P["critical_high"], sex, "critical_high")
     if (cl is not None and v < cl) or (ch is not None and v > ch):
         status = "critical"
     elif (low is not None and v < low) or (high is not None and v > high):
         status = "out"
     else:
         status = "in"
-    return {"low": low, "high": high, "status": status, "source": P["source"], "verified": P["verified"]}
+    return {"low": low, "high": high, "status": status, "source": P["source"], "verified": P["verified"], "sex_policy": sex_policy(sex)}
 
 
 def _fmt(v: Sexed, unit: str) -> str:

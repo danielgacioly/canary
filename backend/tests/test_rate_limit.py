@@ -16,6 +16,7 @@ from canary import db  # noqa: E402
 from canary.assistant import limits, suggestions  # noqa: E402
 from canary.config import settings  # noqa: E402
 from canary.main import app  # noqa: E402
+from tests.golden_capture import control_headers  # noqa: E402
 
 from fakes import ScriptedProvider  # noqa: E402
 
@@ -33,17 +34,17 @@ class Clock:
 
 @pytest.fixture(autouse=True)
 def fresh(monkeypatch):
-    client.post("/api/demo/reset")
-    client.put("/api/mission", json={"step": 2})
+    client.post("/api/demo/reset", headers=control_headers(client))
+    client.put("/api/mission", json={"step": 2}, headers=control_headers(client))
     clock = Clock()
     monkeypatch.setattr(limits, "LIMITS", limits.Limiter(clock=clock))
     suggestions._cache.clear()
     yield clock
-    client.post("/api/demo/reset")
+    client.post("/api/demo/reset", headers=control_headers(client))
 
 
 def as_(cid):
-    return {"X-Canary-Viewer": client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]}).json()["token"]}
+    return {"Authorization": "Bearer " + client.post(f"/api/crew/{cid}/session", json={"pin": PINS[cid]}).json()["token"]}
 
 
 def ask(cid="h", q="How am I today?"):

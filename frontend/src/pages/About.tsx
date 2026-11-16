@@ -24,26 +24,11 @@ export default function About() {
         <div className="head"><h2>NASA open data in Canary</h2></div>
         <div className="scroll"><table className="t"><thead><tr><th>Source</th><th>Provider</th><th>Used for</th></tr></thead>
           <tbody>{catalog?.sources.map(s => <tr key={s.id}><td><a href={s.url} target="_blank" rel="noreferrer" className="link">{s.name}</a></td><td className="muted">{s.org}</td><td>{s.used_for}</td></tr>)}</tbody></table></div>
+        <p className="small muted">3D anatomy: BodyParts3D, © The Database Center for Life Science (CC BY-SA 2.1 Japan).</p>
         <p className="small dim about-note">Astronaut vital signs are not published as open data, so crew vitals, names and messages are simulated and labelled as such. Protocols are illustrative and not clinically reviewed.</p>
       </section>
 
       <div className="about-pair">
-        <section>
-          <div className="head"><h2>How it is built</h2></div>
-          <pre className="about-diagram">{`Web app (React + Three.js)
-   │  HTTP /api
-   ▼
-Canary API (FastAPI, one process)
-   ├─ telemetry   sensors → simulator today
-   ├─ health      baseline, alerts, scores
-   ├─ goals       goals, crew missions, patches
-   ├─ protocols   Guided Response bank
-   ├─ nasa        DONKI · RAD · OSD-569
-   ├─ medical     PIN → short token
-   └─ assistant   model or rules
-   ▼
-SQLite on board  ──later──▶  ground sync`}</pre>
-        </section>
         <section className="col">
           <div className="head"><h2>The assistant</h2><span className="tag right">{modelLine(st)}</span></div>
           <p className="muted">{st?.configured ? 'A model writes the answers; the same rules check every one of them.' : 'No model is connected: the same rules answer from the same data.'} It explains and never diagnoses.</p>
@@ -54,14 +39,6 @@ SQLite on board  ──later──▶  ground sync`}</pre>
         </section>
       </div>
 
-      <section>
-        <div className="head"><h2>Who pays for it</h2></div>
-        <div className="about-cols">
-          <div><b>Space agencies and commercial crews</b><p className="muted small">Licence per mission and crew member, with integration and protocol review.</p></div>
-          <div><b>Analog missions and polar stations</b><p className="muted small">A training edition for habitats and stations where isolation is the same problem.</p></div>
-          <div><b>Remote work on Earth</b><p className="muted small">Offshore platforms, ships, mines and remote communities: the hospital is far there too. The core stays open source.</p></div>
-        </div>
-      </section>
       <button className="btn pri about-back" onClick={() => nav('/crew')}>Back to the crew<Icon name="chev" /></button>
     </div>
   )

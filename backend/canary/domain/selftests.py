@@ -49,9 +49,9 @@ KSS = ["Extremely alert", "Very alert", "Alert", "Rather alert", "Neither alert 
 
 # Typing limits for the vital signs: wide on purpose, only to catch typos and impossible numbers.
 # They are NOT clinical ranges and say nothing about what is healthy.
-VITALS_LIMITS = {"hr": (25, 250), "bp": (60, 260), "temp": (30, 45), "spo2": (50, 100)}
+VITALS_LIMITS = {"hr": (25, 250), "sbp": (60, 260), "temp": (30, 45), "spo2": (50, 100)}
 VITALS_LIMITS_SOURCE = {"source": "prototype assumption: typing limits, not clinical ranges", "verified": False}
-_VITALS_LABEL = {"hr": ("Pulse", "bpm", False, None), "bp": ("Systolic pressure", "mmHg", False, None),
+_VITALS_LABEL = {"hr": ("Pulse", "bpm", False, None), "sbp": ("Systolic pressure", "mmHg", False, None),
                  "temp": ("Temperature", "°C", False, 1), "spo2": ("Oxygen", "%", True, None)}
 SYMPTOM_NAMES = ["Headache", "Congestion", "Back pain", "Nausea", "Eye discomfort", "Blurred vision", "Skin irritation",
                  "Trouble sleeping", "Muscle or joint pain", "Dizziness"]
@@ -81,10 +81,16 @@ def validate(kind: str, payload: dict) -> None:
         if scores is None:
             n("raw", "Workload", 0, 100, required=True)
         else:
+            # A closed set: only the six NASA-TLX scales, each answered once. The overall score is never taken from the client
+            # when scores are sent: normalise() derives it from them.
             if not isinstance(scores, dict) or not 1 <= len(scores) <= len(TLX_KEYS):
                 raise FieldError("scores", "Answer the workload questions")
             for k in scores:
-                V.number(scores, k, str(k).capitalize(), 0, 100, field=f"scores.{k}", required=True)
+                if k not in TLX_KEYS:
+                    raise FieldError(f"scores.{k}" if isinstance(k, str) else "scores", "Unknown workload scale")
+            for k in TLX_KEYS:
+                if k in scores:
+                    V.number(scores, k, k.capitalize(), 0, 100, field=f"scores.{k}", required=True)
     elif kind == "wellbeing":
         a = payload.get("answers")
         if a is None:
@@ -144,7 +150,8 @@ def normalise(kind: str, payload: dict) -> dict:
     if kind == "sleep" and p.get("bed") and p.get("wake"):
         p["hours"] = _hours(p["bed"], p["wake"])
     if kind == "tlx" and p.get("scores"):
-        p["raw"] = round(sum(p["scores"].values()) / len(p["scores"]))
+        p["scores"] = {k: p["scores"][k] for k in TLX_KEYS if k in p["scores"]}
+        p["raw"] = round(sum(p["scores"].values()) / len(p["scores"]))  # derived here, never the client's number
     if kind == "wellbeing" and p.get("answers"):
         a = p["answers"]
         p["phq2"], p["gad2"] = a[0] + a[1], a[2] + a[3]
@@ -156,7 +163,7 @@ def normalise(kind: str, payload: dict) -> dict:
 # kind -> [(payload field, indicator)] for the tests that get a conclusion.
 CONCLUDES = {"pvt": [("ms", "react")], "dsst": [("correct", "dsst")], "span": [("span", "span")], "kss": [("level", "kss")],
              "tlx": [("raw", "tlx")], "mood": [("mood", "mood")], "sleep": [("hours", "sleep")],
-             "vitals": [("hr", "hr"), ("bp", "bp"), ("temp", "temp"), ("spo2", "spo2")]}
+             "vitals": [("hr", "hr"), ("sbp", "sbp"), ("dbp", "dbp"), ("temp", "temp"), ("spo2", "spo2")]}
 _POP_TEXT = {"in": "Within the normal human range", "out": "Outside the usual adult range", "critical": "Past the safety limit"}
 _DIRECTION = {"react": ("slower", "faster")}  # words for above / below your own average
 _RANK = {"critical": 2, "out": 1, "in": 0}

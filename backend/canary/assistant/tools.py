@@ -468,7 +468,7 @@ def run_tool(ctx: ToolContext, name: str, args: Optional[dict] = None) -> ToolRe
 # ---------------------------------------------------------------- route(): the no-model path
 
 _IND_WORDS = {
-    "hr": r"pulse|heart ?rate|heartbeat", "bp": r"blood pressure|pressure", "sleep": r"sleep|tired|insomnia",
+    "hr": r"pulse|heart ?rate|heartbeat", "sbp": r"blood pressure|pressure|systolic", "dbp": r"diastolic", "sleep": r"sleep|tired|insomnia",
     "mood": r"mood|sad|down|happy", "stress": r"stress|anxious|anxiety", "react": r"reaction|focus|concentrat|slow",
     "water": r"water|thirst|hydrat", "spo2": r"oxygen|spo2|breath", "temp": r"temperature|fever",
     "gluc": r"glucose|sugar", "exer": r"exercise|workout|training", "bone": r"bone", "grip": r"grip|strength",

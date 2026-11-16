@@ -15,7 +15,7 @@ export const protocolPath = (id: string) => `/protocols/${id}`
 export default function Protocols() {
   const { id } = useParams()
   const { data, error } = useApi<ProtocolLibrary>(() => api.protocolLibrary(), [])
-  if (error) return <div className="page"><p className="muted">Cannot reach the Canary API.</p></div>
+  if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>
   if (!data) return <Loading what="protocols" />
   const page = id ? [...data.emergency, ...data.operational].find(p => p.id === id) : null
   if (id && !page) return <div className="page"><Link className="back" to="/protocols"><Icon name="back" />Protocols</Link><p className="muted">There is no protocol called “{id}”.</p></div>
@@ -24,31 +24,35 @@ export default function Protocols() {
 
 function Index({ lib }: { lib: ProtocolLibrary }) {
   const by = Object.fromEntries([...lib.emergency, ...lib.operational].map(p => [p.id, p]))
+  const operational = lib.operational.filter(p => !lib.in_force.some(f => f.id === p.id))
   return (
     <div className="page protocols">
       <div className="head rise">
         <div>
           <h1>Protocols</h1>
-          <p className="sub">What to do, step by step, at {lib.place.name}. For the whole crew: nothing here is about one person.</p>
+          <p className="sub">Step by step, for the whole crew, at {lib.place.name}.</p>
         </div>
       </div>
 
       <section className="rise" style={{ ['--d' as string]: 1 }}>
         <div className="section-head"><h2>In force now</h2></div>
         {lib.in_force.length === 0
-          ? <p className="muted">Nothing special is in force. Canary is learning each person's normal.</p>
+          ? <p className="muted">Nothing special is in force today.</p>
           : <ul className="plist">{lib.in_force.map(f => <ForceRow key={f.id} f={f} name={by[f.id]?.name ?? f.id} />)}</ul>}
       </section>
 
       <section className="rise" style={{ ['--d' as string]: 2 }}>
-        <div className="section-head"><h2>Emergency</h2><span className="sub">Start any of them from Hold for emergency</span></div>
+        <div className="section-head"><h2>Emergency</h2><span className="sub">Start any of them with Hold for emergency</span></div>
         <ul className="plist">{lib.emergency.map(p => <ListRow key={p.id} p={p} />)}</ul>
       </section>
 
-      <section className="rise" style={{ ['--d' as string]: 3 }}>
-        <div className="section-head"><h2>Operational</h2></div>
-        <ul className="plist">{lib.operational.map(p => <ListRow key={p.id} p={p} />)}</ul>
-      </section>
+      {/* Protocols already listed under "In force now" are not listed again. */}
+      {operational.length > 0 && (
+        <section className="rise" style={{ ['--d' as string]: 3 }}>
+          <div className="section-head"><h2>{lib.in_force.length ? 'Other operational protocols' : 'Operational'}</h2></div>
+          <ul className="plist">{operational.map(p => <ListRow key={p.id} p={p} />)}</ul>
+        </section>
+      )}
 
       <p className="small dim">{lib.note}</p>
     </div>

@@ -137,9 +137,10 @@ def _grounded(results: List[dict]) -> List[dict]:
             if not active:
                 claims.append({"text": "No risk is active at the moment.", "source_ids": src[:3] or src})
             for k in active:
-                since = f", since day {k['since_day']}" if k["since_day"] is not None else ""
-                data = {"real": "from measured data", "partial": "from a mix of measured and simulated data", "simulated": "from simulated data", "none": "with no data yet"}[k["data"]]
-                claims.append({"text": f"{k['name']}: {'watch' if k['level'] == 1 else 'act'} level, {k['trend']}{since}, {data}.",
+                # Plain words, same facts: "Radiation is at the watch level and stable since day 109 (simulated data)."
+                since = f" since day {k['since_day']}" if k["since_day"] is not None else ""
+                data = {"real": "measured data", "partial": "part measured, part simulated", "simulated": "simulated data", "none": "no data yet"}[k["data"]]
+                claims.append({"text": f"{k['name']} is at the {'watch' if k['level'] == 1 else 'act'} level and {k['trend']}{since} ({data}).",
                                "source_ids": src[:3] or src})
                 if k["hazards"]:
                     claims.append({"text": k["hazard_note"], "source_ids": [s for s in src if s.startswith("card:hazard:")] or src[:3] or src})

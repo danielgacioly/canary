@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Shell from './components/Shell'
+import Tour from './components/Tour'
+import OfflineBanner from './components/OfflineBanner'
 import About from './pages/About'
 import Astronaut from './pages/Astronaut'
 import Crew from './pages/Crew'
@@ -12,7 +14,6 @@ import MissionPlan from './pages/MissionPlan'
 import Protocols from './pages/Protocols'
 import Ranking from './pages/Ranking'
 import Settings from './pages/Settings'
-import Setup from './pages/Setup'
 import Tests from './pages/Tests'
 
 function seenIntro(): boolean {
@@ -21,9 +22,11 @@ function seenIntro(): boolean {
 
 export default function App() {
   return (
+    <>
+    <OfflineBanner />
+    <Tour />
     <Routes>
       <Route path="/welcome" element={<Intro />} />
-      <Route path="/setup" element={<Setup />} />
       <Route path="/control" element={<Control />} />
       <Route element={<Shell />}>
         <Route path="/me" element={<MySpace />} />
@@ -46,5 +49,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to={seenIntro() ? '/crew' : '/welcome'} replace />} />
     </Routes>
+    </>
   )
 }

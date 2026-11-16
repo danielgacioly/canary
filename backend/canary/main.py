@@ -10,25 +10,26 @@ import logging
 import mimetypes
 import pathlib
 import time
-from datetime import date, timedelta
-from contextlib import asynccontextmanager
-from typing import List, Optional
+from datetime import date, datetime, timedelta, timezone
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any, List, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
+from .idempotency import IdempotencyMiddleware
 from .assistant import briefing, chat, limits, protocol_match, providers, suggestions, tools
 from .assistant.kb import freshness
-from .config import settings
-from .domain import advice, care, data, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
-from .domain import simdata
-from .domain.catalog import CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
+from .config import check_mode, settings
+from .web import METRICS, RequestMetrics, SecurityHeaders, kb_ready, mount_spa, spa_file  # noqa: F401 (spa_file is imported by the tests)
+from .domain import advice, assessment, audit, care, data, devices, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
+from .domain import simdata, corrections, images
+from .domain.catalog import CABIN_ID as CABIN, CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
 def _warm_story() -> None:
     """Compute every crew member's health on the days of the scenes once, in the background, so the first click on each
@@ -36,29 +37,39 @@ def _warm_story() -> None:
     from .domain import risk
     try:
         for day in dict.fromkeys(sc["day"] for sc in data.scenes()):
-            ms = {**risk._day_ms(day), "storm": data.storm_at(day, plan.location_at(day))}
+            ms = {**risk._day_ms(day), "storm": dose.active_storm(day, plan.location_at(day))}
             for c in list(CREW):
                 health.snapshot(c["id"], ms)
-    except Exception:  # a warm-up must never take the API down; the next request computes it anyway
-        pass
+    except Exception:  # a warm-up must never take the API down; the next request computes it anyway, but the failure is logged
+        logging.getLogger("canary").exception("story warm-up failed")
+
+
+ESCALATION_TICK_S = 30  # how often the background loop looks for critical alerts that nobody acknowledged
 
 
 def _day_sync_loop(stop) -> None:
     """Every `day_sync_seconds`: bring in live space weather (when on) and, when the mission day changed, run the sync a
-    new day triggers. Whatever happens, the loop goes on and the API stays up."""
+    new day triggers. Every `ESCALATION_TICK_S` seconds it also climbs the critical alerts nobody acknowledged (notify.escalate).
+    Whatever happens, the loop goes on and the API stays up."""
+    last_sync = 0.0
     while True:
         try:
-            live.import_donki()
-            mission.safe_sync_day()
+            if time.monotonic() - last_sync >= settings.day_sync_seconds or not last_sync:
+                last_sync = time.monotonic()
+                live.import_donki()
+                if mission.safe_sync_day():  # a write the system made on its own: it is in the audit trail
+                    audit.record(audit.SYSTEM, "mission.day_sync", "mission", after={"day": mission.state()["day"]})
+            notify.escalate(time.time())
         except Exception:  # noqa: BLE001
             logging.getLogger("canary").exception("day sync loop")
-        if stop.wait(settings.day_sync_seconds):
+        if stop.wait(min(ESCALATION_TICK_S, settings.day_sync_seconds)):
             return
 
 
 @asynccontextmanager
 async def lifespan(_app):
     import threading
+    check_mode()  # flight mode refuses to start without its secrets
     db.connect()
     registry.load()
     try:
@@ -78,7 +89,12 @@ async def lifespan(_app):
 
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
               description="Crew health monitoring for space missions. NASA Space Apps Challenge 2026.")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
+# Idempotency-Key on the mutating routes: a retry with the same key and body returns the first answer (see idempotency.py).
+app.add_middleware(IdempotencyMiddleware)
+# Added last, so outermost: every response (CORS preflights included) gets the security headers, and every request is timed.
+app.add_middleware(RequestMetrics)
+app.add_middleware(SecurityHeaders)
 
 
 # ---------------------------------------------------------------- one error shape for every bad input
@@ -140,6 +156,11 @@ async def _on_request_validation(_req: Request, exc: RequestValidationError):
     return _unprocessable([{"field": _field_of(e["loc"]), "message": _friendly(e)} for e in exc.errors()])
 
 
+@app.exception_handler(data.Conflict)
+async def _on_conflict(_req: Request, exc: data.Conflict):
+    return JSONResponse(status_code=409, content={"detail": exc.errors})
+
+
 @app.exception_handler(validation.ValidationFailure)
 async def _on_field_error(_req: Request, exc: validation.ValidationFailure):
     return _unprocessable(exc.errors)
@@ -151,32 +172,97 @@ def _crew(crew_id: str) -> dict:
     return CREW_BY_ID[crew_id]
 
 
-# ---------------------------------------------------------------- medical auth (no accounts for the crew)
-def _sign(exp: int) -> str:
-    return hmac.new(settings.token_secret.encode(), str(exp).encode(), hashlib.sha256).hexdigest()[:32]
+# ---------------------------------------------------------------- who is signed in
+# One signed token format for everybody (auth.py), one header: `Authorization: Bearer <token>`. The token's kind says which sign-in it
+# is: crew, medical (the crew medical officer or a ground flight surgeon) or control (an MCC account, or the bootstrap sign-in while
+# no MCC account exists). A route asks for one kind and a token of another kind is not a sign-in for it.
+BOOTSTRAP_ID = "bootstrap"
 
 
-def require_medical(authorization: Optional[str] = Header(None)) -> None:
-    try:
-        exp, sig = (authorization or "").replace("Bearer ", "").split(".")
-        if int(exp) < time.time() or not hmac.compare_digest(sig, _sign(int(exp))):
-            raise ValueError
-    except ValueError:
-        raise HTTPException(401, "medical team sign-in required")
+def demo_only() -> None:
+    """Dependency for what exists only in demo mode: in flight mode the route does not exist (404)."""
+    if settings.mode != "demo":
+        raise HTTPException(404, "Not found")
 
 
-def _is_medical(authorization: Optional[str]) -> bool:
-    try:
-        require_medical(authorization)
-        return True
-    except HTTPException:
-        return False
+def _bearer(authorization: Optional[str]) -> Optional[str]:
+    parts = (authorization or "").split(None, 1)
+    return parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
 
 
-def viewer(x_canary_viewer: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> dict:
-    """Who is looking. X-Canary-Viewer carries the token from the PIN sign-in; a bare id, a forged or an expired token is nobody."""
-    cid = auth.verify(x_canary_viewer)
-    return {"id": cid if cid in CREW_BY_ID else None, "medical": _is_medical(authorization)}
+def _crew_actor(c: dict) -> Optional[dict]:
+    acct = registry.account(c["id"])
+    if not acct or acct["kind"] != "crew" or c["id"] not in CREW_BY_ID:
+        return None
+    return {"id": c["id"], "kind": "crew", "role": "cmo" if "cmo" in acct["roles"] else "crew", "roles": acct["roles"], "name": acct["name"]}
+
+
+def _medical_actor(c: dict) -> Optional[dict]:
+    acct = registry.account(c["id"])
+    if not acct or not ({"cmo", "flight_surgeon"} & set(acct["roles"])):
+        return None
+    return {"id": c["id"], "kind": "medical", "role": "cmo" if "cmo" in acct["roles"] else "flight_surgeon",
+            "roles": acct["roles"], "name": acct["name"]}
+
+
+def _control_actor(c: dict) -> Optional[dict]:
+    if c["id"] == BOOTSTRAP_ID:  # the first-access sign-in dies the moment an MCC account exists
+        return None if registry.has_mcc() else {"id": BOOTSTRAP_ID, "kind": "control", "role": "bootstrap", "roles": ["bootstrap"], "name": "Canary Control first access"}
+    acct = registry.account(c["id"])
+    if not acct or "mcc" not in acct["roles"]:
+        return None
+    return {"id": c["id"], "kind": "control", "role": "mcc", "roles": acct["roles"], "name": acct["name"]}
+
+
+_ACTORS = {"crew": _crew_actor, "medical": _medical_actor, "control": _control_actor}
+
+
+def current_actor(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """The person behind `Authorization: Bearer <token>`: `{id, kind, role, roles, name}` (kind: crew, medical or control), or None for no
+    header, a forged, expired or revoked token, or an account that no longer qualifies. The token itself says which sign-in it is."""
+    c = auth.claims(_bearer(authorization))
+    return _ACTORS[c["kind"]](c) if c else None
+
+
+def _need(kind: str, actor: Optional[dict], message: str) -> dict:
+    if actor is None or actor["kind"] != kind:
+        raise HTTPException(401, message)
+    return actor
+
+
+def require_medical(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """The medical console's actor `{id, role}` (role: cmo or flight_surgeon), or 401."""
+    return _need("medical", actor, "medical team sign-in required")
+
+
+def require_control(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """Canary Control's actor `{id, role}` (role: mcc, or bootstrap before any MCC account exists), or 401."""
+    return _need("control", actor, "Mission Control sign-in required")
+
+
+def viewer(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """Who is looking. `id` is the crew id (crew sign-in only), `medical` is true for the crew medical officer and flight surgeons in the
+    medical console, `control` for Canary Control, `roles` is what the token grants, `actor` the person (or None) and `me` their id."""
+    kind = actor["kind"] if actor else None
+    return {"id": actor["id"] if kind == "crew" else None, "medical": kind == "medical", "control": kind == "control",
+            "roles": sorted(actor["roles"]) if actor else [], "actor": actor, "me": {actor["id"]} if actor else set()}
+
+
+def any_person(v: dict = Depends(viewer)) -> dict:
+    """Any signed-in person (crew, medical or control): their actor, or 401."""
+    if v["actor"] is None:
+        raise HTTPException(401, "sign-in required")
+    return v["actor"]
+
+
+def require_onboard(v: dict = Depends(viewer)) -> dict:
+    """Someone on board: a crew member, or the crew medical officer in the medical console. Ground accounts are not."""
+    crew = v["actor"] if v["actor"] and v["actor"]["kind"] == "crew" else None
+    if crew:
+        return crew
+    if v["actor"] and v["actor"]["kind"] == "medical" and v["actor"]["role"] == "cmo":
+        return v["actor"]
+    raise HTTPException(401 if v["actor"] is None else 403, "sign-in on board required" if v["actor"] is None else "only the crew on board can do this")
 
 
 def require_self(crew_id: str, v: dict) -> None:
@@ -184,31 +270,110 @@ def require_self(crew_id: str, v: dict) -> None:
         raise HTTPException(403, f"private: only {CREW_BY_ID[crew_id]['name']} and the medical team can see this")
 
 
+def _locked() -> None:
+    """A registered mission cannot be replaced, re-registered or re-planned through the API."""
+    if registry.registered():
+        raise HTTPException(409, "The mission is registered and locked.")
+
+
 class PinIn(BaseModel):
     pin: str = Field(pattern=r"^\d{4}$")
 
 
+class AccountPinIn(BaseModel):
+    account_id: str = Field(min_length=1, max_length=20)
+    pin: str = Field(pattern=r"^\d{4}$")
+
+
+class ControlPinIn(BaseModel):
+    account_id: Optional[str] = Field(default=None, min_length=1, max_length=20)
+    pin: str = Field(pattern=r"^\d{4}$")
+
+
+def _tell_cmo(text: str) -> None:
+    """A security message for the crew medical officer (the substitute when there is none). Never carries a PIN."""
+    to = privacy.medical_officer() or privacy.substitute()
+    if to:
+        now = time.time()
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)", ("canary", to, "security", text, now, now))
+
+
+def _roles_text(account_id: Optional[str]) -> str:
+    acct = registry.account(account_id) if account_id else None
+    return "+".join(acct["roles"]) if acct else "unknown"
+
+
+def _attempt(request: Request, account_id: Optional[str], name: str, ok: bool, action: str = "auth.signin") -> None:
+    """One PIN check with lockout. A wait is kept per account and per client address (SQLite: it survives a restart); after every
+    5 wrong PINs it grows 1, 5, 15, then 60 minutes. Raises 429 while paused, 401 for a wrong PIN."""
+    ip = "ip:" + (request.client.host if request.client else "unknown")
+    key = f"acct:{account_id}" if account_id else None
+    wait = auth.remaining(ip, *([key] if key else []))
+    if wait:
+        raise HTTPException(429, f"Too many wrong PINs. Sign-in is paused; try again in {max(1, -(-wait // 60))} min.", headers={"Retry-After": str(wait)})
+    who = {"id": account_id or "unknown", "role": _roles_text(account_id)}
+    if ok:
+        if key:
+            auth.succeed(key)
+        audit.record(who, action, key or ip)
+        return
+    auth.fail(ip)
+    locked_min = auth.fail(key) if key else None
+    audit.record({"id": who["id"], "role": "unauthenticated"}, action + "_failed", key or ip, after={"ip": ip})  # never the PIN
+    if locked_min:
+        audit.record({"id": who["id"], "role": "unauthenticated"}, "auth.lockout", key or ip, after={"minutes": locked_min, "ip": ip})
+        _tell_cmo(f"Repeated wrong PIN for {name}'s account; sign-in paused for {locked_min} min.")
+    raise HTTPException(401, "wrong PIN or account")
+
+
 @app.post("/api/medical/session", tags=["medical"])
-def medical_session(body: PinIn):
-    if auth.locked("medical"):
-        raise HTTPException(429, "too many attempts, wait a minute")
-    if not hmac.compare_digest(body.pin, settings.medical_pin):
-        auth.fail("medical")
-        raise HTTPException(401, "wrong PIN")
-    exp = int(time.time() + settings.token_ttl_s)
-    return {"token": f"{exp}.{_sign(exp)}", "expires_at": exp}
+def medical_session(body: AccountPinIn, request: Request):
+    """Sign in to the medical console: the crew medical officer (their crew id) or a ground flight surgeon, with the account's PIN."""
+    acct = registry.account(body.account_id)
+    eligible = bool(acct and {"cmo", "flight_surgeon"} & set(acct["roles"]))
+    _attempt(request, body.account_id if acct else None, acct["name"] if acct else "", eligible and auth.check_pin(body.account_id, body.pin))
+    return auth.issue("medical", body.account_id, acct["roles"])
 
 
 @app.post("/api/crew/{crew_id}/session", tags=["crew"])
-def crew_session(crew_id: str, body: PinIn):
-    """Sign in to a private space with the 4-digit PIN. Returns the token for the X-Canary-Viewer header."""
-    _crew(crew_id)
-    if auth.locked(crew_id):
-        raise HTTPException(429, "too many attempts, wait a minute")
-    if not auth.check_pin(crew_id, body.pin):
-        auth.fail(crew_id)
-        raise HTTPException(401, "wrong PIN")
-    return auth.issue(crew_id)
+def crew_session(crew_id: str, body: PinIn, request: Request):
+    """Sign in to a private space with the 4-digit PIN. Returns the token for the Authorization header."""
+    c = _crew(crew_id)
+    _attempt(request, crew_id, c["name"], auth.check_pin(crew_id, body.pin))
+    return auth.issue("crew", crew_id, registry.account(crew_id)["roles"])
+
+
+@app.post("/api/control/session", tags=["control"])
+def control_session(body: ControlPinIn, request: Request):
+    """Sign in to Canary Control. With an `account_id`: an MCC account and its PIN. Without: the first-access PIN
+    (CANARY_CONTROL_BOOTSTRAP_PIN), accepted only while no MCC account is registered."""
+    if body.account_id is None:
+        if registry.has_mcc():
+            raise HTTPException(401, "Sign in with an MCC account.")
+        _attempt(request, BOOTSTRAP_ID, "Canary Control first access",
+                 bool(settings.control_bootstrap_pin) and hmac.compare_digest(body.pin, settings.control_bootstrap_pin))
+        return auth.issue("control", BOOTSTRAP_ID, ["bootstrap"])
+    acct = registry.account(body.account_id)
+    mcc = bool(acct and "mcc" in acct["roles"])
+    _attempt(request, body.account_id if acct else None, acct["name"] if acct else "", mcc and auth.check_pin(body.account_id, body.pin))
+    return auth.issue("control", body.account_id, acct["roles"])
+
+
+@app.post("/api/session/logout", tags=["system"])
+def logout(authorization: Optional[str] = Header(None)):
+    """End the session this header carries: the token is revoked at once and stops working everywhere."""
+    t = _bearer(authorization)
+    c = auth.claims(t)
+    if not c or not auth.revoke(t):
+        raise HTTPException(401, "no session to end")
+    audit.record({"id": c["id"], "role": c["kind"]}, "auth.logout", f"{c['kind']}:{c['id']}")
+    return {"revoked": 1}
+
+
+@app.get("/api/accounts/public", tags=["system"])
+def accounts_public():
+    """Who can sign in, for the sign-in pickers: crew {id, name, role, initials, cmo} and ground {id, name, role}. Never a PIN."""
+    return registry.accounts_public()
 
 
 class PinChangeIn(BaseModel):
@@ -217,31 +382,57 @@ class PinChangeIn(BaseModel):
 
 
 @app.put("/api/crew/{crew_id}/pin", tags=["crew"])
-def crew_pin(crew_id: str, body: PinChangeIn, v: dict = Depends(viewer)):
+def crew_pin(crew_id: str, body: PinChangeIn, request: Request, v: dict = Depends(viewer)):
     """Change your own PIN: needs your session token and the current PIN."""
-    _crew(crew_id)
+    c = _crew(crew_id)
     if v["id"] != crew_id:
         raise HTTPException(403, "only you can change your PIN")
-    if auth.locked(crew_id):
-        raise HTTPException(429, "too many attempts, wait a minute")
-    if not auth.check_pin(crew_id, body.current):
-        auth.fail(crew_id)
-        raise HTTPException(401, "wrong PIN")
+    _attempt(request, crew_id, c["name"], auth.check_pin(crew_id, body.current), "auth.pin_check")
     auth.set_pin(crew_id, body.new)
+    audit.record(v["actor"], "auth.pin_change", crew_id)  # the fact that it changed, never a PIN
     return {"crew_id": crew_id, "changed": True}
 
 
 # ---------------------------------------------------------------- mission
 @app.get("/api/health", tags=["system"])
 def ping():
-    return {"ok": True, "version": __version__}
+    return {"ok": True, "version": __version__, "mode": settings.mode}
+
+
+@app.get("/api/health/live", tags=["system"])
+def health_live():
+    """Liveness: the process answers. Nothing else is checked, so a restart is only ever asked for a dead process."""
+    return {"ok": True}
+
+
+@app.get("/api/health/ready", tags=["system"])
+def health_ready():
+    """Readiness: the database and the knowledge base answer. 503 with the failing checks otherwise (a load balancer waits)."""
+    try:
+        db.q("SELECT 1 AS ok")
+        database = "ok"
+    except Exception:  # noqa: BLE001 (reported as a check, and logged with its traceback)
+        logging.getLogger("canary").exception("readiness: database")
+        database = "error"
+    checks = {"database": database, "knowledge_base": kb_ready(settings.kb_path)}
+    ready = all(v == "ok" for v in checks.values())
+    return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, "checks": checks})
+
+
+@app.get("/api/metrics", tags=["system"], dependencies=[Depends(require_control)])
+def metrics():
+    """Request counts, errors and p50/p95 latency per route, for this process since it started (in memory, not kept). Mission Control only."""
+    return METRICS.snapshot()
 
 
 @app.get("/api/catalog", tags=["mission"])
-def catalog():
+def catalog(v: dict = Depends(viewer)):
+    """The mission's reference data. The crew's home and age are personal: they are shown to someone signed in, never to anonymous callers."""
+    crew_fields = ("id", "name", "role", "initials", "home", "age") if v["actor"] else ("id", "name", "role", "initials")
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
-            "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide()}
+            "crew": [{k: c[k] for k in crew_fields} for c in CREW],
+            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "limits": assessment.limits(), "guide": guide.guide(),
+            "mode": settings.mode}
 
 
 @app.get("/api/mission", tags=["mission"])
@@ -258,7 +449,10 @@ class MissionIn(BaseModel):
 
 
 @app.put("/api/mission", tags=["mission"])
-def put_mission(body: MissionIn):
+def put_mission(body: MissionIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
+    """Demo only: the story step, the simulated day and the place. Needs Canary Control."""
+    audit.record(actor, "mission.set", "mission", before={k: mission.state()[k] for k in ("day", "location")},
+                 after=body.model_dump(exclude_defaults=True))
     if body.step is not None:
         mission.set_step(body.step)
     if body.day is not None or body.clear_day:
@@ -273,27 +467,62 @@ def put_mission(body: MissionIn):
 
 
 @app.post("/api/demo/reset", tags=["mission"])
-def demo_reset():
+def demo_reset(_demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """Clear everything and load the configured mission package (CANARY_MISSION_PACKAGE, default odyssey1-mars).
-    An empty setting starts with no data at all."""
-    _start_over(settings.mission_package)
+    An empty setting starts with no data at all. Demo only (404 in flight mode); wipes the database, so it needs Canary Control."""
+    _start_over(settings.mission_package)  # wipes the audit log too: the reset is the first entry of the new one
+    audit.record(actor, "demo.reset", "database", after={"package": settings.mission_package or None})
     return mission.state()
 
 
 DEMO_PACKAGE = "odyssey1-mars"
 
 
+@app.post("/api/demo/start-empty", tags=["mission"])
+def demo_start_empty(_demo: None = Depends(demo_only)):
+    """Demo only (404 in flight mode): wipe everything and load nothing, so the intro's guided tour can register the crew and the
+    mission from the start. No sign-in: there is nothing to protect in a demo, and nobody could sign in to an empty one anyway."""
+    _start_over(None)
+    audit.record(audit.SYSTEM, "demo.start_empty", "database")
+    return {"registered": registry.registered()}
+
+
+@app.post("/api/demo/quickstart", tags=["mission"])
+def demo_quickstart(_demo: None = Depends(demo_only)):
+    """Demo only (404 in flight mode): load the demo mission package for someone who skips the intro. No sign-in, and only while
+    nothing is registered (409 after), so it can never replace a mission."""
+    _locked()
+    _start_over(settings.mission_package or DEMO_PACKAGE)
+    audit.record(audit.SYSTEM, "demo.quickstart", "database", after={"package": settings.mission_package or DEMO_PACKAGE})
+    return {"registered": registry.registered()}
+
+
+@contextmanager
+def _atomic():
+    """A start-over, a registration or a plan change: all of it or none. On failure the database is put back, and the caches
+    built from it (the crew list, the plan) are reloaded from it."""
+    try:
+        with db.all_or_nothing():
+            yield
+    except BaseException:
+        registry.load()
+        plan.reset_cache()
+        raise
+
+
 def _start_over(package: Optional[str]) -> None:
-    """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named."""
-    db.reset()
-    plan.reset_cache()
-    registry.load()
-    auth.clear_failures()
-    if package:
-        try:
-            data.import_named(package)
-        except validation.ValidationFailure as e:
-            raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
+    """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named. All or nothing."""
+    with _atomic():
+        db.reset()
+        plan.reset_cache()
+        registry.load()
+        if settings.mode == "demo":
+            auth.clear_failures()  # a demo start-over also forgives wrong PINs; the failures of a flight system are never wiped
+        if package:
+            try:
+                data.import_named(package)
+            except validation.ValidationFailure as e:
+                raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
 
 
 # ---------------------------------------------------------------- mission plan (itinerary)
@@ -319,7 +548,8 @@ def plan_conditions():
     series = [[d, curve[d]] for d in days]
     return {"name": p["name"], "legs": legs, "today": ms["day"], "leg_index": ms["leg"]["index"],
             "dose": {"series": series, "now_msv": health.dose(ms)["mission_msv"], "end_msv": series[-1][1],
-                     "limit_msv": CAREER_LIMIT_MSV, "simulated": True}}
+                     "limit_msv": CAREER_LIMIT_MSV, "simulated": True,
+                     **dose.plan_conditions(ms["day"], [c["id"] for c in CREW], {c["id"]: standards.prior_dose(c["id"]) for c in CREW})}}
 
 
 class LegIn(BaseModel):
@@ -335,13 +565,18 @@ class PlanIn(BaseModel):
 
 
 @app.put("/api/plan", tags=["mission"])
-def put_plan(body: PlanIn):
+def put_plan(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
+    _locked()
+    before = {"name": plan.get()["name"], "legs": len(plan.get()["legs"])}
     try:
-        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+        checked = plan.validate(body.name, [l.model_dump() for l in body.legs])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    mission.set_setup_done()
-    _reload_for_legs(plan.get()["legs"])
+    with _atomic():
+        plan.save(checked)
+        mission.set_setup_done()
+        _reload_for_legs(plan.get()["legs"])
+    audit.record(actor, "plan.save", "plan", before=before, after={"name": body.name, "legs": len(body.legs)})
     return get_plan()
 
 
@@ -360,25 +595,33 @@ class PresetIn(BaseModel):
 
 
 @app.post("/api/plan/preset", tags=["mission"])
-def plan_preset(body: PresetIn):
+def plan_preset(body: PresetIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
+    _locked()
+    before = {"name": plan.get()["name"]}
     try:
-        plan.use_preset(body.preset)
+        with _atomic():
+            plan.use_preset(body.preset)
+            data.reload_for_preset(body.preset)
+            mission.set_setup_done()
     except ValueError as e:
         raise HTTPException(400, str(e))
-    data.reload_for_preset(body.preset)
-    mission.set_setup_done()
+    audit.record(actor, "plan.preset", "plan", before=before, after={"preset": body.preset})
     return get_plan()
 
 
 @app.post("/api/setup", tags=["mission"])
-def mission_setup(body: PlanIn):
-    """First-run mission setup: validate and save the plan, mark setup done and start the mission clock over."""
+def mission_setup(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
+    """First-run mission setup (demo only): validate and save the plan, mark setup done and start the mission clock over."""
+    _locked()
     try:
-        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+        checked = plan.validate(body.name, [l.model_dump() for l in body.legs])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    mission.set_setup_done()
-    _reload_for_legs(plan.get()["legs"])
+    with _atomic():
+        plan.save(checked)
+        mission.set_setup_done()
+        _reload_for_legs(plan.get()["legs"])
+    audit.record(actor, "plan.setup", "plan", after={"name": body.name, "legs": len(body.legs)})
     return mission.set_step(0)  # the demo story bar keeps working: it starts from its first scene
 
 
@@ -400,16 +643,17 @@ def crew_list():
     profs = {r["crew_id"]: r for r in lb["rows"]}
     rows = [_summary(c, ms, profs[c["id"]]) for c in CREW]
     return {"mission": ms, "crew": rows, "team": lb["team"], "dose": health.dose(ms),
-            "space_weather": {k: v for k, v in nasa.space_weather(data.storm_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
+            "space_weather": {k: v for k, v in nasa.space_weather(dose.active_event(ms["day"], ms["location"])).items() if k in ("headline", "active", "kp_max", "sep_events")}}
 
 
 @app.get("/api/crew/photos", tags=["crew"])
-def crew_photos():
+def crew_photos(_actor: dict = Depends(any_person)):
+    """The crew's profile photos: for people on board (crew, medical team, Mission Control) only."""
     return privacy.photos()
 
 
 @app.get("/api/crew/overview", tags=["crew"])
-def crew_overview():
+def crew_overview(_actor: dict = Depends(any_person)):
     """What everyone on board may see: hazards, participation and crew goals. Never anyone's status."""
     ms = mission.state()
     board = goals.crew_board(ms["day"])
@@ -419,7 +663,7 @@ def crew_overview():
         env = [a for a in snap["alerts"] if a.get("env")] or env
         people.append({**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
                        "today": board["people"][c["id"]]})
-    sw = nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
+    sw = nasa.space_weather(dose.active_event(ms["day"], ms["location"]))
     return {"mission": ms, "people": people,
             "eva_open": not env and not ms["learning"] and ms["location"] not in ("earth", "rocket"),
             "hazards": privacy.hazards(ms, env), "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]),
@@ -437,8 +681,8 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     if not privacy.can_see_details(v["id"], crew_id, v["medical"]):
         raise HTTPException(403, f"{c['name']}'s health is private")
     ms = mission.state()
-    snap = health.snapshot(crew_id, ms)
-    access = "self" if v["id"] == crew_id else "medical"
+    snap = assessment.annotate(health.snapshot(crew_id, ms))
+    access ="self" if v["id"] == crew_id else "medical"
     trends = {i: telemetry.series(crew_id, i, ms["day"], 30) for i in INDICATORS}
     with_photo = {r["checkin_id"] for r in db.q("SELECT checkin_id FROM checkin_photos WHERE crew_id=?", (crew_id,))}
     events = [{"id": r["id"], "kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"]), "has_photo": r["id"] in with_photo}
@@ -479,9 +723,10 @@ def crew_photo(crew_id: str, body: PhotoIn, v: dict = Depends(viewer)):
     if v["id"] != crew_id:
         raise HTTPException(403, "only the astronaut changes their photo")
     try:
-        privacy.set_photo(crew_id, body.data_url)
+        privacy.set_photo(crew_id, images.check(body.data_url, "The photo", "data_url"))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    audit.record(v["actor"], "crew.photo_set", crew_id)
     return privacy.photos()
 
 
@@ -491,6 +736,7 @@ def crew_photo_delete(crew_id: str, v: dict = Depends(viewer)):
     if v["id"] != crew_id:
         raise HTTPException(403, "only the astronaut changes their photo")
     privacy.set_photo(crew_id, None)
+    audit.record(v["actor"], "crew.photo_delete", crew_id)
     return privacy.photos()
 
 
@@ -513,12 +759,14 @@ def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)
     _crew(crew_id)
     require_self(crew_id, v)
     ms = mission.state()
-    goals.set_done(crew_id, goal_id, ms["day"], body.done)
-    if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
-        g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
-        if g:
-            advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
-    advice.sync(crew_id, ms["day"])
+    with db.transaction():  # the tick and the advice it starts or closes: stored together
+        goals.set_done(crew_id, goal_id, ms["day"], body.done)
+        if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
+            g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
+            if g:
+                advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
+        advice.sync(crew_id, ms["day"])
+    audit.record(v["actor"], "goal.set", f"{crew_id}:{goal_id}", after={"done": body.done, "day": ms["day"]})
     return goals_for(crew_id, v)
 
 
@@ -547,7 +795,8 @@ def alert_seen(crew_id: str, alert_id: str, v: dict = Depends(viewer)):
 
 
 @app.get("/api/leaderboard", tags=["goals"])
-def leaderboard():
+def leaderboard(_actor: dict = Depends(any_person)):
+    """Crew rankings: for people on board (crew, medical team, Mission Control) only."""
     ms = mission.state()
     lb = goals.leaderboard(ms["day"])
     for r in lb["rows"]:
@@ -562,6 +811,7 @@ class CheckinIn(BaseModel):
     kind: str = Field(pattern="^(" + "|".join(sorted(selftests.TEST_IDS)) + ")$")
     payload: dict
     photo: Optional[str] = None  # vitals only: the display, kept as evidence apart from the numbers
+    origin: str = Field(default="measured", pattern="^(measured|sample)$")  # "sample": filled by the demo button, never feeds alerts
 
 
 @app.post("/api/checkins", tags=["crew"])
@@ -575,17 +825,21 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     if body.photo is not None:
         if body.kind != "vitals":
             raise validation.FieldError("photo", "Only vital signs take a photo")
-        photo = validation.image_data_url(body.photo, "The photo of the display")
+        photo = images.check_checkin_photo(body.photo, body.crew_id)  # decoded, size and pixel limits, per-person quota
     p = selftests.normalise(body.kind, body.payload)
-    cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at) VALUES(?,?,?,?,?)",
-               (body.crew_id, day, body.kind, json.dumps(p), time.time()))
-    if photo:  # never part of the payload: the payload feeds events, charts and the assistant
-        db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
+    if body.origin == "sample" and settings.mode != "demo":
+        raise HTTPException(404, "Not found")  # sample values exist only in the demo
     g = selftests.goal_for(body.kind, p)
-    if g:
-        goals.set_done(body.crew_id, g, day, True)
-    advice.sync(body.crew_id, day)
-    notify.sync(mission.state(), [body.crew_id])
+    with db.transaction():  # the entry, its photo, its goal and the advice derived from them: all stored, or none
+        cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at,origin) VALUES(?,?,?,?,?,?)",
+                   (body.crew_id, day, body.kind, json.dumps(p), time.time(), body.origin))
+        if photo:  # never part of the payload: the payload feeds events, charts and the assistant
+            db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
+        if g:
+            goals.set_done(body.crew_id, g, day, True)
+        advice.sync(body.crew_id, day)
+    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None, "origin": body.origin})  # no values
+    notify.sync(mission.state(), [body.crew_id])  # the alert evaluation writes its own audit entries: it runs after the commit
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
             "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
@@ -624,7 +878,11 @@ def checkin_photo(crew_id: str, checkin_id: int, v: dict = Depends(viewer)):
 # ---------------------------------------------------------------- guided response
 @app.get("/api/protocols", tags=["guided response"])
 def get_protocols():
-    return protocols.resolve(mission.state()["location"])
+    out = protocols.resolve(mission.state()["location"])
+    bank = protocols.bank()["protocols"]
+    for pid, p in out["protocols"].items():  # version, reviewer and status say who has checked the content (EMG-01)
+        p.update({k: bank[pid][k] for k in ("version", "reviewer", "status") if k in bank[pid]})
+    return out
 
 
 @app.get("/api/protocols/library", tags=["guided response"])
@@ -647,7 +905,7 @@ class MatchIn(BaseModel):
 
 
 @app.post("/api/protocols/match", tags=["guided response"])
-def match_protocol(body: MatchIn):
+def match_protocol(body: MatchIn, actor: dict = Depends(any_person)):
     """What the person sees, in their own words -> the closest protocols with the words that matched. Rules first; a connected
     model may only re-rank them (assistant/protocol_match.py). Never starts anything."""
     return protocol_match.match(body.text)
@@ -657,18 +915,31 @@ class EmergencyIn(BaseModel):
     protocol: Optional[str] = None
     patient: Optional[str] = None
     responder: Optional[str] = None
+    token: Optional[str] = Field(default=None, max_length=128)  # the client's id for this opening: a retry gets the same emergency
 
 
 @app.post("/api/emergencies", tags=["guided response"])
-def emergency_start(body: EmergencyIn):
+def emergency_start(body: EmergencyIn, actor: dict = Depends(require_onboard)):
+    """Open Guided Response. On board only: a crew member, or the crew medical officer in the medical console. With a
+    token, the same token (per person) returns the emergency it opened before: a retry never opens a second one."""
     ms = mission.state()
-    eid = db.x("INSERT INTO emergencies(protocol,patient,responder,location,day,started_at,log) VALUES(?,?,?,?,?,?,?)",
-               (body.protocol, body.patient, body.responder, ms["location"], ms["day"], time.time(),
-                json.dumps([[0, "Guided Response opened. Crew alerted."]])))
+    key = f"emergency:{body.token.strip()}" if body.token and body.token.strip() else None
     delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
-    db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-         (body.responder or "crew", "earth", "emergency", f"EMERGENCY opened on {ms['day_label']} at {LOCATIONS[ms['location']]['name']}.",
-          time.time(), time.time() + delay))
+    with db.transaction() as c:
+        if key:
+            hit = db.q("SELECT response FROM idempotency WHERE device_id=? AND key=?", (actor["id"], key))
+            if hit:
+                return _emergency(json.loads(hit[0]["response"])["id"])
+        eid = db.x("INSERT INTO emergencies(protocol,patient,responder,location,day,started_at,log) VALUES(?,?,?,?,?,?,?)",
+                   (body.protocol, body.patient, body.responder or actor["id"], ms["location"], ms["day"], time.time(),
+                    json.dumps([[0, "Guided Response opened. Crew alerted."]])))
+        if key:
+            db.x("INSERT INTO idempotency(device_id,key,body_hash,response,created_at) VALUES(?,?,?,?,?)",
+                 (actor["id"], key, "", json.dumps({"id": eid}), time.time()))
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             (actor["id"], "earth", "emergency", f"EMERGENCY opened on {ms['day_label']} at {LOCATIONS[ms['location']]['name']}.",
+              time.time(), time.time() + delay))
+    audit.record(actor, "emergency.open", f"emergency:{eid}", after={"protocol": body.protocol, "patient": body.patient, "day": ms["day"]})
     return _emergency(eid)
 
 
@@ -680,35 +951,48 @@ class EmergencyEvent(BaseModel):
     close: bool = False
 
 
+EMERGENCY_OUTCOMES = ("stable", "needs evacuation review")
+
+
 @app.post("/api/emergencies/{eid}", tags=["guided response"])
-def emergency_event(eid: int, body: EmergencyEvent):
+def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(require_onboard)):
     e = _emergency(eid)
+    if body.close and body.outcome not in EMERGENCY_OUTCOMES:
+        raise validation.FieldError("outcome", "Say how it ended: " + ", ".join(EMERGENCY_OUTCOMES))
+    if body.close and e["ended_at"]:  # closing twice: no goals, window, report or log line repeat
+        return e
     log = e["log"]
     t = round(time.time() - e["started_at"])
-    if body.protocol:
-        db.x("UPDATE emergencies SET protocol=? WHERE id=?", (body.protocol, eid))
-    if body.patient:
-        db.x("UPDATE emergencies SET patient=? WHERE id=?", (body.patient, eid))
     if body.text:
         log.append([t, body.text])
-    if body.close and not _emergency(eid)["ended_at"]:  # closing twice does not repeat goals, window or report
-        ms = mission.state()
-        e = _emergency(eid)
-        db.x("UPDATE emergencies SET ended_at=?, outcome=? WHERE id=?", (time.time(), body.outcome or "stable", eid))
-        log.append([t, f"Closed: {body.outcome or 'stable'}"])
-        if e["protocol"] and e["patient"]:
-            for item in protocols.care(e["protocol"])["after_items"]:  # each follow-up lasts the days its text gives
-                db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (e["patient"], "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
-            care.open_window(e, ms["day"], body.outcome or "stable")
-        delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
-        report = f"Guided Response report: {e['protocol'] or 'triage'}, patient {e['patient'] or 'unknown'}, outcome {body.outcome or 'stable'}, {len(log)} logged steps."
-        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-             (e["responder"] or "crew", "earth", "report", report, time.time(), time.time() + delay))
-        db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
-        notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
+    protocol = body.protocol or e["protocol"]
+    patient = body.patient or e["patient"]
+    if not body.close:
+        db.x("UPDATE emergencies SET protocol=?, patient=?, log=? WHERE id=?", (protocol, patient, json.dumps(log), eid))
+        audit.record(actor, "emergency.update", f"emergency:{eid}",
+                     after={"protocol": body.protocol, "patient": body.patient, "log_entry": bool(body.text)})  # log text not copied
         return _emergency(eid)
-    db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
+    # The close is one transaction: the end, the goals, the care window and the report land together or not at all.
+    # The conditional UPDATE makes a close that lost a race a no-op.
+    ms = mission.state()
+    outcome = body.outcome
+    log.append([t, f"Closed: {outcome}"])
+    with db.transaction():
+        if not db.write("UPDATE emergencies SET ended_at=?, outcome=?, protocol=?, patient=?, log=? WHERE id=? AND ended_at IS NULL",
+                        (time.time(), outcome, protocol, patient, json.dumps(log), eid)):
+            return _emergency(eid)
+        if protocol and patient:
+            for item in protocols.care(protocol)["after_items"]:  # each follow-up lasts the days its text gives
+                db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                     (patient, "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
+            care.open_window({**e, "protocol": protocol, "patient": patient}, ms["day"], outcome, in_transaction=True)
+        delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
+        report = f"Guided Response report: {protocol or 'triage'}, patient {patient or 'unknown'}, outcome {outcome}, {len(log)} logged steps."
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             (actor["id"], "earth", "report", report, time.time(), time.time() + delay))
+        db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
+    audit.record(actor, "emergency.close", f"emergency:{eid}", after={"protocol": protocol, "patient": patient, "outcome": outcome})
+    notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
     return _emergency(eid)
 
 
@@ -719,46 +1003,82 @@ def _emergency(eid: int) -> dict:
     return {**rows[0], "log": json.loads(rows[0]["log"])}
 
 
-@app.get("/api/emergencies", tags=["guided response"])
 def emergencies():
     return [_emergency(r["id"]) for r in db.q("SELECT id FROM emergencies ORDER BY id DESC LIMIT 20")]
 
 
+@app.get("/api/emergencies", tags=["guided response"])
+def emergencies_route(actor: dict = Depends(any_person)):
+    return emergencies()
+
+
+@app.get("/api/emergencies/open", tags=["guided response"])
+def emergencies_open():
+    """The cabin-wide alarm banner: the patient's name and the protocol, for every emergency still open. Nothing else (no patient
+    id, no start time, no health values), and no sign-in: everyone on board must see it. `id` only tells a responder which record to pick up.
+    Read by every screen every few seconds."""
+    out = []
+    for r in db.q("SELECT id,protocol,patient FROM emergencies WHERE ended_at IS NULL ORDER BY id DESC LIMIT 5"):
+        acct = registry.account(r["patient"]) if r["patient"] else None
+        out.append({"id": r["id"], "patient": acct["name"] if acct else None,
+                    "protocol": protocols.name(r["protocol"]) if r["protocol"] else None})
+    return out
+
+
 # ---------------------------------------------------------------- messages with communication delay
 class MessageIn(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-    sender: str = Field(min_length=1, max_length=60)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")  # the sender is the token's, never the body's
     recipient: str = Field(min_length=1, max_length=60)
     text: str = Field(min_length=1, max_length=1000)
 
 
+def _sender_of(actor: dict) -> str:
+    """Who a message is from: the crew id for a crew member or the crew medical officer, the ground id for a flight surgeon or MCC."""
+    if actor["role"] == "bootstrap":
+        raise HTTPException(403, "Register an MCC account before sending messages")
+    return actor["id"]
+
+
 @app.post("/api/messages", tags=["messages"])
-def send_message(body: MessageIn):
+def send_message(body: MessageIn, v: dict = Depends(viewer)):
+    """Send a message. The sender is whoever the token says: send one token only to speak for that person."""
+    if v["actor"] is None:
+        raise HTTPException(401, "sign-in required")
+    sender = _sender_of(v["actor"])
+    audit.record(v["actor"], "message.send", f"{sender}->{body.recipient}", after={"chars": len(body.text)})  # the text stays in messages
     ms = mission.state()
     delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
     now = time.time()
     db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-         (body.sender, body.recipient, "text", body.text, now, now + delay))
-    return messages()
+         (sender, body.recipient, "text", body.text, now, now + delay))
+    return messages(None, v)
 
 
 @app.get("/api/messages", tags=["messages"])
-def messages_route(crew_id: Optional[str] = None, v: dict = Depends(viewer)):
+def messages_route(crew_id: Optional[str] = None, actor: dict = Depends(any_person), v: dict = Depends(viewer)):
     return messages(crew_id, v)
 
 
 def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
     now = time.time()
     rows = db.q("SELECT * FROM messages ORDER BY id DESC LIMIT 40")
-    private = ("advice", "alert", "alert_earth", "briefing")  # private to the medical officer and the medical team (and the recipient)
-    # A briefing is about the astronaut who sent it: that person may read their own approved briefing, nobody else.
-    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or v["id"] == r["recipient"]
-                                                              or (r["kind"] == "briefing" and v["id"] == r["sender"])))]
+    # Private to the people in the message and the medical team: advice and alerts go to the medical officer, a briefing
+    # carries the sender's own health facts to Earth. A briefing is read by the medical team and by the astronaut it is about.
+    private = ("advice", "alert", "alert_earth", "briefing", "emergency", "report", "security", "pmc")
+    rows = [r for r in rows if r["kind"] not in private or (v and (v["medical"] or (v["me"] & {r["sender"], r["recipient"]})))]
     if crew_id:
         rows = [r for r in rows if crew_id in (r["sender"], r["recipient"]) or r["recipient"] == "crew"]
+    actor = (v or {}).get("actor")
+    on_board = bool(actor) and (actor["kind"] == "crew" or actor["role"] == "cmo")
     for r in rows:
         r["delivered"] = now >= r["deliver_at"]
         r["eta_s"] = max(0, round(r["deliver_at"] - now))
+        # The text of a message that has not arrived yet belongs to its sender (and, for what goes to Earth, to the people on board
+        # who are on the sender's side of the link). The receiving side gets it when the signal does, not before.
+        sender_side = bool(v and (v["me"] & {r["sender"]})) or (on_board and (r["recipient"] in ("earth", "mission-control") or str(r["recipient"]).startswith(registry.GROUND_PREFIX)) and not str(r["sender"]).startswith(registry.GROUND_PREFIX))
+        r["in_transit"] = not r["delivered"] and not sender_side
+        if r["in_transit"]:
+            r["text"] = ""
     return rows
 
 
@@ -766,7 +1086,7 @@ def messages(crew_id: Optional[str] = None, v: Optional[dict] = None):
 @app.get("/api/space-weather", tags=["nasa"])
 def space_weather():
     ms = mission.state()
-    return nasa.space_weather(data.storm_event(ms["day"], ms["location"]))
+    return nasa.space_weather(dose.active_event(ms["day"], ms["location"]))
 
 
 @app.get("/api/nasa/rad", tags=["nasa"])
@@ -858,18 +1178,15 @@ def briefing_new(body: BriefingIn, v: dict = Depends(viewer)):
     return briefing.build(body.crew_id)
 
 
-@app.post("/api/briefings/{bid}/approve", tags=["assistant"])
-def briefing_approve(bid: int, v: dict = Depends(viewer)):
-    """The astronaut approves their own briefing, or the medical team does. Only a draft can be approved, once."""
-    b = briefing.get(bid)
-    if b is None:
+@app.post("/api/briefings/{bid}/approve", tags=["assistant"], dependencies=[Depends(require_medical)])
+def briefing_approve(bid: int, actor: dict = Depends(require_medical)):
+    """The medical team approves a briefing before it is queued for Earth. Nobody else can: the sign-in is checked
+    first, so a caller without it learns nothing about which briefings exist. Only a draft is approved, once."""
+    done, changed = briefing.approve(bid)
+    if done is None:
         raise HTTPException(404, "no such briefing")
-    require_self(b["crew_id"], v)
-    if b["status"] != "draft":
-        raise HTTPException(409, "this briefing is already approved")
-    done = briefing.approve(bid)
-    if done is None:  # approved by someone else in the meantime
-        raise HTTPException(409, "this briefing is already approved")
+    if changed:  # a repeat approval is idempotent: the current briefing, no new message, no new audit record
+        audit.record(actor, "briefing.approve", f"briefing:{bid}", after={"crew_id": done["crew_id"]})
     return done
 
 
@@ -886,24 +1203,27 @@ def medical_overview():
     ms = mission.state()
     out = []
     for c in CREW:
-        s = health.snapshot(c["id"], ms)
+        s = assessment.annotate(health.snapshot(c["id"], ms))
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
                     "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"],
                     "risks": [{k: r[k] for k in ("id", "name", "nasa_red", "level", "trend", "since_day", "data")} for r in s["risks"]],
                     "dose": s["dose"], "standard_profile": standards.crew_profile(c["id"]),
                     "care_events": care.events(c["id"], ms["day"])})
     return {"mission": ms, "crew": out, "thresholds": health.thresholds(), "emergencies": emergencies()[:5],
-            "notices": notify.list_for(ms["day"]), "care_sensitivity": care.sensitivity()}
+            "care_sensitivity": care.sensitivity()}
 
 
 class CareSensitivityIn(BaseModel):
     factor: float = Field(ge=care.FACTOR_RANGE[0], le=care.FACTOR_RANGE[1])
 
 
-@app.put("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
-def put_care_sensitivity(body: CareSensitivityIn):
-    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change)."""
-    db.set_setting("care_sensitivity", {"factor": body.factor})
+@app.put("/api/medical/care-sensitivity", tags=["medical"])
+def put_care_sensitivity(body: CareSensitivityIn, actor: dict = Depends(require_medical)):
+    """How much tighter a patient's thresholds are during the care window after an emergency (1 = no change). Every change is a
+    new version in `medical_settings_history`; the earlier ones stay."""
+    before = care.sensitivity()
+    v = audit.set_versioned("care_sensitivity", {"factor": body.factor}, actor)
+    audit.record(actor, "medical.care_sensitivity", "settings:care_sensitivity", before=before, after={"factor": body.factor, "version": v})
     return care.sensitivity()
 
 
@@ -912,16 +1232,50 @@ def get_care_sensitivity():
     return care.sensitivity()
 
 
+@app.get("/api/medical/observations/{crew_id}", tags=["medical"], dependencies=[Depends(require_medical)])
+def medical_observations(crew_id: str, indicator: Optional[str] = None, limit: int = Query(default=20, ge=1, le=100)):
+    """Recent current readings of one person (the ids the medical 'Correct a value' form needs). Medical team only. Superseded
+    readings, photos and free text are left out."""
+    _crew(crew_id)
+    sql = "SELECT id,indicator,day,value,unit,origin FROM observations WHERE crew_id=? AND superseded_by IS NULL"
+    args: list = [crew_id]
+    if indicator:
+        sql += " AND indicator=?"
+        args.append(indicator)
+    rows = db.q(sql + " ORDER BY day DESC, id DESC LIMIT ?", tuple(args) + (limit,))
+    return [dict(r) for r in rows]
+
+
+class CareReviewIn(BaseModel):
+    resolution: str = Field(min_length=3, max_length=500)
+
+
+@app.post("/api/medical/care-windows/{eid}/review", tags=["medical"])
+def review_care_window(eid: int, body: CareReviewIn, actor: dict = Depends(require_medical)):
+    """The medical team ends a care window with a recorded review. Until then it stays open ("awaiting review") and keeps
+    its restrictions, so it cannot end silently. The first review stands; a second one changes nothing."""
+    if not db.q("SELECT 1 FROM care_events WHERE emergency_id=?", (eid,)):
+        raise HTTPException(404, "no care window for this emergency")
+    ms = mission.state()
+    if care.record_review(eid, ms["day"], actor["id"], body.resolution.strip()):
+        audit.record(actor, "medical.care_review", f"emergency:{eid}", after={"day": ms["day"]})
+    notify.sync(ms)
+    return care.status(eid, ms["day"])
+
+
 class ExerciseAdjustIn(BaseModel):
     max_pct: int = Field(ge=0, le=50)
     level1: int = Field(ge=0, le=50)
     level2: int = Field(ge=0, le=50)
 
 
-@app.put("/api/medical/exercise-adjust", tags=["medical"], dependencies=[Depends(require_medical)])
-def put_exercise_adjust(body: ExerciseAdjustIn):
-    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct."""
-    db.set_setting("exercise_adjust", {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}})
+@app.put("/api/medical/exercise-adjust", tags=["medical"])
+def put_exercise_adjust(body: ExerciseAdjustIn, actor: dict = Depends(require_medical)):
+    """How much the day's exercise may be lightened while the fatigue risk is up. Never above max_pct. Versioned like every setting."""
+    before = goals.exercise_adjust()
+    new = {"max_pct": body.max_pct, "by_level": {"1": body.level1, "2": body.level2}}
+    v = audit.set_versioned("exercise_adjust", new, actor)
+    audit.record(actor, "medical.exercise_adjust", "settings:exercise_adjust", before=before, after={**new, "version": v})
     return goals.exercise_adjust()
 
 
@@ -941,12 +1295,20 @@ def medical_assistant_audit(limit: int = 30):
     return chat.audit(max(1, min(limit, 200)))
 
 
-@app.put("/api/medical/thresholds", tags=["medical"], dependencies=[Depends(require_medical)])
-def put_thresholds(body: ThresholdsIn):
+@app.put("/api/medical/thresholds", tags=["medical"])
+def put_thresholds(body: ThresholdsIn, actor: dict = Depends(require_medical)):
     if body.act <= body.watch:
         raise validation.FieldError("act", f"Act ({body.act}) must be above watch ({body.watch})")
-    db.set_setting("thresholds", {"watch": body.watch, "act": body.act})
+    before = health.thresholds()
+    v = audit.set_versioned("thresholds", {"watch": body.watch, "act": body.act}, actor)  # a new version; the earlier ones stay
+    audit.record(actor, "medical.thresholds", "settings:thresholds", before=before, after={"watch": body.watch, "act": body.act, "version": v})
     return health.thresholds()
+
+
+@app.get("/api/medical/settings-history", tags=["medical"], dependencies=[Depends(require_medical)])
+def settings_history(key: Optional[str] = None):
+    """Every version of the medical settings (thresholds, care sensitivity, exercise adjustment), oldest first. The last one is current."""
+    return audit.history(key)
 
 
 class MedGoalIn(BaseModel):
@@ -958,38 +1320,131 @@ class MedGoalIn(BaseModel):
     days: int = Field(default=7, ge=1, le=60)
 
 
-@app.post("/api/medical/goals", tags=["medical"], dependencies=[Depends(require_medical)])
-def add_med_goal(body: MedGoalIn):
+@app.post("/api/medical/goals", tags=["medical"])
+def add_med_goal(body: MedGoalIn, actor: dict = Depends(require_medical)):
     if body.who != "all" and body.who not in CREW_BY_ID:
         raise validation.FieldError("who", "Pick a crew member or the whole crew")
     day = mission.state()["day"]
-    db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-         (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
+    gid = db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
+               (body.who, body.area, body.title, body.why, 0, day, day + body.days - 1, time.time()))
+    audit.record(actor, "medical.goal_add", f"medical_goal:{gid}", after={"who": body.who, "area": body.area, "from_day": day, "to_day": day + body.days - 1})
     return med_goals()
 
 
 @app.get("/api/medical/goals", tags=["medical"], dependencies=[Depends(require_medical)])
-def med_goals():
-    return db.q("SELECT * FROM medical_goals ORDER BY id DESC")
+def med_goals(include_voided: bool = False):
+    """The goals the medical team prescribed. A voided goal is kept (with who voided it and why) and shown only on request."""
+    return db.q("SELECT * FROM medical_goals " + ("" if include_voided else "WHERE voided_at IS NULL ") + "ORDER BY id DESC")
 
 
-@app.delete("/api/medical/goals/{gid}", tags=["medical"], dependencies=[Depends(require_medical)])
-def del_med_goal(gid: int):
-    db.x("DELETE FROM medical_goals WHERE id=?", (gid,))
+class VoidIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    reason: str = Field(min_length=3, max_length=200)
+
+
+@app.delete("/api/medical/goals/{gid}", tags=["medical"])
+def del_med_goal(gid: int, body: Optional[VoidIn] = Body(None), actor: dict = Depends(require_medical)):
+    """Void a goal. Health records are never deleted: the goal stays, marked `voided_at`, `voided_by` and `void_reason`, and the
+    crew no longer sees it. A reason in the body ({"reason": "..."}) is required (422 without it)."""
+    if body is None:
+        raise validation.FieldError("reason", "Reason is required")
+    rows = db.q("SELECT * FROM medical_goals WHERE id=?", (gid,))
+    if not rows:
+        raise HTTPException(404, "no such goal")
+    if rows[0]["voided_at"]:
+        raise HTTPException(409, "that goal is already voided")
+    at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.x("UPDATE medical_goals SET voided_at=?, voided_by=?, void_reason=? WHERE id=?", (at, actor["id"], body.reason, gid))
+    audit.record(actor, "medical.goal_void", f"medical_goal:{gid}", before={"who": rows[0]["who"], "area": rows[0]["area"], "title": rows[0]["title"]},
+                 after={"voided_at": at, "reason": body.reason})
     return med_goals()
+
+
+# ---------------------------------------------------------------- audit trail
+def _audit_reader(a: Optional[dict] = Depends(current_actor)) -> dict:
+    """Who may read the audit trail: an MCC account (health values redacted) or a flight surgeon (everything)."""
+    if a and a["kind"] == "medical" and a["role"] == "flight_surgeon":
+        return {**a, "redacted": False}
+    if a and a["kind"] == "control" and a["role"] == "mcc":
+        return {**a, "redacted": True}
+    signed = a is not None and a["kind"] in ("medical", "control")  # a crew sign-in is no sign-in for this route
+    raise HTTPException(403 if signed else 401, "only a flight surgeon or an MCC account reads the audit trail" if signed else "audit trail: sign in as flight surgeon or MCC")
+
+
+@app.get("/api/audit", tags=["audit"])
+def get_audit(limit: int = 50, before_id: Optional[int] = None, reader: dict = Depends(_audit_reader)):
+    """The audit trail, newest first, `limit` entries (max 200) from `before_id` back; `next` is the `before_id` of the following page.
+    Canary Control sees the same entries with any health value (keys value, values, readings, vitals, log) redacted."""
+    return audit.entries(limit, before_id, reader["redacted"])
+
+
+@app.get("/api/audit/verify", tags=["audit"])
+def verify_audit(reader: dict = Depends(_audit_reader)):
+    """Walk the hash chain: {ok, broken_at} with the id of the first entry that was altered or removed."""
+    broken = audit.verify()
+    return {"ok": broken is None, "broken_at": broken}
+
+
+# ---------------------------------------------------------------- alert events
+def _alert_viewer(a: Optional[dict] = Depends(current_actor)) -> dict:
+    """{actor, scope}: `all` (crew medical officer, flight surgeon), `own` (a crew member), `ids` (Canary Control: no values)."""
+    if a and a["kind"] == "medical":
+        return {"actor": a, "scope": "all"}
+    if a and a["kind"] == "crew":
+        return {"actor": a, "scope": "all" if a["role"] == "cmo" else "own"}
+    if a and a["kind"] == "control" and a["role"] == "mcc":
+        return {"actor": a, "scope": "ids"}
+    raise HTTPException(401, "sign-in required")
+
+
+@app.get("/api/alerts/events", tags=["alerts"])
+def alert_events(open_only: bool = False, limit: int = 100, who: dict = Depends(_alert_viewer)):
+    """Stored alert events, newest first. The crew medical officer and flight surgeons see every event with what was evaluated; a crew
+    member sees their own; Canary Control sees who, which alert, level, times and acknowledgement, never a value."""
+    own = who["actor"]["id"] if who["scope"] == "own" else None
+    evs = notify.events(own, open_only, max(1, min(limit, 500)))
+    return {"events": [notify.event_dict(e, who["scope"] != "ids") for e in evs], "rules_version": notify.RULES_VERSION,
+            "escalate_after_s": notify.escalate_after_s()}
+
+
+def _acker(a: Optional[dict] = Depends(current_actor)) -> dict:
+    """The officer on board (medical console or crew sign-in) or a flight surgeon, who may acknowledge an alert."""
+    if a and a["kind"] in ("crew", "medical") and a["role"] in notify.ACK_ROLES:
+        return a
+    signed = a is not None and a["kind"] in ("crew", "medical")  # Canary Control is no sign-in for this route
+    raise HTTPException(403 if signed else 401, "only the crew medical officer or a flight surgeon acknowledges an alert" if signed
+                        else "sign in as the crew medical officer or a flight surgeon")
+
+
+@app.post("/api/alerts/events/{event_id}/ack", tags=["alerts"])
+def alert_event_ack(event_id: int, actor: dict = Depends(_acker)):
+    """Acknowledge an alert event. Stops its escalation. Recorded with who and when, and in the audit trail."""
+    ev = notify.acknowledge(event_id, actor)
+    if ev is None:
+        raise HTTPException(404, "no such alert event")
+    return notify.event_dict(ev)
 
 
 # ---------------------------------------------------------------- mission overview (public) and Canary Control (Mission Control)
 @app.get("/api/mission/overview", tags=["mission"])
-def mission_overview():
-    """General information about the mission and the crew as a whole. Public on board: no health data."""
+def mission_overview_route(v: dict = Depends(viewer)):
+    """General information about the mission and the crew as a whole: no health data. Nationality, agency and flight history
+    are shown only to someone signed in."""
+    return mission_overview(detail=v["actor"] is not None)
+
+
+PERSONAL_OVERVIEW = ("nationality", "agency", "flights", "days_in_space")
+
+
+def mission_overview(detail: bool = True):
     ms = mission.state()
     info = registry.mission_info() or {}
     p = plan.get()
     launch = date.fromisoformat(registry.launch_date())
     dest = next((l for l in reversed(p["legs"]) if l["location"] not in ("earth", "rocket")), p["legs"][-1])
     crew = [{**{k: c[k] for k in ("id", "name", "role", "initials", "home")},
-             **{k: RECORDS.get(c["id"], {}).get(k) for k in ("nationality", "agency", "languages", "flights", "days_in_space")}}
+             **{k: RECORDS.get(c["id"], {}).get(k) for k in ("nationality", "agency", "languages", "flights", "days_in_space")
+                if detail or k not in PERSONAL_OVERVIEW}}
             for c in CREW]
     return {"registered": registry.registered(), "callsign": info.get("callsign"), "name": p["name"],
             "launch_date": launch.isoformat(), "today_date": (launch + timedelta(days=ms["day"])).isoformat(),
@@ -997,34 +1452,17 @@ def mission_overview():
             "legs": p["legs"], "mission": ms, "crew": crew}
 
 
-def _control_sig(exp: int) -> str:
-    return hmac.new(settings.token_secret.encode(), f"control:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
-
-
-def require_control(x_canary_control: Optional[str] = Header(None)) -> None:
-    try:
-        tag, exp, sig = (x_canary_control or "").split(".")
-        if tag != "control" or int(exp) < time.time() or not hmac.compare_digest(sig, _control_sig(int(exp))):
-            raise ValueError
-    except ValueError:
-        raise HTTPException(401, "Mission Control sign-in required")
-
-
-@app.post("/api/control/session", tags=["control"])
-def control_session(body: PinIn):
-    if auth.locked("control"):
-        raise HTTPException(429, "too many attempts, wait a minute")
-    if not hmac.compare_digest(body.pin, settings.control_pin):
-        auth.fail("control")
-        raise HTTPException(401, "wrong PIN")
-    exp = int(time.time() + settings.token_ttl_s)
-    return {"token": f"control.{exp}.{_control_sig(exp)}", "expires_at": exp}
-
-
 def _earth_ops(ops: dict) -> dict:
     """Earth follows the operational status only: why a person is restricted (the care window after an emergency) stays
     with the person and the medical team."""
     return {k: v for k, v in ops.items() if k in ("key", "label", "level")}
+
+
+def _career() -> dict:
+    """The largest projected career dose among the crew (what they carry in plus the plan's mission dose) against the limit."""
+    end = dose.curve(None, mission.state()["day"])[-1] if CREW else 0.0
+    peak = max((standards.prior_dose(c["id"])["msv"] + end for c in CREW), default=0.0)
+    return {"mission_msv": end, "projected_max_msv": round(peak, 1), "limit_msv": CAREER_LIMIT_MSV}
 
 
 @app.get("/api/control/overview", tags=["control"], dependencies=[Depends(require_control)])
@@ -1040,18 +1478,32 @@ def control_overview():
                        "today": board["people"].get(c["id"]), "last_checkin_day": last[0]["day"] if last else None})
     env = [a for a in (health.snapshot(CREW[0]["id"], ms)["alerts"] if CREW else []) if a.get("env")]
     return {"registered": registry.registered(), "mission": ms, "overview": mission_overview(), "people": people,
+            "waiver": (registry.mission_info() or {}).get("waiver"), "career": _career(), "ground": registry.ground(),
             "ridge": privacy.ridge(ms["location"], ms["storm"], ms["day"]), "warnings": [{k: a[k] for k in ("title", "todo")} for a in env],
             "dose": health.dose(ms), "emergencies": emergencies()[:5]}
 
 
-@app.get("/api/control/demo", tags=["control"], dependencies=[Depends(require_control)])
-def control_demo():
-    """What the 'fill with the demo crew' button puts in the form."""
-    form = data.demo_form()
-    return {"crew": form["crew"], "mission": form["mission"], "presets": {k: v["name"] for k, v in plan.PRESETS.items()},
+def _register_options() -> dict:
+    return {"presets": {k: v["name"] for k, v in plan.PRESETS.items()},
             "rover_presets": [k for k in plan.PRESETS if plan.has_rover(k)], "iss_dose_msv_per_day": LOCATIONS["iss"]["dose_rate"],
             # the itinerary each profile gives, with and without its rover leg, for the review step
-            "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS}}
+            "itineraries": {k: {"rover": plan.preset_legs(k, True), "plain": plan.preset_legs(k, False)} for k in plan.PRESETS},
+            # the mission dose of each itinerary, so the review step can show the projected career dose as information
+            "mission_dose_msv": {k: {"rover": round(dose.legs_dose(plan.preset_legs(k, True)), 1), "plain": round(dose.legs_dose(plan.preset_legs(k, False)), 1)} for k in plan.PRESETS},
+            "career_limit_msv": CAREER_LIMIT_MSV}
+
+
+@app.get("/api/control/register-options", tags=["control"], dependencies=[Depends(require_control)])
+def control_register_options():
+    """What the registration form needs: the mission profiles, their itineraries and mission doses, the career limit."""
+    return _register_options()
+
+
+@app.get("/api/control/demo", tags=["control"], dependencies=[Depends(demo_only), Depends(require_control)])
+def control_demo():
+    """Demo only: what the 'fill with the demo crew' button puts in the form."""
+    form = data.demo_form()
+    return {"crew": form["crew"], "ground": form["ground"], "mission": form["mission"], "counts": data.package_counts(), **_register_options()}
 
 
 BLOOD_TYPES = ["O−", "O+", "A−", "A+", "B−", "B+", "AB−", "AB+"]
@@ -1068,7 +1520,8 @@ def _trim_list(v: List[str], what: str, max_items: int = 20, max_len: int = 60) 
 
 class SeatIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    seat: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$")  # the person's id; left out, s1 to s6 in order
+    seat: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$")  # the person's id; left out, a generated c-xxxxxx
+    cmo: Optional[bool] = None  # the crew medical officer; left out, the role text decides ("medical officer" or "CMO")
     name: str = Field(min_length=2, max_length=60)
     role: str = Field(min_length=2, max_length=60)
     home: str = Field(default="", max_length=80)
@@ -1124,6 +1577,7 @@ class MissionRegIn(BaseModel):
     launch_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     preset: str
     rover: Optional[bool] = None  # a pressurized rover leg; left out, the profile's own default (on for Moon and Mars)
+    dose_waiver: bool = False  # accepted and ignored: registration no longer asks for a waiver (the career dose is shown as information)
 
     @field_validator("launch_date")
     @classmethod
@@ -1137,13 +1591,23 @@ class MissionRegIn(BaseModel):
         return v
 
 
+class GroundIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    id: Optional[str] = Field(default=None, pattern=r"^g-[A-Za-z0-9_-]{1,17}$")  # left out, a generated g-xxxxxx
+    name: str = Field(min_length=2, max_length=60)
+    role: str = Field(pattern="^(flight_surgeon|mcc)$")
+    pin: str = Field(pattern=r"^\d{4}$")
+
+
 class RegisterIn(BaseModel):
     crew: List[SeatIn]  # one to six people (checked in _check_registration, which answers on the `crew` field)
     mission: MissionRegIn
+    ground: List[GroundIn] = []  # optional flight surgeons and MCC accounts; without an MCC account the first-access PIN keeps Control open
 
 
-def _check_registration(body: RegisterIn) -> None:
-    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between people, ages at launch."""
+def _check_registration(body: RegisterIn, ids: List[str]) -> None:
+    """The rules that need more than one field: one to six people, the profile exists, ids and PINs differ between people, ages at
+    launch and one crew medical officer."""
     errs: List[dict] = []
     if not 1 <= len(body.crew) <= registry.MAX_CREW:
         errs.append({"field": "crew", "message": f"Register between 1 and {registry.MAX_CREW} people"})
@@ -1153,10 +1617,12 @@ def _check_registration(body: RegisterIn) -> None:
         errs.append({"field": "mission.rover", "message": f"{plan.PRESETS[body.mission.preset]['name']} has no rover leg; the rover is for the Moon and Mars profiles"})
     launch = date.fromisoformat(body.mission.launch_date)
     seen: dict = {}
-    ids = registry.assign_ids([p.seat for p in body.crew])
     seen_id: dict = {}
+    cmos = [i for i, p in enumerate(body.crew) if (p.cmo if p.cmo is not None else bool(registry.CMO_WORDS.search(p.role)))]
+    for i in cmos[1:]:
+        errs.append({"field": f"crew.{i}.cmo", "message": f"Only one crew medical officer: person {cmos[0] + 1} already is one"})
     for i, p in enumerate(body.crew):
-        if ids[i] in registry.RESERVED_IDS:
+        if ids[i] in registry.RESERVED_IDS or ids[i].startswith(registry.GROUND_PREFIX):
             errs.append({"field": f"crew.{i}.seat", "message": f"ID {ids[i]} is reserved; pick another"})
         elif ids[i] in seen_id:
             errs.append({"field": f"crew.{i}.seat", "message": f"ID is already used by person {seen_id[ids[i]] + 1}; each person needs their own"})
@@ -1167,94 +1633,260 @@ def _check_registration(body: RegisterIn) -> None:
         if p.pin in seen:
             errs.append({"field": f"crew.{i}.pin", "message": f"PIN is already used by person {seen[p.pin] + 1}; each person needs their own"})
         seen.setdefault(p.pin, i)
+    gseen: dict = {}
+    gids: dict = {}
+    for i, g in enumerate(body.ground):
+        if g.pin in gseen:
+            errs.append({"field": f"ground.{i}.pin", "message": f"PIN is already used by ground account {gseen[g.pin] + 1}; each account needs its own"})
+        gseen.setdefault(g.pin, i)
+        if g.id and g.id in gids:
+            errs.append({"field": f"ground.{i}.id", "message": f"ID is already used by ground account {gids[g.id] + 1}"})
+        if g.id:
+            gids.setdefault(g.id, i)
     if errs:
         raise validation.ValidationFailure(errs)
 
 
-@app.post("/api/control/register", tags=["control"], dependencies=[Depends(require_control)])
-def control_register(body: RegisterIn):
-    """Register the crew (one to six people) and the mission, then start the mission clock from the beginning. PINs are stored hashed."""
-    _check_registration(body)
-    ids = registry.assign_ids([s.seat for s in body.crew])
+@app.post("/api/control/register", tags=["control"])
+def control_register(body: RegisterIn, actor: dict = Depends(require_control)):
+    """Register the crew (one to six people), the ground accounts and the mission, then start the mission clock from the
+    beginning. PINs are stored hashed. Once a mission is registered it is locked: this answers 409 until the demo is reset."""
+    _locked()
+    ids = registry.assign_ids([s.seat for s in body.crew], registry.used_ids())
+    _check_registration(body, ids)
     crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
+    info = {k: v for k, v in body.mission.model_dump().items() if k != "dose_waiver"}
     try:
-        registry.register(crew, {**body.mission.model_dump(), "rover": rover})
+        with _atomic():  # the crew, the mission, the plan and the clock: all of it, or none of it
+            registry.register(crew, {**info, "rover": rover}, [g.model_dump() for g in body.ground])
+            first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
+            data.drop_package_story()  # the scenes and storms of a loaded package are about other people
+            plan.use_preset(body.mission.preset, rover)
+            plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
+            if first:
+                mission.set_day(first[0]["day"])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
-    data.drop_package_story()  # the scenes and storms of a loaded package are about other people
-    plan.use_preset(body.mission.preset, rover)
-    plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
-    if first:
-        mission.set_day(first[0]["day"])
+    audit.record(actor, "mission.register", "registry", after={"crew": len(body.crew), "ground": len(body.ground), "preset": body.mission.preset,
+                                                              "launch_date": body.mission.launch_date})  # no PINs, no medical records
     return control_overview()
 
 
-@app.post("/api/control/demo-data", tags=["control"], dependencies=[Depends(require_control)])
-def control_demo_data():
-    """Use the demo data: replace everything with the bundled demo mission (crew, itinerary, readings, goal history,
-    space events and the demo story), the same state as a fresh start. Crew terminals sign in again."""
+@app.post("/api/control/demo-data", tags=["control"])
+def control_demo_data(_demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
+    """Demo only: use the demo data: replace everything with the bundled demo mission (crew, ground accounts, itinerary, readings,
+    goal history, space events and the demo story), the same state as a fresh start. Only while nothing is registered."""
+    _locked()
     _start_over(settings.mission_package or DEMO_PACKAGE)
+    audit.record(actor, "demo.data", "database", after={"package": settings.mission_package or DEMO_PACKAGE})
     return control_overview()
 
 
-@app.post("/api/control/clear", tags=["control"], dependencies=[Depends(require_control)])
-def control_clear():
-    """Start from zero: no crew, no mission. The crew terminals wait for Mission Control."""
-    registry.clear()
-    data.drop_package_story()
-    return control_overview()
+# ---------------------------------------------------------------- corrections
+# The medical team and Canary Control correct a record, with an audit entry that says who, the old value, the new value and
+# why. The crew only ask: a request waits in the queue for one of them (domain/corrections.py holds the rules).
+class CorrectIn(BaseModel):
+    value: Any = None
+    reason: str = Field(default="", max_length=400)
+
+
+class CorrectionRequestIn(BaseModel):
+    field: str = Field(max_length=40)
+    target: Optional[str] = Field(default=None, max_length=40)
+    proposed: Any = None
+    reason: str = Field(default="", max_length=400)
+
+
+def require_medical_or_control(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """The medical team's or Canary Control's actor, or 401."""
+    if actor and actor["kind"] in ("medical", "control"):
+        return actor
+    raise HTTPException(401, "medical team or Mission Control sign-in required")
+
+
+@app.put("/api/corrections/crew/{crew_id}/height", tags=["corrections"])
+def correct_height(crew_id: str, body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    _crew(crew_id)
+    return corrections.correct_height(crew_id, body.value, body.reason, actor)
+
+
+@app.put("/api/corrections/mission/name", tags=["corrections"])
+def correct_mission_name(body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    return corrections.correct_mission_name(body.value, body.reason, actor)
+
+
+@app.put("/api/corrections/measurements/{obs_id}", tags=["corrections"])
+def correct_measurement(obs_id: int, body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    return corrections.correct_measurement(obs_id, body.value, body.reason, actor, _ingest_now(), settings.mode == "flight")
+
+
+@app.post("/api/crew/{crew_id}/corrections", tags=["crew"])
+def crew_request_correction(crew_id: str, body: CorrectionRequestIn, v: dict = Depends(viewer)):
+    """A person asks for a correction to their own height, the mission name or a measurement of theirs. Nothing changes yet."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    rid = corrections.request(crew_id, body.field, body.target, body.proposed, body.reason, v["actor"])
+    return {"id": rid, "status": "open"}
+
+
+@app.get("/api/corrections", tags=["corrections"])
+def correction_requests(actor: dict = Depends(require_medical_or_control)):
+    return {"requests": corrections.open_requests()}
 
 
 # ---------------------------------------------------------------- data entry points
 # Sensors, wearables and labs send readings with a key; Mission Control adds space events and imports mission packages.
 # All of them end in domain/data.py, which validates everything first and writes in one transaction.
 MAX_OBS_BATCH = 5000
+MAX_OBS_BYTES = 2_000_000
 
 
-def require_ingest(x_canary_key: Optional[str] = Header(None)) -> None:
-    """The ingest key (CANARY_INGEST_KEY) in the X-Canary-Key header. Never logged, never returned."""
-    if not settings.ingest_key:
+def require_ingest(x_canary_key: Optional[str] = Header(None)) -> dict:
+    """The device behind the X-Canary-Key header: `{id, crew_id}` of an active device, or of `legacy` (the shared CANARY_INGEST_KEY,
+    demo mode only). The key is never logged and never returned."""
+    if not devices.legacy_on() and not devices.ever_registered():
         raise HTTPException(503, "Ingest is off")
-    if not x_canary_key or not hmac.compare_digest(x_canary_key.encode(), settings.ingest_key.encode()):
+    dev = devices.authenticate(x_canary_key)
+    if dev is None:
         raise HTTPException(401, "A valid X-Canary-Key is required")
+    return dev
 
 
-@app.post("/api/observations", tags=["data"], dependencies=[Depends(require_ingest)])
-def post_observations(body: dict = Body(...)):
-    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note}]}.
-    Up to 5000 rows. One bad row refuses the whole batch (422, `rows.N.field`) and nothing is stored."""
+def _ingest_now() -> datetime:
+    """The 'now' a reading's time is checked against: UTC in flight, the mission clock in the demo (naive UTC either way)."""
+    if settings.mode == "flight":
+        return mission._now().replace(tzinfo=None)
+    h, m = mission.mission_time().split(":")
+    return datetime(mission.mission_date().year, mission.mission_date().month, mission.mission_date().day, int(h), int(m))
+
+
+async def _read_limited(request: Request, limit: int) -> bytes:
+    """The request body, refusing (413) anything over `limit` bytes before it is parsed: by Content-Length, and again while streaming."""
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        raise HTTPException(400, "bad Content-Length")
+    if declared > limit:
+        raise HTTPException(413, f"The request is too large (limit {limit // 1_000_000} MB)")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, f"The request is too large (limit {limit // 1_000_000} MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _ingest(rows: list, device: dict) -> dict:
+    res = data.add_observations(rows, device, _ingest_now(), settings.mode == "flight")
+    audit.record({"id": device["id"], "role": "device"}, "observations.ingest", f"device:{device['id']}",
+                 after={"rows": len(rows), "accepted": res["accepted"], "duplicates": res["duplicates"], "corrected": res["corrected"]})  # counts, never values
+    opened, failed = 0, False
+    who = [c["id"] for c in CREW] if CABIN in res["crew"] else [c for c in res["crew"] if c in CREW_BY_ID]
+    if who:  # the evaluation runs now, so a critical reading reaches the medical officer within this request
+        try:
+            opened = notify.run(mission.state(), who)["opened"]
+        except Exception:  # noqa: BLE001 (the readings are stored; the next sync catches up)
+            logging.getLogger("canary").exception("evaluation after ingest")
+            failed = True
+    return {"accepted": res["accepted"], "duplicates": res["duplicates"], "corrected": res["corrected"], "alerts_opened": opened,
+            **({"evaluation_failed": True} if failed else {})}
+
+
+@app.post("/api/observations", tags=["data"])
+async def post_observations(request: Request, device: dict = Depends(require_ingest), idempotency_key: Optional[str] = Header(None)):
+    """A batch of readings: {"rows": [{crew_id, indicator, value, unit, measured_at | day, origin, method, source, note,
+    supersedes, reason}]}. `origin` is required (device, manual, lab, simulated or sample). Up to 5000 rows and 2 MB. One bad row
+    refuses the whole batch (422, `rows.N.field`) and nothing is stored; a changed value for a stored reading is a 409 (send
+    `supersedes` and `reason` to correct it). Send an `Idempotency-Key` header and a retry with the same body returns the first answer.
+    The answer is {accepted, duplicates, corrected, alerts_opened}: the evaluation has already run."""
+    raw = await _read_limited(request, MAX_OBS_BYTES)
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise validation.FieldError("body", "Send JSON like {\"rows\": [...]}")
     rows = body.get("rows") if isinstance(body, dict) else None
     if not isinstance(rows, list):
         raise validation.FieldError("rows", "Send {\"rows\": [...]}")
     if len(rows) > MAX_OBS_BATCH:
         raise validation.FieldError("rows", f"At most {MAX_OBS_BATCH} readings per request")
-    return data.add_observations(rows)
+    digest = hashlib.sha256(raw).hexdigest()
+    ikey = (idempotency_key or "").strip()[:128]
+    if ikey:
+        old = db.q("SELECT body_hash,response FROM idempotency WHERE device_id=? AND key=?", (device["id"], ikey))
+        if old:
+            if old[0]["body_hash"] != digest:
+                raise HTTPException(409, "This Idempotency-Key was already used with a different body")
+            return json.loads(old[0]["response"])
+    res = await run_in_threadpool(_ingest, rows, device)
+    if ikey:
+        db.x("INSERT OR REPLACE INTO idempotency(device_id,key,body_hash,response,created_at) VALUES(?,?,?,?,?)", (device["id"], ikey, digest, json.dumps(res), time.time()))
+    return res
+
+
+class DeviceIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=60)
+    kind: str = "sensor"
+    crew_id: Optional[str] = None
+
+
+@app.post("/api/control/devices", tags=["control"])
+def control_add_device(body: DeviceIn, actor: dict = Depends(require_control)):
+    """Register a device that sends readings. The answer carries its key once; only a hash is stored. A device bound to a crew member
+    (`crew_id`) can send only that person's readings."""
+    if body.kind not in devices.KINDS:
+        raise validation.FieldError("kind", "Kind must be one of: " + ", ".join(devices.KINDS))
+    if body.crew_id is not None and body.crew_id not in CREW_BY_ID:
+        raise validation.FieldError("crew_id", "Pick a registered crew member")
+    d = devices.create(body.name, body.kind, body.crew_id)
+    audit.record(actor, "device.create", f"device:{d['id']}", after={"name": d["name"], "kind": d["kind"], "crew_id": d["crew_id"]})  # never the key
+    return d
+
+
+@app.get("/api/control/devices", tags=["control"], dependencies=[Depends(require_control)])
+def control_devices():
+    """Every device with when it last sent a reading. Never a key."""
+    return {"devices": devices.listing(), "legacy_key": devices.legacy_on()}
+
+
+@app.post("/api/control/devices/{device_id}/revoke", tags=["control"])
+def control_revoke_device(device_id: str, actor: dict = Depends(require_control)):
+    d = devices.revoke(device_id)
+    if d is None:
+        raise HTTPException(404, "no such device")
+    audit.record(actor, "device.revoke", f"device:{device_id}")
+    return d
 
 
 @app.get("/api/scenes", tags=["data"])
 def get_scenes():
-    """The guided demo's bookmarks (a day, a place, a person, a sentence). Not health data."""
-    return data.scenes()
+    """The guided demo's bookmarks (a day, a place, a person, a sentence). Not health data. None in flight mode."""
+    return data.scenes() if settings.mode == "demo" else []
 
 
-@app.post("/api/control/space-events", tags=["control"], dependencies=[Depends(require_control)])
-def control_add_space_event(body: dict = Body(...)):
+@app.post("/api/control/space-events", tags=["control"])
+def control_add_space_event(body: dict = Body(...), actor: dict = Depends(require_control)):
     """One space-weather event: kind, start_day, end_day, locations, extra_dose_msv (0 to 2000), origin, source, note."""
-    return data.add_space_event(body)
+    res = data.add_space_event(body)
+    audit.record(actor, "space_event.add", f"space_event:{res.get('id') if isinstance(res, dict) else ''}",
+                 after={k: body.get(k) for k in ("kind", "start_day", "end_day", "locations", "extra_dose_msv")} if isinstance(body, dict) else None)
+    return res
 
 
-@app.put("/api/control/clock", tags=["control"], dependencies=[Depends(require_control)])
-def control_clock(body: dict = Body(...)):
+@app.put("/api/control/clock", tags=["control"])
+def control_clock(body: dict = Body(...), _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """Move the mission clock: {"date": "YYYY-MM-DD", "time": "HH:MM"} for a simulated date (time is optional), or
-    {"real": true} to follow today's date in UTC again. 422 {field, message} on bad input. Runs the day sync at once."""
+    {"real": true} to follow today's date in UTC again. 422 {field, message} on bad input. Runs the day sync at once. Demo only."""
     if not isinstance(body, dict):
         raise validation.FieldError("body", "Send {\"date\": \"2035-10-31\", \"time\": \"12:00\"} or {\"real\": true}")
     real = body.get("real")
     if real is not None and not isinstance(real, bool):
         raise validation.FieldError("real", "real must be true or false")
+    before = mission.clock()
     mission.set_clock(body.get("date"), body.get("time"), bool(real))
+    audit.record(actor, "mission.clock", "mission", before=before, after=mission.clock())
     mission.safe_sync_day(force=True)
     return mission.state()
 
@@ -1270,9 +1902,9 @@ def control_data_status():
     person's indicator last arrived. Counts and dates only: no values and nothing about anyone's health."""
     count = lambda t: db.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"]  # noqa: E731 (fixed table names)
     readings = db.q("SELECT crew_id, indicator, MAX(day) last_day, MAX(received_at) last_received_at, COUNT(*) count "
-                    "FROM observations GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
+                    "FROM observations WHERE superseded_by IS NULL GROUP BY crew_id, indicator ORDER BY crew_id, indicator")
     pkg = data.loaded_package()
-    return {"ingest_configured": bool(settings.ingest_key), "package": (pkg or {}).get("name"),
+    return {"ingest_configured": devices.legacy_on() or any(d["active"] for d in devices.listing()), "package": (pkg or {}).get("name"),
             "counts": {"observations": count("observations"), "goal_entries": count("goal_log"),
                        "events": count("space_events"), "scenes": count("scenes")},
             "readings": [{k: r[k] for k in ("crew_id", "indicator", "last_day", "last_received_at", "count")} for r in readings]}
@@ -1288,10 +1920,13 @@ def _multipart_files(content_type: str, raw: bytes) -> list:
     return [(part.get_filename(), part.get_payload(decode=True) or b"") for part in msg.iter_parts() if part.get_filename()]
 
 
-@app.post("/api/control/import", tags=["control"], dependencies=[Depends(require_control)])
-async def control_import(request: Request):
+@app.post("/api/control/import", tags=["control"])
+async def control_import(request: Request, actor: dict = Depends(require_control)):
     """Import a mission package: a multipart upload of a .zip or of CSV files named like the package files, or JSON
-    {"package": "odyssey1-mars"} for a bundled one. Any error: 422 {"errors": [...]} and nothing is written."""
+    {"package": "odyssey1-mars"} for a bundled one. Any error: 422 {"errors": [...]} and nothing is written.
+    Once a mission is registered only readings, goal history and space events can be added (observations.csv, goal_log.csv,
+    space_events.csv): a bundled package is refused (409) and a file that defines the mission (crew, ground, mission, legs,
+    scenes) is a 422 that names it."""
     ctype = request.headers.get("content-type", "")
     try:
         if ctype.startswith("application/json"):
@@ -1300,28 +1935,31 @@ async def control_import(request: Request):
             except ValueError:
                 raise validation.FieldError("package", "Send JSON like {\"package\": \"odyssey1-mars\"}")
             name = body.get("package") if isinstance(body, dict) else None
-            res = await run_in_threadpool(data.import_package, data.package_dir(name), name, True)
+            folder = data.package_dir(name)  # a name that is no bundled package is a 422 whatever the state
+            _locked()  # a bundled package defines the whole mission: never over a registered one
+            res = await run_in_threadpool(data.import_package, folder, name, True)
         elif ctype.startswith("multipart/form-data"):
             if int(request.headers.get("content-length") or 0) > data.MAX_UPLOAD_BYTES:
                 raise validation.FieldError("file", "The upload is too large")
             raw = await request.body()
             parts = _multipart_files(ctype, raw)
             files = data.files_from_upload(parts)
+            if registry.registered():
+                shut = [n for n in files if n not in data.OPEN_FILES]
+                if shut:
+                    raise validation.ValidationFailure([{"field": "file", "message": f"{n} cannot change a registered mission"} for n in shut])
             res = await run_in_threadpool(data.import_package, files, data.upload_label(parts), False)
         else:
             raise HTTPException(415, "Send multipart/form-data (a zip or CSV files) or JSON {\"package\": \"name\"}")
     except validation.ValidationFailure as e:
         return JSONResponse(status_code=422, content={"detail": e.errors, "errors": e.errors, "accepted": {}})
+    audit.record(actor, "data.import", "mission-data", after={"accepted": res.get("accepted"), "duplicates": res.get("duplicates")})  # counts only
     return {**res, "errors": []}
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)
+# A file of the built app is served; a route of the app is index.html; an unknown /api path or a missing asset is a 404 (web.py).
 mimetypes.add_type("model/gltf-binary", ".glb")
 _dist = pathlib.Path(settings.frontend_dist)
 if _dist.is_dir():
-    app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
-
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        f = _dist / path
-        return FileResponse(f if path and f.is_file() else _dist / "index.html")
+    mount_spa(app, _dist)

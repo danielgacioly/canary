@@ -120,7 +120,7 @@ def _protocols(m: dict) -> List[Document]:
         if p["after"]:
             chunks.append(ChunkSpec("after", "after", f"{head}, afterwards", "Afterwards: " + "; ".join(p["after"]) + "."))
         out.append(Document(doc_id, int(p.get("version", 1)), "protocol", p["n"], f"protocol:{pid}",
-                            p.get("reviewed", "illustrative"), f"data/protocols.json#{pid}", chunks))
+                            p.get("status", "illustrative"), f"data/protocols.json#{pid}", chunks))
     return out
 
 
@@ -299,7 +299,7 @@ def _care_windows(m: dict) -> List[Document]:
             items = "; ".join(f"{i['title']} ({_days(i['days'])})" if i["days"] else i["title"] for i in c["after_items"])
             chunks.append(ChunkSpec("items", "after", f"{p['n']}, aftercare", f"Aftercare after a {p['n']} emergency: {items}."))
         out.append(Document(doc_id, int(m.get("versions", {}).get(doc_id, p.get("version", 1))), "care_window",
-                            f"{p['n']}: care window", "", p.get("reviewed", "illustrative"),
+                            f"{p['n']}: care window", "", p.get("status", "illustrative"),
                             f"data/protocols.json#{pid} (window_days, ops, after_days); domain/care.py", chunks))
     return out
 
