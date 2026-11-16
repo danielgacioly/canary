@@ -139,7 +139,7 @@ def test_every_endpoint_answers_for_a_crew_of_n(n):
     assert len(out["/api/mission/overview"]["crew"]) == n and len(out["/api/control/overview [as control]"]["people"]) == n
     assert "base" not in keys_of(out)
     # nothing seeded by a demo character: ages come from the record and the launch date
-    assert [c["age"] for c in out["/api/catalog"]["crew"]] == [int(LAUNCH[:4]) - (1985 + i) - 1 for i in range(n)]
+    assert [c["age"] for c in client.get("/api/catalog", headers=ctl()).json()["crew"]] == [int(LAUNCH[:4]) - (1985 + i) - 1 for i in range(n)]  # the age is for signed-in people (SEC-06)
 
 
 @pytest.mark.parametrize("n", [1, 3, 6])
@@ -221,13 +221,13 @@ def test_nobody_and_seven_people_are_refused_on_the_crew_field():
 def test_the_crew_exercise_target_grows_with_the_crew(n, target):
     assert register(n).status_code == 200
     go(5)
-    team = client.get("/api/leaderboard").json()["team"]
+    team = client.get("/api/leaderboard", headers=ctl()).json()["team"]
     ex = next(t for t in team if t["id"] == "team_exercise")
     assert ex["target"] == target and ex["title"] == f"Crew exercise: {target} sessions this week" and ex["pct"] == 0
     mind = next(t for t in team if t["id"] == "team_mind")
     assert mind["target"] == 5 * n and "per_person" not in mind
     assert goals.crew_quorum(n) == {1: 1, 2: 2, 3: 3, 4: 3, 6: 5}.get(n, 3)
-    assert client.get("/api/crew/overview").json()["crew_streak"] == 0
+    assert client.get("/api/crew/overview", headers=ctl()).json()["crew_streak"] == 0
 
 
 def test_the_demo_crew_keeps_its_old_targets_and_quorum():
@@ -291,4 +291,4 @@ def test_a_person_registered_without_a_sex_has_no_sex_specific_range_and_nothing
     post_obs([reading("s1", "grip", d, 20.0) for d in range(-12, 3)])
     go(5)
     out = every_get(ids())
-    assert out["/api/crew/s1 [as s1]"]["indicators"]["grip"]["population"]["low"] is None
+    assert out["/api/crew/s1 [as s1]"]["indicators"]["grip"]["population"]["low"] == 16  # DATA-08: no sex takes the widest range of the two (F 16, M 27)

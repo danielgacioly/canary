@@ -267,14 +267,14 @@ def current(crew_id: str, ind: str, day: int) -> Optional[float]:
     return None if n == 0 else num if n == 3 else num / den
 
 
-def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
-    """[day, value] for the last `n` days; a day whose observation is stale or missing is [day, None] (null in JSON).
-    One exception, kept so the demo charts stay identical: on the days before the person's first stored measurement the
-    chart still draws that first value (the line starts flat). It is a chart nicety only: `observation()` never uses it.
-    A person with no measurement at all has no line. A scan indicator (bone density) is drawn only on the days it was
-    measured."""
+def series_points(crew_id: str, ind: str, day: int, n: int = 30) -> list:
+    """The trend of `ind` for the last `n` days, one dict per day: {"day", "value", "origin", "age_days", "source", "stale"}.
+
+    Every value is the one `observation()` gives for that day: the day's own reading, or the last one taken before it with
+    its age and origin (DATA-06). A day whose observation is stale or missing has value None. Nothing is ever read from a
+    later day: before the first measurement the trend is empty (DATA-05). A scan indicator (bone density) is drawn only on
+    the days it was measured."""
     uv = user_values(crew_id, day - n + 1, day)
-    first = data.first(crew_id, ind)
     scan = INDICATORS.get(ind, {}).get("scan")
     out = []
     for d in range(day - n + 1, day + 1):
@@ -282,6 +282,13 @@ def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
         if scan:
             v = o["value"] if o["age_days"] == 0 else None
         else:
-            v = o["value"] if is_current(o) else (first if o["origin"] == "none" else None)
-        out.append([d, None if v is None else round(v, 2)])
+            v = o["value"] if is_current(o) else None
+        out.append({"day": d, "value": None if v is None else round(v, 2), "origin": o["origin"] if v is not None else None,
+                    "age_days": o["age_days"] if v is not None else None, "source": o["source"] if v is not None else None,
+                    "stale": bool(o["stale"])})
     return out
+
+
+def series(crew_id: str, ind: str, day: int, n: int = 30) -> list:
+    """[day, value] for the last `n` days (see `series_points`, which also gives each value's origin and age)."""
+    return [[p["day"], p["value"]] for p in series_points(crew_id, ind, day, n)]

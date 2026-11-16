@@ -32,6 +32,8 @@ def thresholds() -> dict:
     return db.get_setting("thresholds", DEFAULT_THRESHOLDS)
 
 
+BASELINE_METHOD = ("mean and population spread of the pre-flight readings, one per day (instrument before self-report, resting context); "
+                   "the spread is never below the indicator's floor; early flight: the first days of flight data")
 MIN_PREFLIGHT = A.value("baseline.min_points")  # measurements needed before a person's own normal is trusted
 EARLY_FLIGHT_DAYS = A.value("baseline.early_flight_days")  # a person who starts in flight learns their normal from their first days of measurements
 _baselines: Dict[tuple, Dict[str, dict]] = {}
@@ -55,6 +57,10 @@ def baselines(crew_id: str) -> Dict[str, dict]:
     - `inflight`, for indicators flagged `adapts_in_flight`: mean, spread and `n` over flight days 8 to 14 (the in-flight
       re-baseline). It is used for the z-score from flight day 15; the NASA percent-of-baseline limits never use it.
 
+    Each entry also carries `policy` (RULE-02): the version of this method, the minimum coverage (`min_days`: readings on
+    different days needed), the coverage reached (`coverage_days`), the method in words and the freeze rule. It is what the
+    interface shows as "how this normal was made".
+
     Cached per crew member, plan version, stored data and number of check-ins.
     """
     key = (crew_id, plan.version(), data.token(), telemetry.preflight_checkins(crew_id))
@@ -67,16 +73,19 @@ def baselines(crew_id: str) -> Dict[str, dict]:
             need = I.get("min_baseline", MIN_PREFLIGHT)
             vals = list(telemetry.preflight_values(crew_id, ind).values())
             early = [] if I.get("scan") else list(telemetry.early_flight_values(crew_id, ind, EARLY_FLIGHT_DAYS).values())
+            policy = {"version": A.value("baseline.policy_version"), "min_days": need, "freeze": A.value("baseline.freeze"),
+                      "method": BASELINE_METHOD, "coverage_days": max(len(vals), len(early))}
             if len(vals) >= need:
                 src, use = "preflight", vals
             elif len(early) >= need:
                 src, use = "early_flight", early
             else:
                 n = max(len(vals), len(early))
-                hit[ind] = {"mean": None, "sd": None, "from": "learning", "n": n, "need": need, "confidence": "low"}
+                hit[ind] = {"mean": None, "sd": None, "from": "learning", "n": n, "need": need, "confidence": "low", "policy": policy}
                 continue
+            policy["coverage_days"] = len(use)
             hit[ind] = {"mean": round(statistics.mean(use), I["dp"]), "sd": max(statistics.pstdev(use), I["sd"]), "n": len(use), "from": src,
-                        "confidence": confidence(len(use))}
+                        "confidence": confidence(len(use)), "policy": policy}
             if I.get("adapts_in_flight"):
                 fl = list(telemetry.inflight_values(crew_id, ind, A.value("adaptation.rebaseline_first"), A.value("adaptation.rebaseline_last")).values())
                 if len(fl) >= A.value("adaptation.min_points"):
@@ -238,7 +247,8 @@ def indicator(crew_id: str, ind: str, ms: dict, th: Optional[dict] = None, last:
     meta = {"spread": round(spread, 3), "baseline_from": B["from"], "baseline_in_use": in_use, "baseline_n": B["n"], "n": B["n"],
             "confidence": B.get("confidence", "low"), "baseline_need": B.get("need"), "learning": learning,
             "baseline_preflight": B["mean"] if B["from"] == "preflight" else None,
-            "baseline_inflight": B.get("inflight"), "adapts_in_flight": bool(I.get("adapts_in_flight")), "adapting": _adapting(I, day, ms["location"]),
+            "baseline_inflight": B.get("inflight"), "baseline_policy": B.get("policy"), "adapts_in_flight": bool(I.get("adapts_in_flight")),
+            "adapting": _adapting(I, day, ms["location"]),
             "scan": bool(I.get("scan")), **({"sensitive_until": window["sensitive_until"]} if window else {})}
     scan_in_flight = bool(I.get("scan")) and in_flight
     if v is None or scan_in_flight:  # no row at all, only stale ones, or a scan that cannot be taken on board: not a health finding
@@ -365,16 +375,51 @@ def storm_info(crew_id: Optional[str], ms: dict) -> Optional[dict]:
     return {"event": ev, "shelter": dose_mod.shelter(crew_id, ms["day"], ms["location"], ev)}
 
 
-def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> Dict[str, dict]:
-    """Colour of each body system: the highest level among the risks that act on it. One indicator outside your
-    normal, with no risk behind it, is a watch (level 1) at most, unless it is past the population safety limit."""
+DURATION_WORDS = {1: "a day", 2: "two days", 3: "three days", 4: "four days", 5: "five days", 6: "six days", 7: "a week",
+                  14: "two weeks", 21: "three weeks", 28: "four weeks"}
+
+
+def duration_words(days: int) -> str:
+    """How long a measured stretch lasted, in words, from the number of days counted (RULE-05). Never a fixed phrase: the
+    text says "two weeks" only when the data covers fourteen days."""
+    if days in DURATION_WORDS:
+        return DURATION_WORDS[days]
+    if days < 14:
+        return f"{days} days"
+    return f"{days // 7} weeks" if days % 7 == 0 else f"{days} days"
+
+
+def regravity_pattern(inds: Dict[str, dict]) -> bool:
+    """The re-adaptation pattern after the change to partial gravity (RULE-04): the pressure is BELOW the normal (direction),
+    the pulse ABOVE it, and the pressure was taken standing (context). A pressure or a pulse away from the normal in another
+    direction, or a pressure taken lying or seated, is not this pattern."""
+    P = A.value("cardio.regravity_pattern")
+    sbp, dbp, hr = inds["sbp"], inds["dbp"], inds["hr"]
+
+    def below(d: dict) -> bool:
+        return d.get("delta") is not None and d["delta"] < 0 and d["level"] >= 1 and d.get("value") is not None
+
+    pressure_low = below(sbp) or below(dbp)
+    pulse_high = hr.get("delta") is not None and hr["delta"] > 0 and hr["level"] >= 1
+    position = (sbp.get("context") or {}).get("position") or (dbp.get("context") or {}).get("position")  # how the pressure was taken
+    return bool(pressure_low and pulse_high and position == P["position"])
+
+
+def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None,
+            al: Optional[List[dict]] = None) -> Dict[str, dict]:
+    """Colour of each body system: THE level source (RULE-10). Status, areas and the notification's organ colours read it.
+
+    The level of a system is the highest of: 2 when a critical limit is crossed; the risks that act on it (risk.level_for);
+    one indicator outside your normal, with no risk behind it, at most a watch (1); and the alerts `al` that belong to it
+    (`sys`). An alert with no system (symptoms) is not in any colour; `snapshot` reads it on its own."""
     risks = risks or []
     out = {}
     for sid, S in SYSTEMS.items():
         worst = max([inds[i]["level"] for i in S["indicators"]] or [0])
         critical = any(inds[i]["population"]["status"] == "critical" or (inds[i].get("standard") or {}).get("level") == 2
                        for i in S["indicators"])
-        lv = 2 if critical else max(risk.level_for(risks, sid), min(1, worst))
+        from_alerts = max([a["level"] for a in (al or []) if a.get("sys") == sid and not a.get("data")] or [0])
+        lv = 2 if critical else max(risk.level_for(risks, sid), min(1, worst), from_alerts)
         note = None
         if sid == "eyes":
             a = latest_checkin(crew_id, "amsler", ms["day"])
@@ -410,9 +455,13 @@ def systems(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
 
 
 def score(inds: Dict[str, dict], area: str, syss: Dict[str, dict]) -> Optional[int]:
-    """Readiness 0 to 100. Prototype assumption (numbers in domain/assumptions.py, readiness.*): each indicator loses points
-    for every spread beyond a free distance from its own normal, the area is their mean, and physical loses points per level
-    of eyes, skin and immune (no indicators of their own). The formula is a design choice, not a published score."""
+    """Readiness 0 to 100 (RULE-13). Prototype assumption (numbers in domain/assumptions.py, readiness.*): each indicator loses
+    points for every spread beyond a free distance from its own normal, the area is their mean, and physical loses points per
+    level of eyes, skin and immune (no indicators of their own). The formula is a design choice, not a published score.
+
+    Semantics: a value is measured now (no window: a stale or missing indicator is left out, never invented); `bad` is the
+    distance in personal spreads, signed so that higher is worse. Boundaries are inclusive and the result is rounded to a
+    whole point, once, at the end. None when nothing is measured in the area."""
     free, per, pen = A.value("readiness.free_spread"), A.value("readiness.points_per_spread"), A.value("readiness.system_penalty")
     vals = [max(0.0, min(100.0, 100 - per * max(0.0, i["bad"] - free))) for i in inds.values()
             if i["area"] == area and i["bad"] is not None and not i.get("alias_of")]
@@ -564,10 +613,63 @@ def _storm_alert(si: dict) -> dict:
             "shelter": si["shelter"], "goals": []}
 
 
+def _checkin_alerts(crew_id: str, ms: dict) -> List[dict]:
+    """Alerts that come from the person's own check-ins and tests (Amsler grid, wellbeing, sleepiness, symptoms, missing
+    mood). None of them needs a personal baseline, so the learning phase shows them too (RULE-09)."""
+    AL: List[dict] = []
+    am = latest_checkin(crew_id, "amsler", ms["day"])
+    if am and am.get("distortion"):
+        AL.append({"id": "amsler", "level": 2, "sys": "eyes", "title": "Wavy lines on the Amsler grid.",
+                  "why": "It can signal a change at the back of the eye, which is linked to fluid shift in 0 g.",
+                  "todo": ["Repeat the test tomorrow at the same time", "Send an eye photo to Earth"],
+                  "sources": [f"checkin:{crew_id}:amsler:day{am['day']}"], "goals": []})
+
+    wb = latest_checkin(crew_id, "wellbeing", ms["day"], window=A.value("window.wellbeing_days"))
+    if wb and max(wb.get("phq2", 0), wb.get("gad2", 0)) >= 3:
+        AL.append({"id": "wellbeing", "level": 1, "sys": "brain", "title": "Your answers point to a hard stretch.",
+                  "why": f"Low mood or worry on more than half the days of the last {duration_words(A.value('window.wellbeing_days'))}. That is common on long missions and it helps to say it out loud.",
+                  "todo": ["Talk to the medical officer this week", "Record a private message for the mission psychologist", "Protect your sleep window"],
+                  "sources": [f"checkin:{crew_id}:wellbeing:day{wb['day']}"],
+                  "goals": [{"id": "al_talk", "area": "mental", "title": "Book 15 minutes with the medical officer"}]})
+
+    kss = latest_checkin(crew_id, "kss", ms["day"], window=A.value("window.sleepy_days"))
+    if kss and int(kss.get("level", 0)) >= 7:
+        AL.append({"id": "sleepy", "level": 1, "sys": "brain", "title": "You rated yourself very sleepy.",
+                  "why": "On the Karolinska scale, 7 or more means reactions are slower than they feel.",
+                  "todo": ["Hand over critical or precise work for now", "Take a 20-minute nap if the schedule allows", "Retake the reaction test after resting"],
+                  "sources": [f"checkin:{crew_id}:kss:day{kss['day']}"], "goals": []})
+
+    sy = latest_checkin(crew_id, "symptoms", ms["day"], window=A.value("window.symptoms_days"))
+    if sy and int(sy.get("severity", 0)) >= 3 and sy.get("items"):
+        AL.append({"id": "symptoms", "level": 1, "sys": None, "title": f"You reported strong {', '.join(sy['items'][:2]).lower()}.",
+                  "why": "Strong symptoms are worth a look even when the sensors look normal.",
+                  "todo": ["Tell the medical officer today", "Log it again tomorrow so the trend is clear"],
+                  "sources": [f"checkin:{crew_id}:symptoms:day{sy['day']}"], "goals": []})
+
+    from . import goals  # late import: goals imports health
+    day = ms["day"]
+    mood_days = A.value("window.missing_mood_days")
+    log = goals._log(crew_id)
+    if not ms.get("learning") and not any(goals.is_done(crew_id, "mood", d, day, log) for d in range(day, day - mood_days, -1)):  # not before launch
+        AL.append({"id": "missing_mood", "level": 1, "data": True, "sys": "brain", "test": "mood",
+                  "title": f"No mood check-in for {mood_days} days.",
+                  "why": "Canary reads your mood and stress less well without a check-in, and the numbers can look better than the days feel. Nothing is wrong with skipping; days get busy.",
+                  "todo": ["A 30-second mood check-in is enough", "Add a line about why if you want the medical team to know"],
+                  "sources": [f"goals:{crew_id}:mood:day{day}"], "goals": []})
+    return AL
+
+
 def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[dict]] = None) -> List[dict]:
     """Cross-signal rules first, then single indicators that are left. Each alert says what to do."""
-    if ms["learning"]:  # no early warnings while Canary learns the baseline; a safety limit still speaks
-        return [_indicator_alert(i, d) for i, d in inds.items() if d["population"]["status"] == "critical"]
+    if ms["learning"]:  # no early warnings while Canary learns the baseline (RULE-09): the events and check-ins that need no
+        # baseline still speak, and a safety limit too
+        AL = []
+        si = storm_info(crew_id, ms)
+        if si:
+            AL.append(_storm_alert(si))
+        AL += _checkin_alerts(crew_id, ms)
+        AL += [_indicator_alert(i, d) for i, d in inds.items() if d["population"]["status"] == "critical"]
+        return sorted(AL, key=lambda a: -a["level"])
     risks = risk.evaluate(crew_id, ms) if risks is None else risks
     AL, used = [], set()
     lv = lambda i: inds[i]["level"]  # noqa: E731
@@ -584,7 +686,8 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
         ev = fat["evidence"]
         classic = all(inds[i]["level"] and inds[i]["value"] is not None and inds[i]["baseline"] is not None
                       for i in ("sleep", "mood", "react"))  # the familiar text, when its three signals are all up
-        why = (f"For two weeks you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
+        span = ms["day"] - (fat.get("since_day") if fat.get("since_day") is not None else ms["day"]) + 1  # the measured stretch
+        why = (f"For {duration_words(span)} you have slept {inds['sleep']['baseline'] - inds['sleep']['value']:.1f} h less than your normal, "
                f"you react {inds['react']['value'] - inds['react']['baseline']:.0f} ms slower and spend less time with the crew."
                if classic else
                "Several signals are away from your normal at once: " + "; ".join(e["text"].lower() for e in ev[:2]) + ".")
@@ -610,7 +713,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                   "goals": [{"id": "al_sip", "area": "physical", "title": "A sip of water every 15 minutes until dinner"},
                             {"id": "al_head", "area": "physical", "title": "Slow head movements, 5 min, three times today"}]})
 
-    if place["gravity_key"] == "gp" and (lv("sbp") or lv("dbp")) and lv("hr"):
+    if place["gravity_key"] == "gp" and regravity_pattern(inds):
         used.update(["sbp", "dbp", "hr"])
         AL.append({"id": "regravity", "level": 1, "sys": "heart",
                   "title": "Your body is relearning weight.",
@@ -620,44 +723,7 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
                   "goals": [{"id": "al_salt", "area": "physical", "title": "500 mL of salted water on waking"},
                             {"id": "al_stand", "area": "physical", "title": "Measure pressure lying down and standing"}]})
 
-    am = latest_checkin(crew_id, "amsler", ms["day"])
-    if am and am.get("distortion"):
-        AL.append({"id": "amsler", "level": 2, "sys": "eyes", "title": "Wavy lines on the Amsler grid.",
-                  "why": "It can signal a change at the back of the eye, which is linked to fluid shift in 0 g.",
-                  "todo": ["Repeat the test tomorrow at the same time", "Send an eye photo to Earth"],
-                  "sources": [f"checkin:{crew_id}:amsler:day{am['day']}"], "goals": []})
-
-    wb = latest_checkin(crew_id, "wellbeing", ms["day"], window=14)
-    if wb and max(wb.get("phq2", 0), wb.get("gad2", 0)) >= 3:
-        AL.append({"id": "wellbeing", "level": 1, "sys": "brain", "title": "Your answers point to a hard stretch.",
-                  "why": "Low mood or worry on more than half the days of the last two weeks. That is common on long missions and it helps to say it out loud.",
-                  "todo": ["Talk to the medical officer this week", "Record a private message for the mission psychologist", "Protect your sleep window"],
-                  "sources": [f"checkin:{crew_id}:wellbeing:day{wb['day']}"],
-                  "goals": [{"id": "al_talk", "area": "mental", "title": "Book 15 minutes with the medical officer"}]})
-
-    kss = latest_checkin(crew_id, "kss", ms["day"], window=1)
-    if kss and int(kss.get("level", 0)) >= 7:
-        AL.append({"id": "sleepy", "level": 1, "sys": "brain", "title": "You rated yourself very sleepy.",
-                  "why": "On the Karolinska scale, 7 or more means reactions are slower than they feel.",
-                  "todo": ["Hand over critical or precise work for now", "Take a 20-minute nap if the schedule allows", "Retake the reaction test after resting"],
-                  "sources": [f"checkin:{crew_id}:kss:day{kss['day']}"], "goals": []})
-
-    sy = latest_checkin(crew_id, "symptoms", ms["day"], window=2)
-    if sy and int(sy.get("severity", 0)) >= 3 and sy.get("items"):
-        AL.append({"id": "symptoms", "level": 1, "sys": None, "title": f"You reported strong {', '.join(sy['items'][:2]).lower()}.",
-                  "why": "Strong symptoms are worth a look even when the sensors look normal.",
-                  "todo": ["Tell the medical officer today", "Log it again tomorrow so the trend is clear"],
-                  "sources": [f"checkin:{crew_id}:symptoms:day{sy['day']}"], "goals": []})
-
-    from . import goals  # late import: goals imports health
-    day = ms["day"]
-    log = goals._log(crew_id)
-    if not any(goals.is_done(crew_id, "mood", d, day, log) for d in (day, day - 1, day - 2)):
-        AL.append({"id": "missing_mood", "level": 1, "data": True, "sys": "brain", "test": "mood",
-                  "title": "No mood check-in for 3 days.",
-                  "why": "Canary reads your mood and stress less well without a check-in, and the numbers can look better than the days feel. Nothing is wrong with skipping; days get busy.",
-                  "todo": ["A 30-second mood check-in is enough", "Add a line about why if you want the medical team to know"],
-                  "sources": [f"goals:{crew_id}:mood:day{day}"], "goals": []})
+    AL.extend(_checkin_alerts(crew_id, ms))
 
     for i, d in inds.items():
         if d.get("alias_of"):  # the old name of the systolic pressure: its alert is the one of `sbp`
@@ -668,16 +734,21 @@ def _alerts(crew_id: str, ms: dict, inds: Dict[str, dict], risks: Optional[List[
 
 
 def snapshot(crew_id: str, ms: dict) -> dict:
-    """Everything health-related for one person at the current mission time."""
+    """Everything health-related for one person at the current mission time.
+
+    One level source (RULE-10): the body systems. Each system's level (its colour, see `systems`) already includes the
+    risks and the alerts that belong to it. Each area's level and the overall `level`/`status` are the highest of those
+    colours, plus the alerts that have no system (symptoms) and are not missing data. The score, the notification and the
+    status all read these numbers; nothing recomputes its own level."""
     inds = indicators(crew_id, ms)
     risks = risk.evaluate(crew_id, ms)
-    syss = systems(crew_id, ms, inds, risks)
     al = alerts(crew_id, ms, inds, risks)
+    syss = systems(crew_id, ms, inds, risks, al)
     areas = {}
     for area in ("physical", "mental"):
-        lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [i["level"] for i in inds.values() if i["area"] == area] + [0])
+        lvl = max([s["level"] for s in syss.values() if s["area"] == area] + [0])
         areas[area] = {"score": score(inds, area, syss), "level": lvl, "status": STATUS[lvl]}
-    top = max([a["level"] for a in al if not a.get("data")] + [0])  # missing data is not a health risk
+    top = max([s["level"] for s in syss.values()] + [a["level"] for a in al if a.get("sys") is None and not a.get("data")] + [0])
     no_data = all(i.get("status") == "no_data" for i in inds.values())  # not one current value
     return {"crew_id": crew_id, "day": ms["day"], "no_data": no_data, "indicators": inds, "systems": syss, "alerts": al, "risks": risks, "areas": areas,
-            "level": top, "status": STATUS[top], "dose": dose(ms, crew_id)}
+            "level": top, "status": STATUS[top], "dose": dose(ms, crew_id), "rules_review": A.review_summary()}

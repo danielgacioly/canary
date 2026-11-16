@@ -9,7 +9,7 @@ import type { CheckKind } from '../features/Checks'
 import type { SystemId } from '../hologram/anatomy'
 import BodyHologram from '../hologram/BodyHologram'
 import type { Lens } from '../hologram/scene'
-import { amslerResult, attention, bonePctOfPreflight, doseOrigin, fmtValue, hasOwnNormal, missingNote, nasaRaises, num, startedText } from '../lib/health'
+import { amslerResult, attention, bonePctOfPreflight, doseOrigin, fmtValue, hasOwnNormal, missingNote, nasaRaises, num, startedText, assessWord, notAssessed } from '../lib/health'
 import { useSession } from '../state/session'
 import EvaReadiness from './EvaReadiness'
 import RadiationBar from './RadiationBar'
@@ -30,7 +30,7 @@ export default function BodyView({ d, onCheck, self = true }: { d: CrewDetail; o
   const [lens, setLens] = useState<Lens>(d.areas.mental.level > d.areas.physical.level ? 'mental' : 'physical')
   const [sel, setSel] = useState<SystemId | null>(null)
   // a system with nothing measured is painted neutral grey (-1), never a status colour
-  const status = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.no_data && v.level === 0 ? -1 : v.level])) as Record<SystemId, -1 | 0 | 1 | 2>, [d.systems])
+  const status = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, (v.no_data || notAssessed(v.assessment)) && v.level === 0 ? -1 : v.level])) as Record<SystemId, -1 | 0 | 1 | 2>, [d.systems])
   const names = useMemo(() => Object.fromEntries(Object.entries(d.systems).map(([k, v]) => [k, v.name])), [d.systems])
   const hero = useRef<HTMLElement>(null)
   const apply = (s: SystemId | null) => {
@@ -113,8 +113,10 @@ function Tiles({ count, children }: { count: number; children: React.ReactNode }
  *  measure when the tile is named after a body system (Blood & immunity shows a temperature). */
 function Reading({ ind, label }: { ind: Indicator; label?: string }) {
   const p = ind.population
-  const note = missingNote(ind) ?? (ind.baseline !== null ? `normal ${ind.baseline.toFixed(ind.dp)}` : null)
-  const line = [label, note].filter(Boolean).join(' · ')
+  // no current value: the word says whether there is an older reading ("Stale") or none at all ("No data")
+  const word = ind.value === null ? assessWord(ind.assessment ?? 'insufficient_data') : null
+  const note = ind.value === null ? (ind.last_measured_day !== null ? `Last measured day ${ind.last_measured_day}` : null) : missingNote(ind) ?? (ind.baseline !== null ? `normal ${ind.baseline.toFixed(ind.dp)}` : null)
+  const line = [label, word, note].filter(Boolean).join(' · ')
   return (
     <div className="tile-body">
       <div className="tv">{fmtValue(ind)}{ind.value !== null && <small>{ind.unit}</small>}</div>
@@ -146,9 +148,9 @@ function PhysicalTile({ d, s, i, on, onPick }: { d: CrewDetail; s: SystemId; i: 
       </div>
     )
   } else if (ind) body = <Reading ind={ind} label={ind.name} />
-  else body = <div className="tile-body"><div className="tv">{st.no_data ? '—' : st.status}</div>{st.no_data && <div className="small dim">No data yet</div>}</div>
+  else body = <div className="tile-body"><div className="tv">{st.no_data ? '—' : st.status}</div>{st.no_data && <div className="small dim">{assessWord(st.assessment ?? 'insufficient_data')}</div>}</div>
   return (
-    <button className={`tile rise ${st.no_data && st.level === 0 ? 'nodata' : `s${st.level}`} ${on ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={onPick}>
+    <button className={`tile rise ${(st.no_data || notAssessed(st.assessment)) && st.level === 0 ? 'nodata' : `s${st.level}`} ${on ? 'on' : ''}`} style={{ ['--d' as string]: i }} onClick={onPick}>
       <div className="top"><span className="dot" />{st.name}{nasa && <span className="nasa-mark" title="A NASA-STD-3001 limit raises this level">NASA</span>}</div>
       {body}
     </button>
@@ -234,7 +236,7 @@ function SystemPanel({ d, sys, onBack, onCheck }: { d: CrewDetail; sys: SystemId
       <div className="rise" style={{ ['--d' as string]: 1 }}>
         <h1>{st.name}</h1>
         <p className="meta cap">{st.area} · {info.hazard}</p>
-        <div style={{ marginTop: 10 }}>{st.no_data && st.level === 0 ? <span className="small dim">No data yet</span> : <Status level={st.level} />}</div>
+        <div style={{ marginTop: 10 }}>{(st.no_data || notAssessed(st.assessment)) && st.level === 0 ? <span className="small dim">{assessWord(st.assessment ?? 'insufficient_data')}</span> : <Status level={st.level} />}</div>
         {st.note && <p className="why">{st.note}</p>}
       </div>
       {sys === 'skin' && d.dose.career_msv !== undefined && <div className="rise" style={{ ['--d' as string]: 2 }}><RadiationBar d={d} /></div>}

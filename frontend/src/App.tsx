@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Shell from './components/Shell'
 import Tour from './components/Tour'
+import OfflineBanner from './components/OfflineBanner'
 import About from './pages/About'
 import Astronaut from './pages/Astronaut'
 import Crew from './pages/Crew'
@@ -22,6 +23,7 @@ function seenIntro(): boolean {
 export default function App() {
   return (
     <>
+    <OfflineBanner />
     <Tour />
     <Routes>
       <Route path="/welcome" element={<Intro />} />

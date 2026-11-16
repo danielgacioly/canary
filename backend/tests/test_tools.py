@@ -174,7 +174,16 @@ def test_settings_keys_are_stripped(monkeypatch):
     assert r.data == {"ok": 1, "nested": [{"keep": True}]}
 
 
-_JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+def _tiny_jpeg() -> str:
+    """A real 1x1 JPEG, made with Pillow: the photo is decoded on save (EDIT-06), so fake bytes are refused."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), (200, 30, 30)).save(buf, "JPEG")
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+_JPEG = _tiny_jpeg()
 
 
 def test_vitals_photos_are_never_returned_by_a_tool(monkeypatch):

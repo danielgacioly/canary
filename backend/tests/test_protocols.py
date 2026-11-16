@@ -168,5 +168,5 @@ def test_care_window_is_for_the_medical_team_only_and_never_names_anyone():
 
 def test_crew_overview_warnings_point_to_the_protocol():
     client.put("/api/mission", json={"step": 3}, headers=control_headers(client))
-    w = client.get("/api/crew/overview").json()["warnings"]
+    w = client.get("/api/crew/overview", headers=crew_headers(client, "h")).json()["warnings"]
     assert w and w[0]["protocol"] == "rad"

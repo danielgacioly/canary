@@ -81,10 +81,16 @@ def validate(kind: str, payload: dict) -> None:
         if scores is None:
             n("raw", "Workload", 0, 100, required=True)
         else:
+            # A closed set: only the six NASA-TLX scales, each answered once. The overall score is never taken from the client
+            # when scores are sent: normalise() derives it from them.
             if not isinstance(scores, dict) or not 1 <= len(scores) <= len(TLX_KEYS):
                 raise FieldError("scores", "Answer the workload questions")
             for k in scores:
-                V.number(scores, k, str(k).capitalize(), 0, 100, field=f"scores.{k}", required=True)
+                if k not in TLX_KEYS:
+                    raise FieldError(f"scores.{k}" if isinstance(k, str) else "scores", "Unknown workload scale")
+            for k in TLX_KEYS:
+                if k in scores:
+                    V.number(scores, k, k.capitalize(), 0, 100, field=f"scores.{k}", required=True)
     elif kind == "wellbeing":
         a = payload.get("answers")
         if a is None:
@@ -144,7 +150,8 @@ def normalise(kind: str, payload: dict) -> dict:
     if kind == "sleep" and p.get("bed") and p.get("wake"):
         p["hours"] = _hours(p["bed"], p["wake"])
     if kind == "tlx" and p.get("scores"):
-        p["raw"] = round(sum(p["scores"].values()) / len(p["scores"]))
+        p["scores"] = {k: p["scores"][k] for k in TLX_KEYS if k in p["scores"]}
+        p["raw"] = round(sum(p["scores"].values()) / len(p["scores"]))  # derived here, never the client's number
     if kind == "wellbeing" and p.get("answers"):
         a = p["answers"]
         p["phq2"], p["gad2"] = a[0] + a[1], a[2] + a[3]

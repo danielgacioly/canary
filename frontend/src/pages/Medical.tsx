@@ -8,7 +8,7 @@ import PinPad from '../components/PinPad'
 import { Icon, Status, Tabs } from '../components/ui'
 import { MESSAGE_KIND, usePartyName, usePlaceName, useProtocolName } from '../lib/names'
 import { modelLine } from '../lib/assistant'
-import { allMissing, doseOrigin, DASH, nasaLine, num, startedText } from '../lib/health'
+import { allMissing, assessWord, doseOrigin, DASH, genericLimit, nasaLine, notAssessed, num, startedText } from '../lib/health'
 import { useAction } from '../lib/useAction'
 import { useForm } from '../lib/useForm'
 import * as v from '../lib/validate'
@@ -53,7 +53,7 @@ const DEMO_MEDICAL_PINS: Record<string, string> = { k: '1002', 'g-fs1': '1961' }
 
 /** Pick the account (the crew medical officer or a ground flight surgeon), then its PIN. */
 function PinGate({ onOk }: { onOk: () => void }) {
-  const { catalog } = useSession()
+  const { catalog, bump } = useSession()
   const { data: accounts, error } = useApi(() => api.accountsPublic(), [])
   const [who, setWho] = useState<string | null>(null)
   const options = [...(accounts?.crew.filter(c => c.cmo).map(c => ({ id: c.id, name: c.name, role: 'Crew medical officer' })) ?? []),
@@ -72,7 +72,7 @@ function PinGate({ onOk }: { onOk: () => void }) {
       )}
       {person && (
         <PinPad title={person.name} subtitle="Enter your 4-digit PIN" hint={catalog?.mode === 'demo' && DEMO_MEDICAL_PINS[person.id] ? `Demo PIN: ${DEMO_MEDICAL_PINS[person.id]}` : undefined} onCancel={() => setWho(null)}
-          onSubmit={async pin => { await api.medicalSignIn(person.id, pin); onOk() }} />
+          onSubmit={async pin => { await api.medicalSignIn(person.id, pin); bump(); onOk() }} />
       )}
     </div>
   )
@@ -81,7 +81,6 @@ function PinGate({ onOk }: { onOk: () => void }) {
 const STD_WORD = { in: 'within', near: 'near the NASA limit', limit: 'at the NASA limit' } as const
 const EVA_WORD = { surface: 'surface EVA', microgravity: 'microgravity EVA', none: 'no EVA' } as const
 /** NASA's lines that are the same for everyone; VO2max depends on the place and the EVA role, so it is read from the data. */
-const GENERIC_LIMIT: Record<string, string> = { grip: '80% of pre-flight', bone: '95% of pre-flight' }
 
 type Person = MedicalOverview['crew'][number]
 
@@ -123,9 +122,44 @@ function OpenAlerts() {
   )
 }
 
+/** Care windows whose last day has passed and that nobody has reviewed (EMG-04): they stay open, with their restrictions, until a review is recorded. */
+function CareReviews({ ov }: { ov: MedicalOverview }) {
+  const { bump, toast } = useSession()
+  const [open, setOpen] = useState<number | null>(null)
+  const [text, setText] = useState('')
+  const review = useAction()
+  const waiting = ov.crew.flatMap(c => c.care_events.filter(e => e.status === 'awaiting review').map(e => ({ ...e, who: c.name })))
+  if (!waiting.length) return null
+  return (
+    <section>
+      <div className="section-head"><h2>Care windows awaiting review</h2><span className="sub">The restrictions stay until the medical team records a review.</span></div>
+      <ul className="plain">
+        {waiting.map(e => (
+          <li key={e.emergency_id} className="row wrap" style={{ gap: 10 }}>
+            <b>{e.who}</b>
+            <span className="grow">{e.name}, day {e.day}. Restricted until day {e.until_day}.</span>
+            {open !== e.emergency_id && <button className="btn sm" onClick={() => { setOpen(e.emergency_id); setText('') }}>Review</button>}
+            {open === e.emergency_id && (
+              <form className="row wrap" style={{ gap: 8 }} onSubmit={ev => {
+                ev.preventDefault()
+                review.run(async () => { await api.reviewCareWindow(e.emergency_id, text.trim()); setOpen(null); bump(); toast('Care window reviewed') })
+              }}>
+                <input className="grow" aria-label="What the review found" maxLength={500} value={text} onChange={ev => setText(ev.target.value)} placeholder="What the review found (3 to 500 characters)" />
+                <button className="btn sm pri" disabled={review.busy || text.trim().length < 3}>{review.busy ? 'Recording…' : 'Record review'}</button>
+                <button type="button" className="btn sm ghost" onClick={() => setOpen(null)}>Cancel</button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ul>
+      <ActionError error={review.error} />
+    </section>
+  )
+}
+
 function Triage({ ov }: { ov: MedicalOverview }) {
 const today = useSession().mission?.day ?? 0
-  const { rev } = useSession()
+  const { rev, catalog } = useSession()
   const [audit, setAudit] = useState<AssistantAuditEntry[] | null>(null)
   // Any error (404 before the route exists, 401, network) shows the empty state.
   useEffect(() => { api.assistantAudit(30).then(a => setAudit(Array.isArray(a) ? a : [])).catch(() => setAudit([])) }, [rev])
@@ -140,6 +174,7 @@ const today = useSession().mission?.day ?? 0
   return (
     <>
       <OpenAlerts />
+      <CareReviews ov={ov} />
       <section>
         <ul className="triage">
           {ov.crew.map(c => {
@@ -173,8 +208,8 @@ const today = useSession().mission?.day ?? 0
           <tbody>
             {inds.map(k => {
               const def = ov.crew[0].indicators[k]
-              const lines = [...new Set(ov.crew.map(c => nasaLine(k, c.indicators[k])?.text).filter(Boolean))]
-              const limit = GENERIC_LIMIT[k] ?? (lines.length ? lines.join(' · ') : '')
+              const lines = [...new Set(ov.crew.map(c => nasaLine(k, c.indicators[k], catalog?.limits)?.text).filter(Boolean))]
+              const limit = genericLimit(k, catalog?.limits) ?? (lines.length ? lines.join(' · ') : '')
               return (
                 <tr key={k}>
                   <td><b>{def.name}</b> <span className="dim small">{k === 'bone' ? '% of pre-flight' : def.unit}</span></td>
@@ -182,9 +217,9 @@ const today = useSession().mission?.day ?? 0
                     const i = c.indicators[k], s = i.standard
                     const eva = k === 'vo2' && c.standard_profile ? EVA_WORD[c.standard_profile.eva] : null
                     return (
-                      <td key={c.id} className={`num r s${i.level}`}>
+                      <td key={c.id} className={`num r ${notAssessed(i.assessment) ? 'nodata' : `s${i.level}`}`}>
                         <span className={i.level ? 'c' : ''}>{i.value === null ? DASH : (k === 'bone' ? 100 + i.value : i.value).toFixed(i.dp)}</span> {i.z !== null && <span className="dim small">{i.z > 0 ? '+' : ''}{i.z.toFixed(1)}</span>}
-                        {i.value === null && <div className="cell-note small dim">{i.last_measured_day !== null ? `Last measured day ${i.last_measured_day}` : 'No data yet'}</div>}
+                        {i.value === null && <div className="cell-note small dim">{assessWord(i.assessment ?? 'insufficient_data')}{i.last_measured_day !== null ? ` · last measured day ${i.last_measured_day}` : ''}</div>}
                         {i.value !== null && i.baseline === null && <div className="cell-note small dim">Learning: {i.baseline_n} of {i.baseline_need ?? 5}</div>}
                         {(eva || (s && s.level > 0)) && (
                           <div className="cell-note small">

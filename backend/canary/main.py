@@ -11,23 +11,24 @@ import mimetypes
 import pathlib
 import time
 from datetime import date, datetime, timedelta, timezone
-from contextlib import asynccontextmanager
-from typing import List, Optional
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any, List, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import __version__, auth, db
+from .idempotency import IdempotencyMiddleware
 from .assistant import briefing, chat, limits, protocol_match, providers, suggestions, tools
 from .assistant.kb import freshness
 from .config import check_mode, settings
-from .domain import advice, audit, care, data, devices, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
-from .domain import simdata
+from .web import METRICS, RequestMetrics, SecurityHeaders, kb_ready, mount_spa, spa_file  # noqa: F401 (spa_file is imported by the tests)
+from .domain import advice, assessment, audit, care, data, devices, dose, goals, guide, health, live, mission, nasa, notify, plan, privacy, protocol_pages, protocols, registry, selftests, standards, telemetry, validation
+from .domain import simdata, corrections, images
 from .domain.catalog import CABIN_ID as CABIN, CAREER_LIMIT_MSV, RECORDS, CREW, CREW_BY_ID, INDICATORS, LOCATIONS, REGION_SYSTEM, SYSTEMS
 
 def _warm_story() -> None:
@@ -39,8 +40,8 @@ def _warm_story() -> None:
             ms = {**risk._day_ms(day), "storm": dose.active_storm(day, plan.location_at(day))}
             for c in list(CREW):
                 health.snapshot(c["id"], ms)
-    except Exception:  # a warm-up must never take the API down; the next request computes it anyway
-        pass
+    except Exception:  # a warm-up must never take the API down; the next request computes it anyway, but the failure is logged
+        logging.getLogger("canary").exception("story warm-up failed")
 
 
 ESCALATION_TICK_S = 30  # how often the background loop looks for critical alerts that nobody acknowledged
@@ -89,6 +90,11 @@ async def lifespan(_app):
 app = FastAPI(title="Canary API", version=__version__, lifespan=lifespan,
               description="Crew health monitoring for space missions. NASA Space Apps Challenge 2026.")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
+# Idempotency-Key on the mutating routes: a retry with the same key and body returns the first answer (see idempotency.py).
+app.add_middleware(IdempotencyMiddleware)
+# Added last, so outermost: every response (CORS preflights included) gets the security headers, and every request is timed.
+app.add_middleware(RequestMetrics)
+app.add_middleware(SecurityHeaders)
 
 
 # ---------------------------------------------------------------- one error shape for every bad input
@@ -393,11 +399,39 @@ def ping():
     return {"ok": True, "version": __version__, "mode": settings.mode}
 
 
+@app.get("/api/health/live", tags=["system"])
+def health_live():
+    """Liveness: the process answers. Nothing else is checked, so a restart is only ever asked for a dead process."""
+    return {"ok": True}
+
+
+@app.get("/api/health/ready", tags=["system"])
+def health_ready():
+    """Readiness: the database and the knowledge base answer. 503 with the failing checks otherwise (a load balancer waits)."""
+    try:
+        db.q("SELECT 1 AS ok")
+        database = "ok"
+    except Exception:  # noqa: BLE001 (reported as a check, and logged with its traceback)
+        logging.getLogger("canary").exception("readiness: database")
+        database = "error"
+    checks = {"database": database, "knowledge_base": kb_ready(settings.kb_path)}
+    ready = all(v == "ok" for v in checks.values())
+    return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, "checks": checks})
+
+
+@app.get("/api/metrics", tags=["system"], dependencies=[Depends(require_control)])
+def metrics():
+    """Request counts, errors and p50/p95 latency per route, for this process since it started (in memory, not kept). Mission Control only."""
+    return METRICS.snapshot()
+
+
 @app.get("/api/catalog", tags=["mission"])
-def catalog():
+def catalog(v: dict = Depends(viewer)):
+    """The mission's reference data. The crew's home and age are personal: they are shown to someone signed in, never to anonymous callers."""
+    crew_fields = ("id", "name", "role", "initials", "home", "age") if v["actor"] else ("id", "name", "role", "initials")
     return {"locations": LOCATIONS, "indicators": INDICATORS, "systems": SYSTEMS, "region_system": REGION_SYSTEM,
-            "crew": [{k: c[k] for k in ("id", "name", "role", "initials", "home", "age")} for c in CREW],
-            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "guide": guide.guide(),
+            "crew": [{k: c[k] for k in crew_fields} for c in CREW],
+            "story": mission.story(), "sources": nasa.SOURCES, "standards": standards.summary(), "limits": assessment.limits(), "guide": guide.guide(),
             "mode": settings.mode}
 
 
@@ -463,18 +497,32 @@ def demo_quickstart(_demo: None = Depends(demo_only)):
     return {"registered": registry.registered()}
 
 
+@contextmanager
+def _atomic():
+    """A start-over, a registration or a plan change: all of it or none. On failure the database is put back, and the caches
+    built from it (the crew list, the plan) are reloaded from it."""
+    try:
+        with db.all_or_nothing():
+            yield
+    except BaseException:
+        registry.load()
+        plan.reset_cache()
+        raise
+
+
 def _start_over(package: Optional[str]) -> None:
-    """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named."""
-    db.reset()
-    plan.reset_cache()
-    registry.load()
-    if settings.mode == "demo":
-        auth.clear_failures()  # a demo start-over also forgives wrong PINs; the failures of a flight system are never wiped
-    if package:
-        try:
-            data.import_named(package)
-        except validation.ValidationFailure as e:
-            raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
+    """Wipe crew, mission and every reading, then load `package` (a bundled mission package) if one is named. All or nothing."""
+    with _atomic():
+        db.reset()
+        plan.reset_cache()
+        registry.load()
+        if settings.mode == "demo":
+            auth.clear_failures()  # a demo start-over also forgives wrong PINs; the failures of a flight system are never wiped
+        if package:
+            try:
+                data.import_named(package)
+            except validation.ValidationFailure as e:
+                raise HTTPException(500, "Mission package not loaded: " + "; ".join(x["message"] for x in e.errors[:3]))
 
 
 # ---------------------------------------------------------------- mission plan (itinerary)
@@ -519,14 +567,16 @@ class PlanIn(BaseModel):
 @app.put("/api/plan", tags=["mission"])
 def put_plan(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     _locked()
-    audit.record(actor, "plan.save", "plan", before={"name": plan.get()["name"], "legs": len(plan.get()["legs"])},
-                 after={"name": body.name, "legs": len(body.legs)})
+    before = {"name": plan.get()["name"], "legs": len(plan.get()["legs"])}
     try:
-        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+        checked = plan.validate(body.name, [l.model_dump() for l in body.legs])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    mission.set_setup_done()
-    _reload_for_legs(plan.get()["legs"])
+    with _atomic():
+        plan.save(checked)
+        mission.set_setup_done()
+        _reload_for_legs(plan.get()["legs"])
+    audit.record(actor, "plan.save", "plan", before=before, after={"name": body.name, "legs": len(body.legs)})
     return get_plan()
 
 
@@ -547,13 +597,15 @@ class PresetIn(BaseModel):
 @app.post("/api/plan/preset", tags=["mission"])
 def plan_preset(body: PresetIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     _locked()
-    audit.record(actor, "plan.preset", "plan", before={"name": plan.get()["name"]}, after={"preset": body.preset})
+    before = {"name": plan.get()["name"]}
     try:
-        plan.use_preset(body.preset)
+        with _atomic():
+            plan.use_preset(body.preset)
+            data.reload_for_preset(body.preset)
+            mission.set_setup_done()
     except ValueError as e:
         raise HTTPException(400, str(e))
-    data.reload_for_preset(body.preset)
-    mission.set_setup_done()
+    audit.record(actor, "plan.preset", "plan", before=before, after={"preset": body.preset})
     return get_plan()
 
 
@@ -561,13 +613,15 @@ def plan_preset(body: PresetIn, _demo: None = Depends(demo_only), actor: dict = 
 def mission_setup(body: PlanIn, _demo: None = Depends(demo_only), actor: dict = Depends(require_control)):
     """First-run mission setup (demo only): validate and save the plan, mark setup done and start the mission clock over."""
     _locked()
-    audit.record(actor, "plan.setup", "plan", after={"name": body.name, "legs": len(body.legs)})
     try:
-        plan.save(plan.validate(body.name, [l.model_dump() for l in body.legs]))
+        checked = plan.validate(body.name, [l.model_dump() for l in body.legs])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    mission.set_setup_done()
-    _reload_for_legs(plan.get()["legs"])
+    with _atomic():
+        plan.save(checked)
+        mission.set_setup_done()
+        _reload_for_legs(plan.get()["legs"])
+    audit.record(actor, "plan.setup", "plan", after={"name": body.name, "legs": len(body.legs)})
     return mission.set_step(0)  # the demo story bar keeps working: it starts from its first scene
 
 
@@ -593,12 +647,13 @@ def crew_list():
 
 
 @app.get("/api/crew/photos", tags=["crew"])
-def crew_photos():
+def crew_photos(_actor: dict = Depends(any_person)):
+    """The crew's profile photos: for people on board (crew, medical team, Mission Control) only."""
     return privacy.photos()
 
 
 @app.get("/api/crew/overview", tags=["crew"])
-def crew_overview():
+def crew_overview(_actor: dict = Depends(any_person)):
     """What everyone on board may see: hazards, participation and crew goals. Never anyone's status."""
     ms = mission.state()
     board = goals.crew_board(ms["day"])
@@ -626,8 +681,8 @@ def crew_detail(crew_id: str, v: dict = Depends(viewer)):
     if not privacy.can_see_details(v["id"], crew_id, v["medical"]):
         raise HTTPException(403, f"{c['name']}'s health is private")
     ms = mission.state()
-    snap = health.snapshot(crew_id, ms)
-    access = "self" if v["id"] == crew_id else "medical"
+    snap = assessment.annotate(health.snapshot(crew_id, ms))
+    access ="self" if v["id"] == crew_id else "medical"
     trends = {i: telemetry.series(crew_id, i, ms["day"], 30) for i in INDICATORS}
     with_photo = {r["checkin_id"] for r in db.q("SELECT checkin_id FROM checkin_photos WHERE crew_id=?", (crew_id,))}
     events = [{"id": r["id"], "kind": r["kind"], "day": r["day"], "payload": json.loads(r["payload"]), "has_photo": r["id"] in with_photo}
@@ -668,7 +723,7 @@ def crew_photo(crew_id: str, body: PhotoIn, v: dict = Depends(viewer)):
     if v["id"] != crew_id:
         raise HTTPException(403, "only the astronaut changes their photo")
     try:
-        privacy.set_photo(crew_id, body.data_url)
+        privacy.set_photo(crew_id, images.check(body.data_url, "The photo", "data_url"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     audit.record(v["actor"], "crew.photo_set", crew_id)
@@ -704,13 +759,14 @@ def set_goal(crew_id: str, goal_id: str, body: DoneIn, v: dict = Depends(viewer)
     _crew(crew_id)
     require_self(crew_id, v)
     ms = mission.state()
-    goals.set_done(crew_id, goal_id, ms["day"], body.done)
+    with db.transaction():  # the tick and the advice it starts or closes: stored together
+        goals.set_done(crew_id, goal_id, ms["day"], body.done)
+        if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
+            g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
+            if g:
+                advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
+        advice.sync(crew_id, ms["day"])
     audit.record(v["actor"], "goal.set", f"{crew_id}:{goal_id}", after={"done": body.done, "day": ms["day"]})
-    if body.done and goal_id.startswith(("al_", "sg_")):  # first tick of an advice opens its experiment
-        g = next((x for x in goals.personal_today(crew_id, ms) if x["id"] == goal_id), None)
-        if g:
-            advice.start(crew_id, goal_id, g["by"], g.get("verify"), ms["day"])
-    advice.sync(crew_id, ms["day"])
     return goals_for(crew_id, v)
 
 
@@ -739,7 +795,8 @@ def alert_seen(crew_id: str, alert_id: str, v: dict = Depends(viewer)):
 
 
 @app.get("/api/leaderboard", tags=["goals"])
-def leaderboard():
+def leaderboard(_actor: dict = Depends(any_person)):
+    """Crew rankings: for people on board (crew, medical team, Mission Control) only."""
     ms = mission.state()
     lb = goals.leaderboard(ms["day"])
     for r in lb["rows"]:
@@ -768,20 +825,21 @@ def checkin(body: CheckinIn, v: dict = Depends(viewer)):
     if body.photo is not None:
         if body.kind != "vitals":
             raise validation.FieldError("photo", "Only vital signs take a photo")
-        photo = validation.image_data_url(body.photo, "The photo of the display")
+        photo = images.check_checkin_photo(body.photo, body.crew_id)  # decoded, size and pixel limits, per-person quota
     p = selftests.normalise(body.kind, body.payload)
     if body.origin == "sample" and settings.mode != "demo":
         raise HTTPException(404, "Not found")  # sample values exist only in the demo
-    cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at,origin) VALUES(?,?,?,?,?,?)",
-               (body.crew_id, day, body.kind, json.dumps(p), time.time(), body.origin))
-    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None, "origin": body.origin})  # no values
-    if photo:  # never part of the payload: the payload feeds events, charts and the assistant
-        db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
     g = selftests.goal_for(body.kind, p)
-    if g:
-        goals.set_done(body.crew_id, g, day, True)
-    advice.sync(body.crew_id, day)
-    notify.sync(mission.state(), [body.crew_id])
+    with db.transaction():  # the entry, its photo, its goal and the advice derived from them: all stored, or none
+        cid = db.x("INSERT INTO checkins(crew_id,day,kind,payload,created_at,origin) VALUES(?,?,?,?,?,?)",
+                   (body.crew_id, day, body.kind, json.dumps(p), time.time(), body.origin))
+        if photo:  # never part of the payload: the payload feeds events, charts and the assistant
+            db.x("INSERT INTO checkin_photos(checkin_id,crew_id,data_url,created_at) VALUES(?,?,?,?)", (cid, body.crew_id, photo, time.time()))
+        if g:
+            goals.set_done(body.crew_id, g, day, True)
+        advice.sync(body.crew_id, day)
+    audit.record(v["actor"], "checkin.add", body.crew_id, after={"id": cid, "kind": body.kind, "day": day, "photo": photo is not None, "origin": body.origin})  # no values
+    notify.sync(mission.state(), [body.crew_id])  # the alert evaluation writes its own audit entries: it runs after the commit
     return {"ok": True, "summary": selftests.summary(body.kind, p), "goal": g,
             "conclusion": selftests.conclusion(body.kind, p, body.crew_id),
             "snapshot": health.snapshot(body.crew_id, mission.state())}
@@ -820,7 +878,11 @@ def checkin_photo(crew_id: str, checkin_id: int, v: dict = Depends(viewer)):
 # ---------------------------------------------------------------- guided response
 @app.get("/api/protocols", tags=["guided response"])
 def get_protocols():
-    return protocols.resolve(mission.state()["location"])
+    out = protocols.resolve(mission.state()["location"])
+    bank = protocols.bank()["protocols"]
+    for pid, p in out["protocols"].items():  # version, reviewer and status say who has checked the content (EMG-01)
+        p.update({k: bank[pid][k] for k in ("version", "reviewer", "status") if k in bank[pid]})
+    return out
 
 
 @app.get("/api/protocols/library", tags=["guided response"])
@@ -853,20 +915,31 @@ class EmergencyIn(BaseModel):
     protocol: Optional[str] = None
     patient: Optional[str] = None
     responder: Optional[str] = None
+    token: Optional[str] = Field(default=None, max_length=128)  # the client's id for this opening: a retry gets the same emergency
 
 
 @app.post("/api/emergencies", tags=["guided response"])
 def emergency_start(body: EmergencyIn, actor: dict = Depends(require_onboard)):
-    """Open Guided Response. On board only: a crew member, or the crew medical officer in the medical console."""
+    """Open Guided Response. On board only: a crew member, or the crew medical officer in the medical console. With a
+    token, the same token (per person) returns the emergency it opened before: a retry never opens a second one."""
     ms = mission.state()
-    eid = db.x("INSERT INTO emergencies(protocol,patient,responder,location,day,started_at,log) VALUES(?,?,?,?,?,?,?)",
-               (body.protocol, body.patient, body.responder or actor["id"], ms["location"], ms["day"], time.time(),
-                json.dumps([[0, "Guided Response opened. Crew alerted."]])))
-    audit.record(actor, "emergency.open", f"emergency:{eid}", after={"protocol": body.protocol, "patient": body.patient, "day": ms["day"]})
+    key = f"emergency:{body.token.strip()}" if body.token and body.token.strip() else None
     delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
-    db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-         (actor["id"], "earth", "emergency", f"EMERGENCY opened on {ms['day_label']} at {LOCATIONS[ms['location']]['name']}.",
-          time.time(), time.time() + delay))
+    with db.transaction() as c:
+        if key:
+            hit = db.q("SELECT response FROM idempotency WHERE device_id=? AND key=?", (actor["id"], key))
+            if hit:
+                return _emergency(json.loads(hit[0]["response"])["id"])
+        eid = db.x("INSERT INTO emergencies(protocol,patient,responder,location,day,started_at,log) VALUES(?,?,?,?,?,?,?)",
+                   (body.protocol, body.patient, body.responder or actor["id"], ms["location"], ms["day"], time.time(),
+                    json.dumps([[0, "Guided Response opened. Crew alerted."]])))
+        if key:
+            db.x("INSERT INTO idempotency(device_id,key,body_hash,response,created_at) VALUES(?,?,?,?,?)",
+                 (actor["id"], key, "", json.dumps({"id": eid}), time.time()))
+        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
+             (actor["id"], "earth", "emergency", f"EMERGENCY opened on {ms['day_label']} at {LOCATIONS[ms['location']]['name']}.",
+              time.time(), time.time() + delay))
+    audit.record(actor, "emergency.open", f"emergency:{eid}", after={"protocol": body.protocol, "patient": body.patient, "day": ms["day"]})
     return _emergency(eid)
 
 
@@ -876,10 +949,9 @@ class EmergencyEvent(BaseModel):
     patient: Optional[str] = None
     outcome: Optional[str] = None
     close: bool = False
-    escalate: bool = False  # ask the flight surgeon for a private medical conference (PMC); the emergency stays open
 
 
-EMERGENCY_OUTCOMES = ("stable", "transferred to medical officer", "escalated to flight surgeon", "resolved")
+EMERGENCY_OUTCOMES = ("stable", "needs evacuation review")
 
 
 @app.post("/api/emergencies/{eid}", tags=["guided response"])
@@ -887,45 +959,40 @@ def emergency_event(eid: int, body: EmergencyEvent, actor: dict = Depends(requir
     e = _emergency(eid)
     if body.close and body.outcome not in EMERGENCY_OUTCOMES:
         raise validation.FieldError("outcome", "Say how it ended: " + ", ".join(EMERGENCY_OUTCOMES))
-    audit.record(actor, "emergency.close" if body.close else "emergency.escalate" if body.escalate else "emergency.update", f"emergency:{eid}",
-                 after={"protocol": body.protocol, "patient": body.patient, "outcome": body.outcome, "close": body.close,
-                        "log_entry": bool(body.text)})  # the text of a log entry is not copied here
+    if body.close and e["ended_at"]:  # closing twice: no goals, window, report or log line repeat
+        return e
     log = e["log"]
     t = round(time.time() - e["started_at"])
-    if body.protocol:
-        db.x("UPDATE emergencies SET protocol=? WHERE id=?", (body.protocol, eid))
-    if body.patient:
-        db.x("UPDATE emergencies SET patient=? WHERE id=?", (body.patient, eid))
     if body.text:
         log.append([t, body.text])
-    if body.escalate and not e["ended_at"]:  # a request, not a closing: the emergency stays open
-        ms = mission.state()
-        surgeons = [g["id"] for g in registry.ground() if g["role"] == "flight_surgeon"]
-        delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
-        patient = e["patient"] or body.patient
-        who = (registry.account(patient) or {}).get("name", "the patient") if patient else "the patient"
-        text = f"PMC requested: private medical conference for {who}, {e['protocol'] or 'protocol not chosen yet'}. Guided Response is still open."
-        db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
-             (actor["id"], surgeons[0] if surgeons else "earth", "pmc", text, time.time(), time.time() + delay))
-        log.append([t, "Escalated: private medical conference requested from the flight surgeon."])
-    if body.close and not _emergency(eid)["ended_at"]:  # closing twice does not repeat goals, window or report
-        ms = mission.state()
-        e = _emergency(eid)
-        db.x("UPDATE emergencies SET ended_at=?, outcome=? WHERE id=?", (time.time(), body.outcome or "stable", eid))
-        log.append([t, f"Closed: {body.outcome or 'stable'}"])
-        if e["protocol"] and e["patient"]:
-            for item in protocols.care(e["protocol"])["after_items"]:  # each follow-up lasts the days its text gives
+    protocol = body.protocol or e["protocol"]
+    patient = body.patient or e["patient"]
+    if not body.close:
+        db.x("UPDATE emergencies SET protocol=?, patient=?, log=? WHERE id=?", (protocol, patient, json.dumps(log), eid))
+        audit.record(actor, "emergency.update", f"emergency:{eid}",
+                     after={"protocol": body.protocol, "patient": body.patient, "log_entry": bool(body.text)})  # log text not copied
+        return _emergency(eid)
+    # The close is one transaction: the end, the goals, the care window and the report land together or not at all.
+    # The conditional UPDATE makes a close that lost a race a no-op.
+    ms = mission.state()
+    outcome = body.outcome
+    log.append([t, f"Closed: {outcome}"])
+    with db.transaction():
+        if not db.write("UPDATE emergencies SET ended_at=?, outcome=?, protocol=?, patient=?, log=? WHERE id=? AND ended_at IS NULL",
+                        (time.time(), outcome, protocol, patient, json.dumps(log), eid)):
+            return _emergency(eid)
+        if protocol and patient:
+            for item in protocols.care(protocol)["after_items"]:  # each follow-up lasts the days its text gives
                 db.x("INSERT INTO medical_goals(who,area,title,why,xp,from_day,to_day,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                     (e["patient"], "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
-            care.open_window(e, ms["day"], body.outcome or "stable")
+                     (patient, "physical", item["title"], "Follow-up after Guided Response.", 0, ms["day"], ms["day"] + item["days"], time.time()))
+            care.open_window({**e, "protocol": protocol, "patient": patient}, ms["day"], outcome, in_transaction=True)
         delay = LOCATIONS[ms["location"]]["delay_s"] / settings.delay_speedup
-        report = f"Guided Response report: {e['protocol'] or 'triage'}, patient {e['patient'] or 'unknown'}, outcome {body.outcome or 'stable'}, {len(log)} logged steps."
+        report = f"Guided Response report: {protocol or 'triage'}, patient {patient or 'unknown'}, outcome {outcome}, {len(log)} logged steps."
         db.x("INSERT INTO messages(sender,recipient,kind,text,sent_at,deliver_at) VALUES(?,?,?,?,?,?)",
              (actor["id"], "earth", "report", report, time.time(), time.time() + delay))
         db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
-        notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
-        return _emergency(eid)
-    db.x("UPDATE emergencies SET log=? WHERE id=?", (json.dumps(log), eid))
+    audit.record(actor, "emergency.close", f"emergency:{eid}", after={"protocol": protocol, "patient": patient, "outcome": outcome})
+    notify.sync(ms)  # the window tightens the patient's thresholds: a new critical alert may follow
     return _emergency(eid)
 
 
@@ -947,13 +1014,14 @@ def emergencies_route(actor: dict = Depends(any_person)):
 
 @app.get("/api/emergencies/open", tags=["guided response"])
 def emergencies_open():
-    """The cabin-wide alarm: who is the patient and which protocol, for every emergency still open. No health values, no sign-in:
-    everyone on board must see it. Read by every screen every few seconds."""
+    """The cabin-wide alarm banner: the patient's name and the protocol, for every emergency still open. Nothing else (no patient
+    id, no start time, no health values), and no sign-in: everyone on board must see it. `id` only tells a responder which record to pick up.
+    Read by every screen every few seconds."""
     out = []
-    for r in db.q("SELECT id,protocol,patient,started_at FROM emergencies WHERE ended_at IS NULL ORDER BY id DESC LIMIT 5"):
+    for r in db.q("SELECT id,protocol,patient FROM emergencies WHERE ended_at IS NULL ORDER BY id DESC LIMIT 5"):
         acct = registry.account(r["patient"]) if r["patient"] else None
-        out.append({"id": r["id"], "patient": acct["name"] if acct else None, "patient_id": r["patient"],
-                    "protocol": protocols.name(r["protocol"]) if r["protocol"] else None, "started_at": r["started_at"]})
+        out.append({"id": r["id"], "patient": acct["name"] if acct else None,
+                    "protocol": protocols.name(r["protocol"]) if r["protocol"] else None})
     return out
 
 
@@ -1135,7 +1203,7 @@ def medical_overview():
     ms = mission.state()
     out = []
     for c in CREW:
-        s = health.snapshot(c["id"], ms)
+        s = assessment.annotate(health.snapshot(c["id"], ms))
         out.append({"id": c["id"], "name": c["name"], "role": c["role"], "level": s["level"], "ops": privacy.operational(s), "areas": s["areas"],
                     "indicators": s["indicators"], "systems": s["systems"], "alerts": s["alerts"],
                     "risks": [{k: r[k] for k in ("id", "name", "nasa_red", "level", "trend", "since_day", "data")} for r in s["risks"]],
@@ -1162,6 +1230,37 @@ def put_care_sensitivity(body: CareSensitivityIn, actor: dict = Depends(require_
 @app.get("/api/medical/care-sensitivity", tags=["medical"], dependencies=[Depends(require_medical)])
 def get_care_sensitivity():
     return care.sensitivity()
+
+
+@app.get("/api/medical/observations/{crew_id}", tags=["medical"], dependencies=[Depends(require_medical)])
+def medical_observations(crew_id: str, indicator: Optional[str] = None, limit: int = Query(default=20, ge=1, le=100)):
+    """Recent current readings of one person (the ids the medical 'Correct a value' form needs). Medical team only. Superseded
+    readings, photos and free text are left out."""
+    _crew(crew_id)
+    sql = "SELECT id,indicator,day,value,unit,origin FROM observations WHERE crew_id=? AND superseded_by IS NULL"
+    args: list = [crew_id]
+    if indicator:
+        sql += " AND indicator=?"
+        args.append(indicator)
+    rows = db.q(sql + " ORDER BY day DESC, id DESC LIMIT ?", tuple(args) + (limit,))
+    return [dict(r) for r in rows]
+
+
+class CareReviewIn(BaseModel):
+    resolution: str = Field(min_length=3, max_length=500)
+
+
+@app.post("/api/medical/care-windows/{eid}/review", tags=["medical"])
+def review_care_window(eid: int, body: CareReviewIn, actor: dict = Depends(require_medical)):
+    """The medical team ends a care window with a recorded review. Until then it stays open ("awaiting review") and keeps
+    its restrictions, so it cannot end silently. The first review stands; a second one changes nothing."""
+    if not db.q("SELECT 1 FROM care_events WHERE emergency_id=?", (eid,)):
+        raise HTTPException(404, "no care window for this emergency")
+    ms = mission.state()
+    if care.record_review(eid, ms["day"], actor["id"], body.resolution.strip()):
+        audit.record(actor, "medical.care_review", f"emergency:{eid}", after={"day": ms["day"]})
+    notify.sync(ms)
+    return care.status(eid, ms["day"])
 
 
 class ExerciseAdjustIn(BaseModel):
@@ -1555,21 +1654,22 @@ def control_register(body: RegisterIn, actor: dict = Depends(require_control)):
     _locked()
     ids = registry.assign_ids([s.seat for s in body.crew], registry.used_ids())
     _check_registration(body, ids)
-    audit.record(actor, "mission.register", "registry", after={"crew": len(body.crew), "ground": len(body.ground), "preset": body.mission.preset,
-                                                                  "launch_date": body.mission.launch_date})  # no PINs, no medical records
     crew = [{**s.model_dump(), "seat": i} for s, i in zip(body.crew, ids)]
     rover = plan.has_rover(body.mission.preset) if body.mission.rover is None else bool(body.mission.rover)
     info = {k: v for k, v in body.mission.model_dump().items() if k != "dose_waiver"}
     try:
-        registry.register(crew, {**info, "rover": rover}, [g.model_dump() for g in body.ground])
+        with _atomic():  # the crew, the mission, the plan and the clock: all of it, or none of it
+            registry.register(crew, {**info, "rover": rover}, [g.model_dump() for g in body.ground])
+            first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
+            data.drop_package_story()  # the scenes and storms of a loaded package are about other people
+            plan.use_preset(body.mission.preset, rover)
+            plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
+            if first:
+                mission.set_day(first[0]["day"])
     except ValueError as e:
         raise HTTPException(400, str(e))
-    first = data.scenes()[:1]  # the clock restarts where the story began, if there was one
-    data.drop_package_story()  # the scenes and storms of a loaded package are about other people
-    plan.use_preset(body.mission.preset, rover)
-    plan.save({**plan.get(), "name": body.mission.name}, body.mission.preset)
-    if first:
-        mission.set_day(first[0]["day"])
+    audit.record(actor, "mission.register", "registry", after={"crew": len(body.crew), "ground": len(body.ground), "preset": body.mission.preset,
+                                                              "launch_date": body.mission.launch_date})  # no PINs, no medical records
     return control_overview()
 
 
@@ -1581,6 +1681,58 @@ def control_demo_data(_demo: None = Depends(demo_only), actor: dict = Depends(re
     _start_over(settings.mission_package or DEMO_PACKAGE)
     audit.record(actor, "demo.data", "database", after={"package": settings.mission_package or DEMO_PACKAGE})
     return control_overview()
+
+
+# ---------------------------------------------------------------- corrections
+# The medical team and Canary Control correct a record, with an audit entry that says who, the old value, the new value and
+# why. The crew only ask: a request waits in the queue for one of them (domain/corrections.py holds the rules).
+class CorrectIn(BaseModel):
+    value: Any = None
+    reason: str = Field(default="", max_length=400)
+
+
+class CorrectionRequestIn(BaseModel):
+    field: str = Field(max_length=40)
+    target: Optional[str] = Field(default=None, max_length=40)
+    proposed: Any = None
+    reason: str = Field(default="", max_length=400)
+
+
+def require_medical_or_control(actor: Optional[dict] = Depends(current_actor)) -> dict:
+    """The medical team's or Canary Control's actor, or 401."""
+    if actor and actor["kind"] in ("medical", "control"):
+        return actor
+    raise HTTPException(401, "medical team or Mission Control sign-in required")
+
+
+@app.put("/api/corrections/crew/{crew_id}/height", tags=["corrections"])
+def correct_height(crew_id: str, body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    _crew(crew_id)
+    return corrections.correct_height(crew_id, body.value, body.reason, actor)
+
+
+@app.put("/api/corrections/mission/name", tags=["corrections"])
+def correct_mission_name(body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    return corrections.correct_mission_name(body.value, body.reason, actor)
+
+
+@app.put("/api/corrections/measurements/{obs_id}", tags=["corrections"])
+def correct_measurement(obs_id: int, body: CorrectIn, actor: dict = Depends(require_medical_or_control)):
+    return corrections.correct_measurement(obs_id, body.value, body.reason, actor, _ingest_now(), settings.mode == "flight")
+
+
+@app.post("/api/crew/{crew_id}/corrections", tags=["crew"])
+def crew_request_correction(crew_id: str, body: CorrectionRequestIn, v: dict = Depends(viewer)):
+    """A person asks for a correction to their own height, the mission name or a measurement of theirs. Nothing changes yet."""
+    _crew(crew_id)
+    require_self(crew_id, v)
+    rid = corrections.request(crew_id, body.field, body.target, body.proposed, body.reason, v["actor"])
+    return {"id": rid, "status": "open"}
+
+
+@app.get("/api/corrections", tags=["corrections"])
+def correction_requests(actor: dict = Depends(require_medical_or_control)):
+    return {"requests": corrections.open_requests()}
 
 
 # ---------------------------------------------------------------- data entry points
@@ -1806,19 +1958,8 @@ async def control_import(request: Request, actor: dict = Depends(require_control
 
 
 # ---------------------------------------------------------------- the web app (after `npm run build`)
+# A file of the built app is served; a route of the app is index.html; an unknown /api path or a missing asset is a 404 (web.py).
 mimetypes.add_type("model/gltf-binary", ".glb")
 _dist = pathlib.Path(settings.frontend_dist)
 if _dist.is_dir():
-    app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
-
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        """A file of the built app, else index.html. A path that leaves dist (`..%2f`) is never served."""
-        return FileResponse(spa_file(_dist, path))
-
-
-def spa_file(dist: pathlib.Path, path: str) -> pathlib.Path:
-    """The file under `dist` that `path` names, or dist/index.html when there is none or it would leave `dist`."""
-    root = dist.resolve()
-    f = (root / path).resolve()
-    return f if path and f.is_file() and f.is_relative_to(root) else root / "index.html"
+    mount_spa(app, _dist)

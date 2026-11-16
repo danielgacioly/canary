@@ -15,7 +15,8 @@
   "cpr": {
    "n": "Not responding, not breathing",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Start CPR",
    "kit": [
     "Defibrillator",
@@ -114,7 +115,8 @@
   "seizure": {
    "n": "Seizure",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Stiff or jerking body",
    "kit": [
     "Rescue medication",
@@ -203,7 +205,8 @@
   "choke": {
    "n": "Choking",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Cannot speak or cough",
    "kit": [
     "Portable suction"
@@ -287,7 +290,8 @@
   "chest": {
    "n": "Chest pain",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Pressure, sweating, short of breath",
    "kit": [
     "Defibrillator",
@@ -360,7 +364,8 @@
   "allergy": {
    "n": "Severe allergic reaction",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Swelling, wheezing, rash",
    "kit": [
     "Epinephrine auto-injector",
@@ -435,7 +440,8 @@
   "bleed": {
    "n": "Heavy bleeding",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Cut or puncture",
    "kit": [
     "Gauze and pads",
@@ -502,7 +508,8 @@
   "eye": {
    "n": "Eye injury",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Chemical, dust, fragment",
    "kit": [
     "Eyewash goggles",
@@ -569,7 +576,8 @@
   "crisis": {
    "n": "Emotional crisis",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Panic, despair, risk of self-harm",
    "kit": [
     "A quiet corner",
@@ -656,7 +664,8 @@
   "rad": {
    "n": "Radiation storm",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Solar particle alert",
    "kit": [
     "Personal dosimeters",
@@ -750,7 +759,8 @@
   "triage": {
    "n": "I don’t know",
    "version": 1,
-   "reviewed": "illustrative",
+   "reviewer": null,
+   "status": "illustrative",
    "s": "Answer yes or no",
    "kit": [],
    "steps": [

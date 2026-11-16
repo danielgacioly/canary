@@ -11,6 +11,12 @@ To add one: an entry in `SPECS` and an evidence function in `GATHER`.
 
 Rules, not a model: every number below is a data table that a person can read, review and change. Nothing here
 is learned, and nothing is stored: a risk is a function of the day, so the demo clock can jump anywhere.
+
+Semantics (RULE-13): a risk score is the sum of the evidence points of the day (rounded to `score.round_dp` decimals). A
+level is reached at or above its cut (inclusive boundary). Level 2 also needs a minimum number of INDEPENDENT signals:
+evidence marked `derived` (a pattern of two indicators, a model estimate, a storm's follow-up) adds points but is not
+counted as a signal (RULE-07). Windows are named in assumptions.py: check-ins over `window.*_days`, the fatigue trend over
+`fatigue.trend.days`, the look-back of `since_day` over `fatigue.lookback_days`.
 """
 import json
 import math
@@ -18,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .. import db
 from . import assumptions as A
-from . import care, catalog, data, dose, plan
+from . import care, catalog, data, dose, plan, reference
 
 # ---------------------------------------------------------------- tables (prototype assumption)
 # Every weight and cut below is a prototype assumption kept in domain/assumptions.py: no published model sums these
@@ -38,7 +44,8 @@ FATIGUE = {
     "trend": A.value("fatigue.trend"),  # score now against 3 days ago: rising / falling beyond +-0.5
     "lookback_days": A.value("fatigue.lookback_days"),   # how far back since_day looks
 }
-DRIFT = {"source": "prototype assumption", "verified": False, **A.value("drift")}  # days fitted, days looked ahead, spreads per day the line must climb
+DRIFT = {"source": "prototype assumption", "verified": False, **A.value("drift")}
+SCORE_DP = A.value("score.round_dp")  # decimals of a risk score (inclusive cuts, see the module docstring)  # days fitted, days looked ahead, spreads per day the line must climb
 
 NAMES = {"fatigue": "Behavioural health and performance"}
 
@@ -139,19 +146,20 @@ def _fatigue(crew_id: str, day: int) -> dict:
                 drift_pts += pts
                 ev.append({**base, "points": round(pts, 2), "drift": dr,
                            "text": f"{d['name']} is drifting towards your limit (about {dr['days_to_limit']} days at this pace)"})
-    wb = health.latest_checkin(crew_id, "wellbeing", day, window=14)
+    wb = health.latest_checkin(crew_id, "wellbeing", day, window=A.value("window.wellbeing_days"))
     if wb and max(wb.get("phq2", 0), wb.get("gad2", 0)) >= 3:
         ev.append({"checkin": "wellbeing", "value": max(wb.get("phq2", 0), wb.get("gad2", 0)), "baseline": None, "z": None, "origin": "user",
                    "source": f"checkin:{crew_id}:wellbeing:day{wb['day']}", "points": FATIGUE["checkins"]["wellbeing"],
                    "text": "Wellbeing answers point to a hard stretch"})
         signals += 1
     log = goals._log(crew_id)
-    if not any(goals.is_done(crew_id, "mood", d, day, log) for d in (day, day - 1, day - 2)):
-        ev.append({"checkin": "missing_mood", "value": None, "baseline": None, "z": None, "origin": "user",
+    mood_days = A.value("window.missing_mood_days")
+    if not any(goals.is_done(crew_id, "mood", d, day, log) for d in range(day, day - mood_days, -1)):
+        # the absence of a check-in is derived from the mood signal itself: it adds points, never a signal of its own (RULE-07)
+        ev.append({"checkin": "missing_mood", "value": None, "baseline": None, "z": None, "origin": "user", "derived": True,
                    "source": f"goals:{crew_id}:mood:day{day}", "points": FATIGUE["checkins"]["missing_mood"],
-                   "text": "No mood check-in for 3 days"})
-        signals += 1
-    score = round(sum(e["points"] for e in ev), 2)
+                   "text": f"No mood check-in for {mood_days} days"})
+    score = round(sum(e["points"] for e in ev), SCORE_DP)
     ev.sort(key=lambda e: -e["points"])
     level = 2 if score >= FATIGUE["cuts"][2] and signals >= FATIGUE["min_signals_level_2"] else 1 if score >= FATIGUE["cuts"][1] else 0
     return {"score": score, "evidence": ev, "signals": signals, "level_raw": level}
@@ -288,6 +296,24 @@ def _ind_ev(inds: dict, ind: str, weight: float = 1.0) -> Optional[dict]:
     return ev
 
 
+def _worsening(crew_id: str, ind: str, day: int, value: float, lo, hi) -> Optional[dict]:
+    """RULE-06: a reading already out of range is a new worsening when it is further out than the person's own recent level
+    (the mean of their readings over `panel.recent_days` before it) by `panel.worsening_pct` percent. None otherwise."""
+    from . import telemetry
+    D = A.value("panel.recent_days")
+    recent = list(telemetry.day_values(crew_id, ind, day - D, day - 1).values())
+    if not recent:
+        return None
+    level = sum(recent) / len(recent)
+    if lo is not None and value < lo and level > 0:
+        pct = 100 * (level - value) / level  # further below the recent level
+    elif hi is not None and value > hi and level > 0:
+        pct = 100 * (value - level) / level  # further above it
+    else:
+        return None
+    return {"recent": round(level, 2), "pct": round(pct, 1), "days": D} if pct >= A.value("panel.worsening_pct") else None
+
+
 def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
     """An exam: out of its reference range (points) or too old (stale, no points). None when fresh and in range or missing."""
     from . import telemetry
@@ -304,13 +330,18 @@ def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
                 "text": f"The {kind} exam is {o['age']} days old (due every {every} days)"}
     if ind in EXTRA_RANGES:
         R = EXTRA_RANGES[ind]
-        lo = R["low"].get(sex) if isinstance(R["low"], dict) else R["low"]
-        hi = R["high"].get(sex) if isinstance(R["high"], dict) else R["high"]
+        lo = reference.pick_sex(R["low"], sex, "low")  # DATA-08: a sex other than F or M takes the widest range
+        hi = reference.pick_sex(R["high"], sex, "high")
         unit = R["unit"]
     else:  # the laboratory's own range for this sex (OSD-569 blood count, OSD-575 metabolic panel)
         from .simdata import lab_range
         snap = nasa.snapshot()
-        rng = lab_range(snap, ind, sex)
+        if sex in ("F", "M"):
+            rng = lab_range(snap, ind, sex)
+        else:  # DATA-08: no sex of its own: the widest combined range of the two laboratory ranges
+            both = [r for r in (lab_range(snap, ind, x) for x in ("F", "M")) if r is not None]
+            rng = None if not both else (None if any(l is None for l, _h in both) else min(l for l, _h in both),
+                                         None if any(h is None for _l, h in both) else max(h for _l, h in both))
         if rng is None:
             return None  # no range for this exam (C-reactive protein): read elsewhere against the person's own pre-flight
         lo, hi = rng
@@ -322,9 +353,13 @@ def _panel_ev(crew_id: str, ind: str, day: int, sex: str) -> Optional[dict]:
     name = INDICATORS[ind]["name"] if ind in INDICATORS else ind.replace("_", " ").capitalize()
     rng = f"{'-' if lo is None else f'{lo:g}'} to {'-' if hi is None else f'{hi:g}'}"
     pre = list(telemetry.preflight_values(crew_id, ind).values())
-    if pre and out(sum(pre) / len(pre)):  # the person's own pre-flight normal is already outside the range: not a new signal
-        return {**base, "points": 0.0, "baseline_outside": True, "range": {"low": lo, "high": hi}, "unit": unit,
-                "text": f"{name} {o['value']:g} {unit} is outside the usual range ({rng}), as it was before launch (your normal)"}
+    if pre and out(sum(pre) / len(pre)):  # the person's own pre-flight normal is already outside the range
+        worse = _worsening(crew_id, ind, o["day"], o["value"], lo, hi)
+        if worse is None:  # chronic and not moving: not a new signal
+            return {**base, "points": 0.0, "baseline_outside": True, "range": {"low": lo, "high": hi}, "unit": unit,
+                    "text": f"{name} {o['value']:g} {unit} is outside the usual range ({rng}), as it was before launch (your normal)"}
+        return {**base, "points": 1.0, "baseline_outside": True, "worse_than_recent": worse, "range": {"low": lo, "high": hi}, "unit": unit,
+                "text": f"{name} {o['value']:g} {unit} is further out of the usual range ({rng}) than your recent {worse['recent']:g} {unit}"}
     return {**base, "points": 1.0, "range": {"low": lo, "high": hi}, "unit": unit,
             "text": f"{name} {o['value']:g} {unit} is outside the usual range ({rng})"}
 
@@ -419,7 +454,7 @@ def _g_renal(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     rate = _bone_rate(crew_id, day)
     if rate is not None and rate >= R["bone_loss_pct_30d"]:
         d = inds["bone"]
-        ev.append({"key": "bone", "indicator": "bone", "estimate": True, "value": round(rate, 2), "baseline": None, "z": None, "origin": "estimated",
+        ev.append({"key": "bone", "indicator": "bone", "estimate": True, "derived": True, "value": round(rate, 2), "baseline": None, "z": None, "origin": "estimated",
                    "source": d["source"], "points": R["points"],
                    "text": f"Estimated bone loss of {rate:.1f}% in the last 30 days (a model of exercise and time in microgravity, not a scan)"})
     sex = CREW_BY_ID[crew_id]["sex"]
@@ -450,7 +485,7 @@ def _g_immune(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     if follow:
         e0 = follow[0]
         ev.append({"key": "dose", "origin": event_origin(e0["origin"]), "value": None, "baseline": None, "z": None, "points": R["storm_points"],
-                   "source": e0["source"], "text": "Blood count due after the radiation storm"})
+                   "source": e0["source"], "derived": True, "text": "Blood count due after the radiation storm"})
     return ev
 
 
@@ -482,8 +517,9 @@ def _g_cardio(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     if k:  # potassium out of its range can disturb the heart rhythm
         ev.append(k)
     pr = inds["sbp"] if inds["sbp"]["level"] or not inds["dbp"]["level"] else inds["dbp"]
-    if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and pr["level"] and inds["hr"]["level"]:
-        ev.append({"key": "regravity", "origin": pr["origin"], "value": None, "baseline": None, "z": None,
+    from . import health
+    if LOCATIONS[_day_ms(ms["day"])["location"]]["gravity_key"] == "gp" and health.regravity_pattern(inds):
+        ev.append({"key": "regravity", "origin": pr["origin"], "value": None, "baseline": None, "z": None, "derived": True,
                    "points": RULES["cardio"]["regravity_points"], "source": pr["source"],
                    "text": "Pressure and pulse both away from your normal after the change to partial gravity (the re-adaptation pattern)"})
     return ev
@@ -495,7 +531,7 @@ def _g_bone_muscle(crew_id: str, ms: dict, tok: tuple) -> List[dict]:
     b, R = inds["bone"], RULES["bone_muscle"]
     est = b.get("estimate")
     if est and est["loss_pct"] >= R["estimate_loss_pct"]:  # bone cannot be scanned on board: the model speaks, labelled as an estimate
-        ev.append({"key": "bone", "indicator": "bone", "estimate": True, "value": est["loss_pct"], "baseline": None, "z": None, "origin": "estimated",
+        ev.append({"key": "bone", "indicator": "bone", "estimate": True, "derived": True, "value": est["loss_pct"], "baseline": None, "z": None, "origin": "estimated",
                    "source": b["source"], "points": R["estimate_points"],
                    "text": f"Estimated bone loss {est['loss_pct']:g}% since launch from exercise and time in microgravity (an estimate, not a scan; "
                            f"the next measured value is the post-flight DXA)"})
@@ -518,8 +554,8 @@ def _g_eval(rid: str, crew_id: str, day: int, storm: Optional[str], tok: tuple) 
         S = SPECS[rid]
         ev = [] if ms["learning"] else GATHER[rid](crew_id, ms, tok)
         ev.sort(key=lambda e: -e["points"])
-        score = round(sum(e["points"] for e in ev), 2)
-        signals = sum(1 for e in ev if e["points"] > 0)
+        score = round(sum(e["points"] for e in ev), SCORE_DP)
+        signals = sum(1 for e in ev if e["points"] > 0 and not e.get("derived"))  # independent signals only (RULE-07)
         level = 2 if score >= S["cuts"][2] and signals >= S["min2"] else 1 if score >= S["cuts"][1] else 0
         level = max([level] + [e.get("floor", 0) for e in ev])
         hit = _gcache[key] = {"evidence": ev, "score": score, "level": level}

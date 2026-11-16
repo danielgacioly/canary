@@ -109,7 +109,7 @@ PUBLIC_PATHS = ("/api/catalog", "/api/mission", "/api/mission/overview", "/api/c
                 "/api/space-weather", "/api/nasa/rad", "/api/nasa/sources", "/api/plan", "/api/plan/conditions",
                 "/api/protocols", "/api/emergencies")
 # Of the public paths, the ones that now need someone signed in (the capture asks as Helena; the golden keys stay the same).
-SIGNED_IN_PATHS = ("/api/emergencies", "/api/mission/overview")
+SIGNED_IN_PATHS = ("/api/emergencies", "/api/mission/overview", "/api/crew/overview", "/api/leaderboard")
 CREW_PATHS = ("/api/crew/{c}", "/api/crew/{c}/record", "/api/goals/{c}", "/api/advice/{c}", "/api/checkins/{c}",
               "/api/suggestions/{c}", "/api/messages?crew_id={c}")  # each with the person's own token
 MEDICAL_PATHS = ("/api/crew", "/api/medical/overview", "/api/medical/goals", "/api/medical/care-sensitivity",

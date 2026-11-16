@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { CheckinResult } from '../api/types'
 import { ActionError, Field, FieldGroup, FormError, SubmitButton } from '../components/Field'
+import { Modal, ModalTitle } from '../components/Modal'
 import { Icon } from '../components/ui'
 import { fitJpeg } from '../lib/image'
 import { useAction } from '../lib/useAction'
@@ -39,11 +40,10 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
   // After a successful save the form is replaced by a short result step: no long toast.
   const [saved, setSaved] = useState<Saved | null>(null)
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose}>
         <div className="row" style={{ marginBottom: 12 }}>
-          <h2>{CHECK_TITLE[kind]}</h2>
-          <button className="btn sm ghost right" onClick={onClose}><Icon name="close" size={15} /></button>
+          <ModalTitle>{CHECK_TITLE[kind]}</ModalTitle>
+          <button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" size={15} /></button>
         </div>
         {saved ? <Result saved={saved} onDone={onClose} /> : (
           <ResultCtx.Provider value={setSaved}>
@@ -62,8 +62,7 @@ export default function Check({ kind, onClose }: { kind: CheckKind; onClose: () 
             {kind === 'journal' && <Journal />}
           </ResultCtx.Provider>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -113,14 +112,23 @@ function Pvt() {
     tm.current = window.setTimeout(() => { t0.current = performance.now(); setSt('go') }, 1200 + Math.random() * 2600)
   }
   const avg = rts.length ? Math.round(rts.reduce((a, b) => a + b) / rts.length) : 0
+  const label = st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · press Space or Enter for the next` : 'Press Space or Enter to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW. Press Space or Enter' : 'Too early. Press Space or Enter to retry'
+  // Keyboard: Space or Enter does the same as a tap. Auto-repeat is ignored so a held key counts once.
+  const onKey = (e: { key: string; repeat: boolean; preventDefault: () => void }) => {
+    if ((e.key === ' ' || e.key === 'Enter') && rts.length < 5) { e.preventDefault(); if (!e.repeat) tap() }
+  }
   return (
     <div className="col">
-      <p className="muted">Tap the box the moment it turns red. Five rounds. It measures the tiredness you do not feel.</p>
+      <p className="muted">Tap the box the moment it turns red, or press Space or Enter. Five rounds. It measures the tiredness you do not feel.</p>
       {rts.length < 5 && <SampleButton onFill={() => { clearTimeout(tm.current); setSt('idle'); setRts(Array.from({ length: 5 }, () => rndN(230, 340))) }} />}
       {rts.length < 5 ? (
-        <div className={`pvt ${st === 'go' ? 'go' : ''}`} onPointerDown={tap} role="button" tabIndex={0}>
-          {st === 'idle' ? (rts.length ? `${rts[rts.length - 1]} ms · tap for the next` : 'Tap to start') : st === 'wait' ? 'Wait…' : st === 'go' ? 'NOW' : 'Too early. Tap to retry'}
-        </div>
+        <>
+          <div className={`pvt ${st === 'go' ? 'go' : ''}`} onPointerDown={tap} onKeyDown={onKey} role="button" tabIndex={0}
+            aria-label={`Reaction test, round ${Math.min(rts.length + 1, 5)} of 5`}>
+            {label}
+          </div>
+          <p className="sr-only" role="status" aria-live="assertive">{label}</p>
+        </>
       ) : (
         <div className="col pvt-avg"><span className="lbl">Average</span><b className="num big">{avg} ms</b>
           <p className="small muted">On a normal screen this includes device lag. On board, the baseline is measured on the same terminal.</p></div>

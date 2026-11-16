@@ -44,7 +44,7 @@ def test_no_alerts_while_learning_on_earth():
     ms = at(0)
     assert ms["learning"]
     for c in catalog.CREW:
-        assert health.snapshot(c["id"], ms)["alerts"] == []
+        assert [a for a in health.snapshot(c["id"], ms)["alerts"] if not a.get("data")] == []  # missing data is not a health alert
 
 
 def test_space_sickness_only_for_tomas_on_day_2():
@@ -85,7 +85,7 @@ def test_checkin_overrides_and_completes_goal():
 
 def test_leaderboard_ranks_everyone():
     at(2)
-    lb = client.get("/api/leaderboard").json()
+    lb = client.get("/api/leaderboard", headers=as_("h")).json()
     assert [r["rank"] for r in lb["rows"]] == [1, 2, 3, 4]
     assert len(lb["team"]) == len(catalog.TEAM_GOALS)
     goals_week = [r["goals_week"] for r in lb["rows"]]
@@ -107,7 +107,7 @@ def test_ranking_and_crew_missions_never_reveal_alert_doctor_goals_or_health_num
     """The crew sees effort on routine goals only. A goal from an alert, the medical team or a suggestion, and
     the measured exercise minutes, are health data: ticking one must not move anything the crew can see."""
     at(3)
-    lb = client.get("/api/leaderboard").json()
+    lb = client.get("/api/leaderboard", headers=as_("h")).json()
     for r in lb["rows"]:
         assert set(r) == {"crew_id", "goals_week", "completion_7d", "streak", "badges_earned", "patches", "rank", "name", "initials", "role"}
         assert all(set(x) == {"id", "name"} for x in r["patches"]) and len(r["patches"]) == r["badges_earned"]
@@ -118,8 +118,8 @@ def test_ranking_and_crew_missions_never_reveal_alert_doctor_goals_or_health_num
     assert all(set(g) == set(ex) for g in lb["team"]) and all(len(g["personal_ids"]) == 1 for g in lb["team"])
 
     def public():
-        ov = client.get("/api/crew/overview").json()
-        return client.get("/api/leaderboard").json(), {k: v for k, v in ov.items() if k in ("people", "team", "crew_streak")}
+        ov = client.get("/api/crew/overview", headers=as_("h")).json()
+        return client.get("/api/leaderboard", headers=as_("h")).json(), {k: v for k, v in ov.items() if k in ("people", "team", "crew_streak")}
 
     before = public()
     h = as_("h")
@@ -214,7 +214,7 @@ def test_bone_loss_estimate_depends_on_gravity_in_the_plan():
 
 def test_crew_overview_hides_private_health():
     at(2)
-    o = client.get("/api/crew/overview").json()
+    o = client.get("/api/crew/overview", headers=as_("h")).json()
     helena = next(p for p in o["people"] if p["id"] == "h")
     assert "ops" not in helena and "shared" not in helena and "fit" not in o
     text = str(o)
@@ -233,11 +233,15 @@ def test_details_are_private_to_self_and_medical():
 
 
 def test_profile_photo_is_set_by_the_astronaut_only():
-    png = "data:image/png;base64,iVBORw0KGgo="
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), (10, 20, 30)).save(buf, "PNG")
+    png = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()  # a real 1x1 image (decoded on save)
     assert client.put("/api/crew/h/photo", json={"data_url": png}, headers=as_("k")).status_code == 403
     assert client.put("/api/crew/h/photo", json={"data_url": "javascript:alert(1)"}, headers=as_("h")).status_code == 400
     assert client.put("/api/crew/h/photo", json={"data_url": png}, headers=as_("h")).json() == {"h": png}
-    assert client.get("/api/crew/photos").json() == {"h": png}
+    assert client.get("/api/crew/photos", headers=as_("h")).json() == {"h": png}
     assert client.delete("/api/crew/h/photo", headers=as_("h")).json() == {}
 
 def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
@@ -249,7 +253,7 @@ def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
     assert all("ops" in p for p in client.get("/api/crew", headers=med).json()["crew"])
     ov = client.get("/api/medical/overview", headers=med).json()["crew"]
     assert next(c for c in ov if c["id"] == "h")["ops"]["key"] == "rest"
-    o = client.get("/api/crew/overview").json() if at(3) else None
+    o = client.get("/api/crew/overview", headers=as_("h")).json() if at(3) else None
     assert o["hazards"][0]["level"] == 2 and not o["eva_open"]
 
 
@@ -257,9 +261,9 @@ def test_medical_team_sees_everyone_and_storm_is_a_crew_hazard():
 @pytest.mark.parametrize("day", [-60, -365, -31, 800, 2000])
 def test_every_page_works_on_any_mission_day(day):
     assert client.put("/api/mission", json={"day": day}, headers=control_headers(client)).json()["day"] == day
-    for path in ("/api/crew/overview", "/api/leaderboard"):
-        assert client.get(path).status_code == 200, path
     h = as_("h")
+    for path in ("/api/crew/overview", "/api/leaderboard"):
+        assert client.get(path, headers=h).status_code == 200, path
     for path in ("/api/crew/h", "/api/goals/h"):
         assert client.get(path, headers=h).status_code == 200, path
 
@@ -336,9 +340,9 @@ def test_setup_saves_the_plan_and_marks_it_done():
 
 
 def test_ridge_hazards_follow_place_and_storm():
-    o = client.get("/api/crew/overview").json()  # pre-flight, on Earth
+    o = client.get("/api/crew/overview", headers=as_("h")).json()  # pre-flight, on Earth
     assert [h["id"] for h in o["ridge"]] == ["R", "I", "D", "G", "E"] and all(h["level"] == 0 for h in o["ridge"])
-    o = client.get("/api/crew/overview").json() if at(3) else None  # the replayed May 2024 storm, in transit
+    o = client.get("/api/crew/overview", headers=as_("h")).json() if at(3) else None  # the replayed May 2024 storm, in transit
     r = {h["id"]: h for h in o["ridge"]}
     assert r["R"]["level"] == 2 and r["G"]["label"] == "High" and o["warnings"][0]["id"] == "storm"
 
@@ -516,12 +520,12 @@ def test_mission_and_control_overviews_carry_no_eva_role_or_prior_dose_per_perso
     c = control_headers(client)
     mission_ov, control_ov = client.get("/api/mission/overview", headers=as_("h")), client.get("/api/control/overview", headers=c)
     for name, body in {"mission overview": mission_ov.json(), "control overview": control_ov.json(),
-                       "crew overview": client.get("/api/crew/overview").json()}.items():
+                       "crew overview": client.get("/api/crew/overview", headers=as_("h")).json()}.items():
         rows = list(_rows(body))
         assert rows, name
         for row in rows:
             assert not {"eva", "prior_dose_msv", "prior_dose", "prior_msv", "prior_estimate"} & set(row), (name, row)
-    assert not {"eva", "prior_dose_msv", "prior_msv"} & set(_keys(client.get("/api/leaderboard").json()))
+    assert not {"eva", "prior_dose_msv", "prior_msv"} & set(_keys(client.get("/api/leaderboard", headers=as_("h")).json()))
     assert "120.5" not in mission_ov.text and "120.5" not in control_ov.text
 
 
@@ -684,7 +688,7 @@ def test_a_pvt_checkin_is_the_days_own_value_and_is_not_smoothed():
 
 
 @pytest.mark.parametrize("kind,payload,ind,value", [("dsst", {"correct": 10}, "dsst", 10), ("span", {"span": 3}, "span", 3),
-                                                    ("kss", {"level": 9}, "kss", 9), ("tlx", {"scores": {"a": 100, "b": 100}}, "tlx", 100)])
+                                                    ("kss", {"level": 9}, "kss", 9), ("tlx", {"scores": {"mental": 100, "physical": 100}}, "tlx", 100)])
 def test_cognitive_and_self_report_tests_feed_their_indicator(kind, payload, ind, value):
     _day(100)
     before = client.get("/api/crew/a", headers=as_("a")).json()["indicators"][ind]
@@ -714,7 +718,7 @@ def test_story_alerts_are_unchanged_by_the_new_indicators():
     for cid in ("k", "a", "t"):
         assert not any(a["id"] == "behaviour" for a in health.snapshot(cid, mission.state())["alerts"])
     ms = _day(-30)
-    assert all(health.snapshot(c["id"], ms)["alerts"] == [] for c in catalog.CREW)
+    assert all([a for a in health.snapshot(c["id"], ms)["alerts"] if not a.get("data")] == [] for c in catalog.CREW)
     ms = at(1)
     assert [c["id"] for c in catalog.CREW if any(a["id"] == "sickness" for a in health.snapshot(c["id"], ms)["alerts"])] == ["t"]
 
@@ -736,7 +740,7 @@ def test_missing_mood_after_three_days_without_the_goal_and_gone_after_a_checkin
     ms = _day(-5)  # learning: no alerts at all
     for d in (-7, -6, -5):
         goals.set_done("a", "mood", d, False)
-    assert health.snapshot("a", ms)["alerts"] == []
+    assert [a for a in health.snapshot("a", ms)["alerts"] if not a.get("data")] == []
 
 
 def test_vitals_outside_what_can_be_typed_are_refused():
@@ -852,7 +856,7 @@ def test_a_test_returns_a_conclusion_against_both_references():
     c = _checkin("a", "pvt", {"ms": 330}).json()["conclusion"]
     assert c["population"] == "Within the normal human range" and "slower than your own average" in c["personal"]
     assert c["text"] == f"{c['population']}, {c['personal']}."
-    for kind, payload in (("dsst", {"correct": 50}), ("span", {"span": 6}), ("kss", {"level": 4}), ("tlx", {"scores": {"a": 50}}),
+    for kind, payload in (("dsst", {"correct": 50}), ("span", {"span": 6}), ("kss", {"level": 4}), ("tlx", {"scores": {"mental": 50}}),
                           ("mood", {"mood": 4, "stress": 2}), ("sleep", {"bed": "23:00", "wake": "06:00", "quality": 3}),
                           ("vitals", {"hr": 60})):
         c = _checkin("a", kind, payload).json()["conclusion"]
@@ -1125,7 +1129,7 @@ def test_exercise_is_lighter_and_explained_under_fatigue_within_the_medical_limi
     plain = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
     assert "lighter" not in plain["title"] and "adjusted" not in plain
     at(2)  # day 147: fatigue level 2
-    base_board = client.get("/api/leaderboard").json()
+    base_board = client.get("/api/leaderboard", headers=as_("h")).json()
     g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
     assert g["adjusted"] == {"pct": 30, "minutes": 84, "target": 120, "reason": "fatigue", "max_pct": 30}
     assert "lighter today" in g["title"] and "30%" in g["why"] and "medical team" in g["why"]
@@ -1134,7 +1138,7 @@ def test_exercise_is_lighter_and_explained_under_fatigue_within_the_medical_limi
     g = next(x for x in client.get("/api/goals/h", headers=as_("h")).json()["personal"] if x["id"] == "exercise")
     assert g["adjusted"]["pct"] == 10 and g["adjusted"]["minutes"] == 108  # never above the limit the doctors set
     assert client.put("/api/medical/exercise-adjust", json={"max_pct": 10, "level1": 15, "level2": 30}).status_code == 401
-    assert client.get("/api/leaderboard").json() == base_board  # lighter training does not touch the ranking
+    assert client.get("/api/leaderboard", headers=as_("h")).json() == base_board  # lighter training does not touch the ranking
     k = next(x for x in client.get("/api/goals/k", headers=as_("k")).json()["personal"] if x["id"] == "exercise")
     assert "adjusted" not in k  # no fatigue risk for Kenji
 
@@ -1186,7 +1190,7 @@ def test_every_protocol_with_a_window_has_days_ops_and_an_illustrative_note():
 def test_closing_a_seizure_gives_follow_ups_their_own_days_and_a_restricted_window():
     _day(153)
     assert client.get("/api/crew/t", headers=as_("t")).json()["ops"]["key"] != "rest"
-    _close("seizure", "t")
+    e = _close("seizure", "t")
     days = _med_goals("t")
     assert days["Glucose and vital signs every 30 min for 2 h"] == 1 and days["No critical task or spacewalk for 72 h"] == 3
     assert days["Blood count and a review of current medication"] == 3
@@ -1194,10 +1198,16 @@ def test_closing_a_seizure_gives_follow_ups_their_own_days_and_a_restricted_wind
     assert d["ops"]["key"] == "rest" and d["ops"]["until_day"] == 156 and "Seizure" in d["ops"]["reason"] and "156" in d["ops"]["reason"]
     ev = d["care_events"][0]
     assert (ev["protocol"], ev["day"], ev["outcome"], ev["origin"], ev["until_day"]) == ("seizure", 153, "stable", "user", 156)
-    for day, key in ((154, "rest"), (156, "rest"), (157, None)):
+    for day in (154, 156):
         _day(day)
         got = client.get("/api/crew/t", headers=as_("t")).json()["ops"]
-        assert (got["key"] == "rest") == (key == "rest") and ("until_day" in got) == (key == "rest")
+        assert got["key"] == "rest" and got["until_day"] == 156
+    # EMG-04: after its last day the window is "awaiting review" and keeps its restriction until medical records a review
+    _day(157)
+    assert client.get("/api/crew/t", headers=as_("t")).json()["ops"]["key"] == "rest"
+    assert client.get("/api/crew/t", headers=as_("t")).json()["care_events"][0]["status"] == "awaiting review"
+    assert client.post(f"/api/medical/care-windows/{e['id']}/review", json={"resolution": "Cleared to resume"}, headers=_med()).status_code == 200
+    assert client.get("/api/crew/t", headers=as_("t")).json()["ops"]["key"] != "rest"  # the review ends it on the day it is recorded
     _day(150)  # the clock can go back: the event is not on record yet
     assert client.get("/api/crew/t", headers=as_("t")).json()["care_events"] == []
 
@@ -1233,11 +1243,13 @@ def test_inside_the_window_thresholds_tighten_for_the_patient_only():
     client.put("/api/medical/thresholds", json={"watch": watch, "act": 5}, headers=_med())
     before = {c: health.indicator(c, ind, ms) for c in "hkat"}
     assert before["t"]["level"] == 0 and all("sensitive_until" not in i for i in before.values())
-    _close("seizure", "t")
+    e = _close("seizure", "t")
     after = {c: health.indicator(c, ind, ms) for c in "hkat"}
     assert after["t"]["level"] == 1 and after["t"]["sensitive_until"] == 156
     assert all(after[c]["level"] == before[c]["level"] and "sensitive_until" not in after[c] for c in "hka")
-    _day(157)  # back to normal alone
+    _day(157)  # after its last day it awaits review (EMG-04): still tighter until medical reviews it
+    assert "sensitive_until" in health.indicator("t", ind, mission.state())
+    assert client.post(f"/api/medical/care-windows/{e['id']}/review", json={"resolution": "Back to normal"}, headers=_med()).status_code == 200
     t = health.indicator("t", ind, mission.state())
     assert "sensitive_until" not in t
     assert client.put("/api/medical/care-sensitivity", json={"factor": 1.0}, headers=_med()).json()["factor"] == 1.0
@@ -1294,7 +1306,7 @@ def test_alerts_and_windows_are_private_to_the_medical_team():
     assert "alert" in kinds(as_("k")) and "alert" in kinds(as_("h"))  # each sees only what is addressed to them
     assert not any(m["kind"] == "alert" and m["recipient"] != "k" for m in client.get("/api/messages", headers=as_("k")).json())
     assert "alert_earth" in kinds(_med())
-    o = str(client.get("/api/crew/overview").json())
+    o = str(client.get("/api/crew/overview", headers=as_("h")).json())
     for leak in ("care_events", "until_day", "alert_events", "Critical alert for", "Guided Response ("):
         assert leak not in o
     assert client.get("/api/crew/t", headers=as_("a")).status_code == 403
@@ -1558,7 +1570,7 @@ def test_ridge_on_day_147_in_transit_is_what_it_was_and_the_levels_follow_the_pl
 
 def test_the_ridge_in_the_overview_uses_the_mission_day():
     at(2)
-    o = client.get("/api/crew/overview").json()
+    o = client.get("/api/crew/overview", headers=as_("h")).json()
     assert {h["id"]: h["level"] for h in o["ridge"]} == {"R": 2, "I": 2, "D": 2, "G": 2, "E": 1}
     assert all("basis" in h for h in o["ridge"])
 
@@ -1681,7 +1693,7 @@ def test_a_rover_traverse_is_a_place_of_its_own_on_the_mars_plan():
     mars = protocols.resolve("mars")["protocols"]
     assert any(s["variant"] for p in res.values() for s in p["steps"])
     assert [s["variant"] for s in res["rad"]["steps"]] == [s["variant"] for s in mars["rad"]["steps"]]
-    assert client.get("/api/crew/overview").status_code == 200
+    assert client.get("/api/crew/overview", headers=as_("h")).status_code == 200
 
 
 def test_the_read_cache_never_outlives_a_write():
@@ -1872,8 +1884,8 @@ PERSONAL = ("prior_msv", "prior_estimate", "career_msv", "career_pct_of_limit", 
 
 def _crew_facing():
     ctl = control_headers(client)
-    return {"crew overview": client.get("/api/crew/overview").json(), "mission overview": client.get("/api/mission/overview").json(),
-            "leaderboard": client.get("/api/leaderboard").json(), "plan conditions": client.get("/api/plan/conditions").json(),
+    return {"crew overview": client.get("/api/crew/overview", headers=as_("h")).json(), "mission overview": client.get("/api/mission/overview").json(),
+            "leaderboard": client.get("/api/leaderboard", headers=as_("h")).json(), "plan conditions": client.get("/api/plan/conditions").json(),
             "control overview": client.get("/api/control/overview", headers=ctl).json()}
 
 
@@ -1896,7 +1908,7 @@ def test_crew_facing_endpoints_never_carry_career_dose_risks_eva_or_care(step):
         bad = set(PERSONAL) & set(_keys(body))
         assert not bad, (name, bad)
         assert "After Guided Response" not in str(body), name  # the emergency itself is crew-wide; the window after it is not
-    dose = client.get("/api/crew/overview").json()["dose"]
+    dose = client.get("/api/crew/overview", headers=as_("h")).json()["dose"]
     assert "career_msv" not in dose and dose["mission_msv"] >= 0  # the mission dose is the same for everyone and stays
 
 
@@ -1932,7 +1944,11 @@ def test_the_catalog_carries_the_indicator_guide_with_its_sources():
 # ---------------------------------------------------------------- C2: photo of the display kept with a vitals check-in
 import base64  # noqa: E402
 
-_JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+import io as _io  # noqa: E402
+from PIL import Image as _Image  # noqa: E402
+_buf = _io.BytesIO()
+_Image.new("RGB", (1, 1), (200, 30, 30)).save(_buf, "JPEG")
+_JPEG = "data:image/jpeg;base64," + base64.b64encode(_buf.getvalue()).decode()  # a real JPEG (EDIT-06)
 
 
 def _vitals(cid="h", **extra):

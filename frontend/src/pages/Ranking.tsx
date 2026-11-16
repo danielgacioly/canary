@@ -3,13 +3,14 @@
 import { api } from '../api/client'
 import { Dot } from '../components/People'
 import { CountUp, Loading } from '../components/ui'
-import { useApi, useSession } from '../state/session'
+import { useSession, useSignedApi } from '../state/session'
 
 const MEDAL = ['gold', 'silver', 'bronze']
 
 export default function Ranking() {
   const { me } = useSession()
-  const { data } = useApi(() => api.leaderboard(), [])
+  const { data, locked } = useSignedApi(() => api.leaderboard(), [])
+  if (locked) return <div className="page"><p className="waiting">Sign in to see the ranking.</p></div>
   if (!data) return <Loading what="ranking" />
   const rows = data.rows
   const top = Math.max(1, ...rows.map(r => r.goals_week))

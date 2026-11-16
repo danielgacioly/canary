@@ -6,11 +6,12 @@ import { ActionError } from './Field'
 import AskCanary from '../features/AskCanary'
 import GuidedResponse from '../features/GuidedResponse'
 import { clockLine } from '../lib/clock'
-import { useApi, useSession } from '../state/session'
+import { useSignedApi, useSession } from '../state/session'
 import { WaitingForControl } from '../pages/MissionInfo'
 import EmergencyBanner from './EmergencyBanner'
 import { CrewDots, Dot } from './People'
 import { CanaryMark, Icon } from './ui'
+import { Modal, ModalTitle } from './Modal'
 
 // Crew first: the system always opens on the whole crew. Personal data sits behind "Your health".
 const NAV: { group: string; items: [string, string, string][] }[] = [
@@ -22,7 +23,7 @@ export default function Shell() {
   const { mission, me, emergency, setEmergency, askOpen, setAskOpen, toasts, prefs, catalog } = useSession()
   const [where, setWhere] = useState(false)
   const nav = useNavigate()
-  const { data: crew } = useApi(() => api.overview(), [])
+  const { data: crew } = useSignedApi(() => api.overview(), [])
   const mine = crew?.people.find(c => c.id === me)
 
   return (
@@ -65,7 +66,8 @@ export default function Shell() {
           )}
           <div className="right row" style={{ gap: 14 }}>{mission?.callsign && <button className="mission-chip" onClick={() => nav('/mission')} title="The mission and the crew">{mission.callsign}</button>}{crew && <span data-tour="crew-dots"><CrewDots people={crew.people} /></span>}<HoldButton onFire={() => setEmergency(true)} /></div>
         </header>
-        {mission && !mission.registered ? <WaitingForControl /> : <Outlet />}
+        {/* Keyed by the signed-in person: a switch of profile remounts the page, so no state or fetched data of the last person stays. */}
+        {mission && !mission.registered ? <WaitingForControl /> : <Outlet key={me ?? 'guest'} />}
       </div>
 
       {catalog?.mode === 'demo' && prefs.storyBar && mission?.registered && <StoryBar />}
@@ -120,17 +122,15 @@ function WherePicker({ onClose }: { onClose: () => void }) {
   const pick = useAction()
   if (!mission) return null
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="modal wide" onClick={e => e.stopPropagation()}>
-        <div className="row"><h2>Where are you?</h2><button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
+    <Modal onClose={onClose} wide>
+        <div className="row"><ModalTitle>Where are you?</ModalTitle><button className="btn sm ghost right" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
         <p className="muted place-lead">
           The mission plan puts you at <b className="ink">{mission.leg.label || mission.leg.location}</b> today. Pick another place to simulate it, or <button className="link" onClick={() => { onClose(); nav('/plan') }}>edit the mission plan</button>.
         </p>
         <PlaceGrid current={mission.location} onPick={(k, name) => { pick.run(async () => { await setLocation(k); toast(`Simulating: ${name}`); onClose() }) }} />
         <ActionError error={pick.error} />
         {mission.location_override && <button className="btn" style={{ marginTop: 16 }} disabled={pick.busy} onClick={() => pick.run(async () => { await setLocation(null); onClose() })}>Back to the mission plan</button>}
-      </div>
-    </div>
+    </Modal>
   )
 }
 

@@ -103,7 +103,8 @@ def check_empty(out, crew=gc.CREW_IDS):
         assert all(i["value"] is None and i["status"] == "no_data" and i["level"] == 0 and i["z"] is None and i["bad"] is None
                    for i in s["indicators"].values())
         assert not [a for a in s["alerts"] if not a.get("data")]  # missing data is never a health alert
-        assert s["level"] == 0
+        # the only level without data is the career radiation dose (skin): not a reading, so it is the one allowed reason
+        assert s["level"] == 0 or (s["systems"]["skin"]["level"] == s["level"] and "career limit" in (s["systems"]["skin"]["note"] or ""))
         assert all(x["no_data"] for x in s["systems"].values() if x["indicators"])
         assert all(not any(v for _d, v in t if v is not None) for t in s["trends"].values())  # no line to draw
     assert db.q("SELECT COUNT(*) n FROM alert_events")[0]["n"] == 0
@@ -169,8 +170,8 @@ def test_a_system_with_no_crew_at_all_answers_too(monkeypatch):
         gc._get(client, p, med)
     for p in gc.CONTROL_PATHS:
         gc._get(client, p, ctl)
-    assert client.get("/api/crew/overview").json()["people"] == []
-    assert client.get("/api/leaderboard").status_code == 200
+    assert client.get("/api/crew/overview", headers=control_headers(client)).json()["people"] == []
+    assert client.get("/api/leaderboard", headers=control_headers(client)).status_code == 200
 
 
 # ---------------------------------------------------------------- learning the normal
@@ -179,7 +180,7 @@ def test_a_person_with_two_observations_is_learning_and_never_alerted(monkeypatc
     add("h", "sleep", 99, 7.6)
     add("h", "sleep", 100, 7.4)
     b = health.baselines("h")["sleep"]
-    assert b == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT, "confidence": "low"}
+    assert {k: b[k] for k in ("mean", "sd", "from", "n", "need", "confidence")} == {"mean": None, "sd": None, "from": "learning", "n": 2, "need": health.MIN_PREFLIGHT, "confidence": "low"}
     ms = day(100)
     d = health.indicator("h", "sleep", ms)
     assert d["learning"] is True and d["z"] is None and d["baseline"] is None and d["bad"] is None and d["value"] == pytest.approx(7.45, abs=0.2)

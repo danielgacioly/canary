@@ -23,12 +23,13 @@ It compares every astronaut with **their own normal**, turns early warnings into
 10. [The 3D body](#the-3d-body)
 11. [Project layout](#project-layout)
 12. [API](#api)
-13. [How it maps to the judging criteria](#how-it-maps-to-the-judging-criteria)
-14. [What to build next](#what-to-build-next)
-15. [Input checks](#input-checks)
-16. [Limits, honestly](#limits-honestly)
-17. [Use of SI tools](#use-of-si-tools)
-18. [Credits and licences](#credits-and-licences)
+13. [Operations](#operations)
+14. [How it maps to the judging criteria](#how-it-maps-to-the-judging-criteria)
+15. [What to build next](#what-to-build-next)
+16. [Input checks](#input-checks)
+17. [Limits, honestly](#limits-honestly)
+18. [Use of SI tools](#use-of-si-tools)
+19. [Credits and licences](#credits-and-licences)
 
 ---
 
@@ -493,7 +494,7 @@ Canary compares every number with three references: the two below and NASA's fli
 <!-- reference-table:start (generated from backend/canary/domain/reference.py) -->
 | Indicator | Unit | Low | High | Critical (below / above) | Source | Verified |
 | --- | --- | --- | --- | --- | --- | :---: |
-| `hr` Resting pulse | bpm | 40 | 100 | 30 / 150 | MedlinePlus: resting pulse 60 to 100 bpm. The low edge 40 allows trained people (quoted from memory of AHA). Critical limits: prototype assumption | partly |
+| `hr` Resting pulse | bpm | 40 | 100 | 30 / 150 | MedlinePlus: resting pulse 60 to 100 bpm for adults, 40 to 60 for well-trained athletes (the low edge 40). Critical limits: prototype assumption | partly |
 | `sbp` Systolic pressure | mmHg | 90 | 129 | 70 / 180 | Systolic pressure. AHA: normal below 120, elevated 120 to 129, hypertension stage 1 from 130, stage 2 from 140, severe above 180. MedlinePlus: 90/60 to 120/80 for a healthy adult. Critical low: prototype assumption | partly |
 | `dbp` Diastolic pressure | mmHg | 60 | 79 | 40 / 120 | Diastolic pressure. AHA: normal below 80, stage 1 hypertension 80 to 89, stage 2 from 90, hypertensive crisis above 120. MedlinePlus: 60 as the lower edge of 90/60 for a healthy adult. Critical low 40: prototype assumption | partly |
 | `spo2` Blood oxygen | % | 95 | 100 | 89 / - | MedlinePlus: normal 95 to 100%; contact your provider at 92% or lower; 88% or lower needs immediate medical attention (critical below 89) | yes |
@@ -718,6 +719,71 @@ Full, interactive documentation at `/docs`. The main routes:
 | `POST /api/briefings/{bid}/approve` | Queue a draft for Earth: the medical team only, once (404 for an unknown id, 409 when it is no longer a draft) |
 | `GET /api/suggestions/{id}`, `POST /api/suggestions/{id}/accept`, `POST /api/suggestions/{id}/dismiss` | My space suggestions: astronaut only (6 builds a minute); a repeat with the same inputs reuses the last build |
 | `POST /api/medical/session` and `/api/medical/*` | Medical console (token required) |
+
+---
+
+## Operations
+
+**One process.** Run the API as one process with one worker (`make serve`, or `uvicorn canary.main:app` without `--workers`). The rate limits of the assistant, the suggestion cache and the request metrics live in memory, so each worker would keep its own counts. The PIN lock-outs and the audit trail are in SQLite and survive a restart. Two processes on one database file are not supported.
+
+**Tokens across restarts.** Sessions are signed with `CANARY_TOKEN_SECRET`. Without it the server draws a new secret at every start, so every session ends at a restart. Set it in any deployment.
+
+**Health and metrics.**
+
+| Route | Who | What it says |
+| --- | --- | --- |
+| `GET /api/health/live` | anyone | the process answers (use for liveness: restart only when this fails) |
+| `GET /api/health/ready` | anyone | the database and the knowledge base `backend/kb.db` can be read; `503` with the failing check otherwise (use for load balancer traffic) |
+| `GET /api/metrics` | Mission Control sign-in | request counts, errors and p50/p95 latency per route, since the process started (in memory, not kept) |
+
+Background work (the story warm-up, the day sync and the evaluation after an ingest) logs its failures, with a traceback, to the `canary` logger instead of swallowing them; a failed knowledge base rebuild logs a warning and the API keeps running.
+
+**Security headers.** Every response carries a Content-Security-Policy that allows only the app's own origin (scripts, styles, fonts, models, images, data and blob URLs for photos), `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`. Every `/api` response is `Cache-Control: no-store`. The app loads no fonts or scripts from another server; the fonts are the system's.
+
+**TLS and the reverse proxy.** The app does not terminate TLS and does not send `Strict-Transport-Security`. Anywhere but a laptop:
+
+- put a reverse proxy in front (nginx, Caddy or a cloud load balancer) and serve everything over HTTPS only; set HSTS at the proxy;
+- forward only to the one process; do not expose port 8000 directly;
+- the lock-outs count wrong PINs per client address. Behind a proxy every request comes from the proxy's address unless the server is told to trust it: run `uvicorn canary.main:app --proxy-headers --forwarded-allow-ips=<proxy address>` so the real client address is used. Without it, one wrong-PIN streak can lock out everyone who uses the proxy;
+- set the proxy's body limit above the largest upload the app accepts (`MAX_UPLOAD_BYTES` in `backend/canary/domain/data.py`, 120 MB for a mission package);
+- set `CANARY_CORS_ORIGINS` only when the web app is served from another origin than the API (the built app is served by the API itself).
+
+**Data: where it lives, backup and restore.** All the mission data is one SQLite file: `CANARY_DB` (default `backend/canary.db`). Keep it on a persistent volume, never inside the container image or the source tree.
+
+- Backup while the server runs: `sqlite3 backend/canary.db ".backup '/backups/canary-YYYYMMDD.db'"`. This is a consistent copy; do not copy the live file with `cp`.
+- Restore: stop the server, put the backup at `CANARY_DB`, start the server, then check `GET /api/health/ready` and, signed in as Mission Control or a flight surgeon, `GET /api/audit/verify` (the audit chain must say `ok: true`).
+- The knowledge base `backend/kb.db` is not backed up: it is built from the shipped corpus (`make index`) and rebuilt at start-up when it does not match.
+- Keep `CANARY_TOKEN_SECRET` with the backup's configuration; a restored database does not work with a different secret for sessions that were open.
+
+**CI recipe (not yet in the repository).** A GitHub Actions job that runs the same checks as `make test` and builds the app:
+
+```yaml
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CANARY_EMBEDDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: make setup
+      - run: make test
+      - run: make build
+```
+
+**End-to-end plan (not yet built).** A browser test suite (Playwright is the planned tool) against `make serve` on a fresh database, run as a job after `make test`:
+
+1. The intro ends on the crew screen with no sign-in, and that screen shows no health values.
+2. A crew PIN signs in to My space; five wrong PINs pause sign-in with the wait shown.
+3. Only the medical console can approve a briefing; the crew member it is about cannot.
+4. Opening Guided Response shows the red banner on every other screen with the name and the protocol only.
+5. Stopping the API shows the offline banner; starting it again clears the banner.
+6. An unknown `/api` path returns JSON 404, and the security headers are present.
 
 ---
 

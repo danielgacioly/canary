@@ -773,9 +773,11 @@ def test_unexpected_provider_error_falls_back_without_leaking_it(monkeypatch, ex
 # ---------------------------------------------------------------- item 4: operational status and the care window in the answers
 
 def _close_emergency(protocol, patient, outcome="stable"):
-    e = client.post("/api/emergencies", json={"responder": "k"}).json()
-    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient})
-    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}).json()
+    """Open, name the protocol and patient, and close an emergency as crew member k (on board, signed in)."""
+    h = as_("k")
+    e = client.post("/api/emergencies", json={"responder": "k"}, headers=h).json()
+    client.post(f"/api/emergencies/{e['id']}", json={"protocol": protocol, "patient": patient}, headers=h)
+    return client.post(f"/api/emergencies/{e['id']}", json={"close": True, "outcome": outcome}, headers=h).json()
 
 
 def test_get_status_carries_the_operational_status_for_the_person():

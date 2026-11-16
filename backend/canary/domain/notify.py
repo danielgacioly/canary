@@ -168,6 +168,15 @@ def _notify_personal(crew_id: str, new: List[dict], evs: Dict[str, dict], ms: di
             _recipient(ev, "earth", "flight_surgeon", "level2", now, now + delay)
 
 
+def _by_system_level(a: dict, snap: dict) -> dict:
+    """The alert at the level of its body system (RULE-10: the system's colour is the one level source). An alert with no
+    system (a symptom) keeps its own level. The stored event then says the level the crew see on the body."""
+    sid = a.get("sys")
+    if sid and sid in snap["systems"]:
+        return {**a, "level": snap["systems"][sid]["level"]}
+    return a
+
+
 def run(ms: dict, crew_ids: Optional[List[str]] = None) -> Dict[str, int]:
     """Bring the stored events up to date with the alerts of every given person (everybody by default) and tell whoever must be
     told. Returns {"episodes": new critical events told, "opened": events opened, "closed": events closed}."""
@@ -178,7 +187,8 @@ def run(ms: dict, crew_ids: Optional[List[str]] = None) -> Dict[str, int]:
             continue
         cid = c["id"]
         snap = health.snapshot(cid, ms)
-        alerts = [a for a in snap["alerts"] if a["level"] >= 1 and not a.get("data")]
+        alerts = [_by_system_level(a, snap) for a in snap["alerts"] if not a.get("data")]
+        alerts = [a for a in alerts if a["level"] >= 1]
         keys = {a["id"] for a in alerts}
         evs = {e["key"]: e for e in (_load(r) for r in db.q("SELECT * FROM alert_events WHERE crew_id=? AND closed_at IS NULL", (cid,)))}
         before = {k: _fingerprint(e) for k, e in evs.items()}

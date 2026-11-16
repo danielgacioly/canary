@@ -12,7 +12,7 @@ export default function RadiationBar({ d, compact = false }: { d: CrewDetail; co
   const pri = Math.min(100, (100 * x.prior_msv) / limit)
   const mis = Math.min(100 - pri, (100 * x.mission_msv) / limit)
   const level = d.systems.skin?.level ?? 0
-  const url = catalog?.standards?.document.url
+  const url = catalog?.limits?.document.url ?? catalog?.standards?.document.url
   const storm = d.mission.storm
   return (
     <div className={`rad s${level} ${compact ? 'compact' : ''}`}>
@@ -29,7 +29,7 @@ export default function RadiationBar({ d, compact = false }: { d: CrewDetail; co
           </ul>
           <p className="small muted">
             NASA's career limit counts every flight (<a className="item" href={url} target="_blank" rel="noreferrer">V1 4030</a>).
-            {storm && <> A solar storm is active: the limit for one event is {catalog?.standards?.checked.radiation?.spe_msv as number ?? 250} mSv (<a className="item" href={url} target="_blank" rel="noreferrer">V1 4031</a>).</>}
+            {storm && <> A solar storm is active: the limit for one event is {catalog?.limits?.radiation.spe_msv ?? 250} mSv (<a className="item" href={url} target="_blank" rel="noreferrer">V1 4031</a>).</>}
           </p>
         </>
       )}

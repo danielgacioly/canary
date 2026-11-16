@@ -66,6 +66,14 @@ def validate(name: str, legs: List[dict]) -> dict:
             raise ValueError(f"leg {i + 1} ends before it starts")
         if i and l["start"] <= legs[i - 1]["end"]:
             raise ValueError(f"leg {i + 1} overlaps leg {i}")
+        if i and l["start"] != legs[i - 1]["end"] + 1:
+            raise ValueError(f"leg {i + 1} does not follow leg {i} on the next day: a day is missing between them")
+    # Before launch and after landing the plan says what happens: the days before the first leg count as Earth (pre-flight),
+    # the plan must reach launch day 0 with a leg that starts on it, and after its last day the last leg stays in force.
+    if legs[0]["start"] > 0:
+        raise ValueError("the plan must reach launch day 0: the first leg starts after it")
+    if not any(l["start"] == 0 for l in legs):
+        raise ValueError("a leg must start on launch day 0")
     return {"name": (name or "Mission plan")[:80], "legs": legs}
 
 

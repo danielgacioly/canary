@@ -2,6 +2,7 @@
 import type {
   AlertEvent, AlertEvents, AssistantAnswer, AssistantAuditEntry, AssistantStatus, Briefing, Catalog, CrewDetail, CrewList, CrewOverview, Emergency, OpenEmergency, GoalsResponse,
   CheckinResult, ControlDemo, GroundForm, PublicAccounts, RegisterOptions, DataStatus, ImportResult, NewSpaceEvent, SpaceEvent, ControlOverview, Leaderboard, Leg, MedGoal, MissionForm, MissionOverview, SeatForm, MedicalOverview, Message, Mission, Scene, PersonalRecord, Plan, PlanConditions, Protocols, ProtocolLibrary, ProtocolMatch, Suggestions, TestHistory, Rad, SpaceWeather,
+  CareEvent, CorrectionRequest,
 } from './types'
 
 /** One kind of sign-in per console: crew (a private space), medical (the medical console) or control (Canary Control). */
@@ -48,6 +49,14 @@ function sessionLost(path: string, status: number, token: string): boolean {
   return status === 403 && !(otherPerson && otherPerson[1] !== id)
 }
 
+/** Whether the server answered the last call (any HTTP answer counts). The offline banner listens for `canary:connection`. */
+let reachable = true
+function reach(ok: boolean) {
+  if (reachable === ok) return
+  reachable = ok
+  window.dispatchEvent(new CustomEvent('canary:connection', { detail: ok }))
+}
+
 async function req<T>(path: string, init?: RequestInit & { as?: Kind }): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const sent = pick(path, init?.method ?? 'GET', init?.as)
@@ -57,8 +66,10 @@ async function req<T>(path: string, init?: RequestInit & { as?: Kind }): Promise
   try {
     r = await fetch(`/api${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } })
   } catch {
+    reach(false)
     throw new ApiError(0, 'Canary is not reachable. Check the connection to the ship\'s server.')
   }
+  reach(true)
   if (!r.ok) {
     let detail: unknown = r.statusText
     try { detail = (await r.json()).detail ?? detail } catch { /* not json */ }
@@ -134,6 +145,8 @@ export const api = {
   },
   crewSignOut: () => endSession('crew'),
   hasCrewSession: () => tokens.crew !== undefined,
+  /** Anyone signed in to any console. Crew overview, leaderboard and photos need a sign-in: calls are made only then. */
+  signedIn: () => Object.keys(tokens).length > 0,
   changePin: (id: string, current: string, next: string) =>
     req<{ changed: boolean }>(`/crew/${id}/pin`, { method: 'PUT', ...body({ current, new: next }) }),
   crew: () => req<CrewList>('/crew'),
@@ -158,7 +171,7 @@ export const api = {
   protocols: () => req<Protocols>('/protocols'),
   protocolLibrary: () => req<ProtocolLibrary>('/protocols/library'),
   matchProtocol: (text: string) => req<ProtocolMatch>('/protocols/match', { method: 'POST', ...body({ text }) }),
-  startEmergency: (responder: string | null) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder }) }),
+  startEmergency: (responder: string | null, token?: string) => req<Emergency>('/emergencies', { method: 'POST', ...body({ responder, token }) }),
   emergenciesOpen: () => req<OpenEmergency[]>('/emergencies/open'),
   emergencyEvent: (id: number, e: { text?: string; protocol?: string; patient?: string; outcome?: string; close?: boolean; escalate?: boolean }) =>
     req<Emergency>(`/emergencies/${id}`, { method: 'POST', ...body(e) }),
@@ -224,4 +237,15 @@ export const api = {
   alertEvents: (openOnly = true) => req<AlertEvents>(`/alerts/events?open_only=${openOnly}`),
   /** The crew medical officer or a flight surgeon acknowledges an alert event (stops its escalation). */
   ackAlert: (id: number) => req<AlertEvent>(`/alerts/events/${id}/ack`, { method: 'POST' }),
+  /** The medical team records the review of a care window that is awaiting review (EMG-04). */
+  reviewCareWindow: (eid: number, resolution: string) => req<CareEvent>(`/medical/care-windows/${eid}/review`, { method: 'POST', ...body({ resolution }) }),
+  /** Medical team or Canary Control corrects a height (EDIT-01). The old value stays on record with the reason. */
+  correctHeight: (crew_id: string, value: number, reason: string) => req<unknown>(`/corrections/crew/${crew_id}/height`, { method: 'PUT', ...body({ value, reason }) }),
+  /** Medical team or Canary Control corrects one measurement by its observation id (EDIT-01). */
+  correctMeasurement: (obs_id: number, value: number, reason: string) => req<unknown>(`/corrections/measurements/${obs_id}`, { method: 'PUT', ...body({ value, reason }) }),
+  /** The crew member asks for a correction to their own record. Nothing changes until the medical team acts on it. */
+  requestCorrection: (crew_id: string, r: { field: string; target?: string | null; proposed?: unknown; reason: string }) =>
+    req<{ id: number; status: string }>(`/crew/${crew_id}/corrections`, { method: 'POST', ...body(r) }),
+  /** Open correction requests, oldest first (medical team or Canary Control). */
+  corrections: () => req<{ requests: CorrectionRequest[] }>('/corrections'),
 }

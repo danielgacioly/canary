@@ -7,11 +7,12 @@ import { Dot } from '../components/People'
 import Hazards from '../components/Hazards'
 import { Loading } from '../components/ui'
 import { protocolPath } from './Protocols'
-import { useApi, useSession } from '../state/session'
+import { useApi, useSession, useSignedApi } from '../state/session'
 
 export default function Crew() {
   const { me, catalog } = useSession()
-  const { data, error } = useApi(() => api.overview(), [])
+  const { data, error, locked } = useSignedApi(() => api.overview(), [])
+  if (locked) return <div className="page"><p className="waiting">Sign in to your space to see the crew.</p></div>
   const { data: plan } = useApi(() => api.plan(), [])
   const nav = useNavigate()
   if (error) return <div className="page"><p className="muted">Canary is not reachable. Check the connection to the ship's server.</p></div>

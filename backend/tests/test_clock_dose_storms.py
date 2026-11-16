@@ -312,7 +312,7 @@ def test_crew_wide_pages_never_show_a_personal_dosimeter_but_the_person_does():
     paths = ["/api/crew/overview", "/api/mission/overview", "/api/plan/conditions", "/api/leaderboard", "/api/space-weather"]
 
     def crew_wide():
-        out = {p: client.get(p).json() for p in paths}
+        out = {p: client.get(p, headers=ctl()).json() for p in paths}
         out["control"] = client.get("/api/control/overview", headers=ctl()).json()
         out["medical-list-dose"] = client.get("/api/crew", headers=medical()).json()["dose"]
         return out

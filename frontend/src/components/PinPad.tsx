@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError } from '../api/client'
 import { Icon } from './ui'
+import { Modal, ModalTitle } from './Modal'
 
 export interface PinPadProps {
   title: string
@@ -72,7 +73,7 @@ export default function PinPad({ title, subtitle, hint, onSubmit, onCancel }: Pi
 
   return (
     <div className={`pinpad ${wrong ? 'bad' : ''} ${busy ? 'busy' : ''}`} role="group" aria-label={title}>
-      <h2>{title}</h2>
+      <ModalTitle>{title}</ModalTitle>
       {subtitle && <p className="muted">{subtitle}</p>}
       <div className="pin-dots" role="img" aria-label={`${pin.length} of 4 digits entered`}>
         {[0, 1, 2, 3].map(i => <i key={i} className={i < pin.length ? 'on' : ''} />)}
@@ -92,11 +93,7 @@ export default function PinPad({ title, subtitle, hint, onSubmit, onCancel }: Pi
   )
 }
 
-/** A PinPad in a dialog over the page. Click outside or press Escape to close. */
+/** A PinPad in a dialog over the page. Click outside or press Escape to close. Its title names the dialog. */
 export function PinModal({ onCancel, children }: { onCancel: () => void; children: ReactNode }) {
-  return (
-    <div className="scrim" onClick={onCancel}>
-      <div className="modal pinmodal" onClick={e => e.stopPropagation()}>{children}</div>
-    </div>
-  )
+  return <Modal onClose={onCancel} className="pinmodal">{children}</Modal>
 }

@@ -13,10 +13,11 @@ import { GoalRow } from '../components/GoalItems'
 import { Dot, ProfilePicker } from '../components/People'
 import PinPad, { PinModal } from '../components/PinPad'
 import Trend from '../components/Trend'
+import RulesNote from '../components/RulesNote'
 import { Icon, Loading, Patch, Status, Tabs, WaitingForData } from '../components/ui'
 import Check, { type CheckKind } from '../features/Checks'
 import { ActionError } from '../components/Field'
-import { bonePctOfPreflight, learningNote, nasaLine, num, ORIGIN } from '../lib/health'
+import { assessWord, bonePctOfPreflight, learningNote, nasaLine, num, ORIGIN } from '../lib/health'
 import { squareJpeg } from '../lib/image'
 import { NO_MODEL } from '../lib/assistant'
 import { useAction } from '../lib/useAction'
@@ -51,7 +52,7 @@ function Inside({ me }: { me: string }) {
         <div className="grow"><h1>{person.name}</h1><p className="muted">{person.role}</p></div>
       </div>
       <Tabs value={tab} options={TABS} onChange={t => nav(t === 'health' ? '/me' : `/me/${t}`)} />
-      {tab === 'health' && <><BodyView d={d} onCheck={setCheck} /><BriefingsCard me={me} /></>}
+      {tab === 'health' && <><BodyView d={d} onCheck={setCheck} /><RulesNote review={d.rules_review} /><BriefingsCard me={me} /></>}
       {tab === 'goals' && <GoalsTab me={me} onCheck={setCheck} />}
       {tab === 'suggestions' && <SuggestionsTab me={me} />}
       {tab === 'dashboard' && <DashboardTab d={d} me={me} />}
@@ -197,6 +198,7 @@ function SuggestionsTab({ me }: { me: string }) {
         {s.protocol && <Link className="link" to={protocolPath(s.protocol)}>Protocol</Link>}
       </p>
       <ol className="steps">{s.steps.map(t => <li key={t}>{t}</li>)}</ol>
+      {s.guidance_note && <p className="small muted">{s.guidance_note}</p>}
       <div className="suggest-goal">
         {s.goal && <><span className="small muted">Goal for the next 7 days</span><b>{s.goal}</b></>}
         <div className="row wrap">
@@ -216,6 +218,12 @@ function SuggestionsTab({ me }: { me: string }) {
         <span className="small muted">Picked from your own numbers and where you are. {slot.note} Only you see them.</span>
       </div>
       <div className="suggest-list">{data.items.slice(0, TOP).map(card)}</div>
+      {data.withheld && data.withheld.length > 0 && (
+        <details className="suggest-more">
+          <summary>{data.withheld.length} withheld for you</summary>
+          <ul className="plain">{data.withheld.map(w => <li key={w.id}><b className="small">{w.title}</b> <span className="small muted">{w.reason}</span></li>)}</ul>
+        </details>
+      )}
       {data.items.length > TOP && (
         <details className="suggest-more">
           <summary>{data.items.length - TOP} more</summary>
@@ -233,6 +241,7 @@ const GROUPS: [string, string[]][] = [
 ]
 
 function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
+  const { catalog } = useSession()
   const { data: g } = useApi<GoalsResponse>(() => api.goals(me), [me])
   if (d.no_data) return <WaitingForData self name={d.crew.name.split(' ')[0]} />
   // A measure with no reading in the window gets no empty chart: it is named once, at the end.
@@ -252,7 +261,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
               const i = d.indicators[k]
               const bone = k === 'bone'  // shown as % of pre-flight, like the Health tab and NASA's line
               const pts: Pt[] = bone ? d.trends[k].map(([x, y]): Pt => [x, y === null ? null : 100 + y]) : d.trends[k]
-              const lim = nasaLine(k, i)
+              const lim = nasaLine(k, i, catalog?.limits)
               const normal = bone ? 100 : i.baseline
               return (
                 <figure key={k} className={`chart-card ${i.value === null ? 'nodata' : `s${i.level}`}`}>
@@ -263,7 +272,7 @@ function DashboardTab({ d, me }: { d: CrewDetail; me: string }) {
                   </figcaption>
                   <p className="small muted legend">
                     {normal === null ? <span>{learningNote(i) ?? 'No normal of your own yet'}</span> : <span><i className="key normal" />Your normal {bone ? '100 %' : `${num(i.baseline, i.dp)} ${i.unit}`}</span>}
-                    {i.value === null && i.last_measured_day !== null && <span>Last reading day {i.last_measured_day}</span>}
+                    {i.value === null && <span>{assessWord(i.assessment ?? 'insufficient_data')}{i.last_measured_day !== null && ` · last reading day ${i.last_measured_day}`}</span>}
                     {lim && <span><i className="key limit" />NASA limit {lim.text} <a className="item" href={lim.url} target="_blank" rel="noreferrer">source</a></span>}
                   </p>
                   <Trend pts={pts} color={name === 'Mental' ? 'var(--mental)' : 'var(--physical)'} baseline={normal ?? undefined} limit={lim?.y}
@@ -341,7 +350,7 @@ function InfoTab({ me }: { me: string }) {
   ]
   return (
     <div className="info">
-      <p className="goals-summary rise">From {r.registered_by}'s records<span className="dot-sep" />Only you and the medical team see it<span className="dot-sep" />To correct something, tell the flight surgeon</p>
+      <p className="goals-summary rise">From {r.registered_by}'s records<span className="dot-sep" />Only you and the medical team see it<span className="dot-sep" />To correct something, request it below</p>
       <div className="info-grid">
         {groups.map(([title, rows], i) => (
           <section key={title} className="info-group rise" style={{ ['--d' as string]: i + 1 }}>
@@ -350,7 +359,42 @@ function InfoTab({ me }: { me: string }) {
           </section>
         ))}
       </div>
+      <CorrectionAsk me={me} />
     </div>
+  )
+}
+
+/** EDIT-01: the crew asks for a correction. Nothing changes until the medical team or Canary Control acts on it. */
+function CorrectionAsk({ me }: { me: string }) {
+  const { toast } = useSession()
+  const [open, setOpen] = useState(false)
+  const [f, setF] = useState({ field: 'height_cm', proposed: '', reason: '' })
+  const send = useAction()
+  const reason = f.reason.trim()
+  const ok = reason.length >= 3 && reason.length <= 300 && (f.field !== 'height_cm' || (Number(f.proposed) >= 140 && Number(f.proposed) <= 210))
+  if (!open) return <p className="small"><button className="link-btn" onClick={() => setOpen(true)}>Request a correction</button></p>
+  return (
+    <form className="col correct-form" noValidate onSubmit={e => {
+      e.preventDefault()
+      if (ok) send.run(async () => {
+        await api.requestCorrection(me, { field: f.field, proposed: f.field === 'height_cm' ? Number(f.proposed) : f.proposed.trim() || null, reason })
+        toast('Correction requested. The medical team will act on it.')
+        setF({ field: 'height_cm', proposed: '', reason: '' }); setOpen(false)
+      })
+    }}>
+      <span className="lbl">Request a correction</span>
+      <select aria-label="What to correct" value={f.field} onChange={e => setF({ ...f, field: e.target.value, proposed: '' })}>
+        <option value="height_cm">Height</option><option value="mission_name">Mission name</option><option value="measurement">A measurement</option>
+      </select>
+      <input aria-label="Corrected value" inputMode={f.field === 'height_cm' ? 'numeric' : 'text'} value={f.proposed} onChange={e => setF({ ...f, proposed: e.target.value })}
+        placeholder={f.field === 'height_cm' ? 'Height in cm (140 to 210)' : 'The correct value'} />
+      <input aria-label="Why" maxLength={400} value={f.reason} onChange={e => setF({ ...f, reason: e.target.value })} placeholder="Why (3 to 300 characters)" />
+      <ActionError error={send.error} />
+      <div className="row wrap" style={{ gap: 8 }}>
+        <button className="btn sm pri" disabled={!ok || send.busy}>{send.busy ? 'Sending…' : 'Send request'}</button>
+        <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
   )
 }
 

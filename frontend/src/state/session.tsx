@@ -1,7 +1,7 @@
 // Shared app state: the mission clock, who entered their private space (no accounts), and a revision
 // counter that every screen watches to refetch after anything changes.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { Catalog, Mission, Scene } from '../api/types'
 import { applyPrefs, loadPrefs, savePrefs, type Prefs } from './prefs'
 
@@ -73,7 +73,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => { api.catalog().then(setCatalog).catch(() => undefined) }, [rev])  // Mission Control can re-register the crew
   useEffect(() => { api.mission().then(setMission).catch(() => undefined) }, [rev])
   useEffect(() => { api.scenes().then(setScenes).catch(() => setScenes([])) }, [rev])
-  useEffect(() => { api.photos().then(setPhotos).catch(() => undefined) }, [rev])
+  // Photos need a sign-in (the crew's own pages): nobody signed in gets none, and a refused call leaves none.
+  useEffect(() => {
+    if (!api.signedIn()) { setPhotos({}); return }
+    api.photos().then(setPhotos).catch(() => setPhotos({}))
+  }, [rev])
   useEffect(() => {
     applyPrefs(prefs)
     if (prefs.theme !== 'system' || typeof matchMedia !== 'function') return
@@ -117,6 +121,17 @@ export function useSession(): Session {
   const s = useContext(Ctx)
   if (!s) throw new Error('useSession outside SessionProvider')
   return s
+}
+
+/** Like useApi, for calls that need a sign-in: with nobody signed in the call is not made, and a 401 answer is `locked`
+ * (the screen says to sign in) instead of an error. */
+export function useSignedApi<T>(fn: () => Promise<T>, deps: unknown[] = []) {
+  const signed = api.signedIn()
+  const r = useApi<T | 'locked'>(() => (signed
+    ? fn().catch(e => { if (e instanceof ApiError && e.status === 401) return 'locked' as const; throw e })
+    : Promise.resolve('locked' as const)), [signed, ...deps])
+  const locked = !signed || r.data === 'locked'
+  return { data: locked ? null : (r.data as T | null), error: locked ? null : r.error, locked, setData: r.setData }
 }
 
 /** Fetch with the session revision as a dependency: any mutation anywhere refreshes every screen. */

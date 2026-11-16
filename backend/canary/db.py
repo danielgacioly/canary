@@ -8,7 +8,8 @@ scripts/load_mission.py); the engine reads them back through that module and not
 import json
 import sqlite3
 import threading
-from typing import Any, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional
 
 from .config import settings
 
@@ -86,6 +87,10 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS idempotency (
   device_id TEXT NOT NULL, key TEXT NOT NULL, body_hash TEXT NOT NULL, response TEXT NOT NULL, created_at REAL NOT NULL,
   PRIMARY KEY (device_id, key));
+CREATE TABLE IF NOT EXISTS correction_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, crew_id TEXT NOT NULL, field TEXT NOT NULL, target TEXT,
+  proposed TEXT NOT NULL, reason TEXT NOT NULL, requested_at REAL NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+  resolved_by TEXT, resolved_at REAL);
 DROP TABLE IF EXISTS notices;
 """
 
@@ -196,11 +201,15 @@ def q(sql: str, args: tuple = ()) -> list:
         return [dict(r) for r in hit]
 
 
+_tx_depth = 0  # > 0 inside transaction(): x() and write() leave the commit to the outer block
+
+
 def x(sql: str, args: tuple = ()) -> int:
     with _lock:
         c = connect()
         cur = c.execute(sql, args)
-        c.commit()
+        if not _tx_depth:
+            c.commit()
         _forget()
         return cur.lastrowid
 
@@ -210,9 +219,55 @@ def write(sql: str, args: tuple = ()) -> int:
     with _lock:
         c = connect()
         cur = c.execute(sql, args)
-        c.commit()
+        if not _tx_depth:
+            c.commit()
         _forget()
         return cur.rowcount
+
+
+@contextmanager
+def transaction() -> Iterator[sqlite3.Connection]:
+    """Several writes that stand or fall together: they commit at the end of the block, or none of them does (an exception
+    rolls the block back). x() and write() inside only execute; set_setting() too. Do not call audit.record() inside: it
+    commits on its own, so write the audit entry after the block."""
+    global _tx_depth
+    with _lock:
+        c = connect()
+        _tx_depth += 1
+        try:
+            yield c
+            if _tx_depth == 1:
+                c.commit()
+        except BaseException:
+            c.rollback()
+            raise
+        finally:
+            _tx_depth -= 1
+            _forget()
+
+
+@contextmanager
+def all_or_nothing() -> Iterator[sqlite3.Connection]:
+    """A load that is many writes across tables (a registration, the demo data): the whole database is put back as it was if
+    the block raises. A copy is taken in memory first, so it costs one copy of the database per call: use it for the big
+    start-overs, not for each request. Caches of other modules (the registry, the plan) must be reloaded by the caller."""
+    with _lock:
+        c = connect()
+        c.commit()
+        saved = sqlite3.connect(":memory:")
+        c.backup(saved)
+        try:
+            yield c
+            c.commit()
+        except BaseException:
+            c.rollback()
+            saved.backup(c)
+            _forget()
+            _bump_epoch()
+            raise
+        finally:
+            saved.close()
+            _forget()
 
 
 def get_setting(key: str, default: Any = None) -> Any:
@@ -228,7 +283,7 @@ def reset() -> None:
     with _lock:
         c = connect()
         # Children before parents: assistant_turns references assistant_log.
-        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "suggestion_feedback", "advice", "care_events", "observations", "space_events", "scenes", "audit_log", "medical_settings_history", "alert_events", "idempotency"):
+        for t in ("settings", "checkins", "checkin_photos", "goal_log", "medical_goals", "messages", "emergencies", "briefings", "assistant_turns", "assistant_log", "suggestion_feedback", "advice", "care_events", "observations", "space_events", "scenes", "audit_log", "medical_settings_history", "alert_events", "idempotency", "correction_requests"):
             c.execute(f"DELETE FROM {t}")
         c.commit()
         _forget()

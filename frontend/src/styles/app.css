@@ -21,9 +21,10 @@
   --mental: #a08af2;
   --gold: #e2b84f;
   --nasa-red: #fc3d21;
-  --f-display: "Archivo", system-ui, sans-serif;
-  --f-body: "Public Sans", system-ui, sans-serif;
-  --f-mono: "DM Mono", ui-monospace, monospace;
+  /* System font stacks: the app loads no fonts from another server (OPS-07). */
+  --f-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --f-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --f-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --r: 12px;
   --r-sm: 8px;
   color-scheme: dark;
@@ -1384,3 +1385,9 @@ body.has-alarm .topbar, body.has-alarm .control-top { top: 40px; }
 .briefings .briefing-row .brief-text { font-size: 12px; }
 .ask-who { align-self: flex-end; margin-bottom: -6px; }
 .ask-disclosure { padding: 0 2px 10px; }
+
+/* RULE-01 note, EDIT-01 correction forms (flat, at the end) */
+.rules-note { margin: 10px 0 0; }
+.correct-form { gap: 10px; max-width: 420px; }
+.correct-form input, .correct-form select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, #3334); background: transparent; color: inherit; }
+.correct-list { gap: 8px; }

@@ -7,16 +7,18 @@ carry a bare tuning constant.
 
 `table()` lists the entries for a review page or the README.
 """
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 PROTOTYPE = "Canary prototype assumption"
 NASA_STD = "NASA-STD-3001 Vol 1 Rev C (2023)"
+# Every entry starts here until a named reviewer checks it (RULE-01). The UI shows it next to the number.
+UNREVIEWED = "heuristic, unreviewed"
 
 ASSUMPTIONS: Dict[str, dict] = {}
 
 
-def _a(key: str, value: Any, unit: str, source: str = PROTOTYPE) -> None:
-    ASSUMPTIONS[key] = {"value": value, "unit": unit, "source": source}
+def _a(key: str, value: Any, unit: str, source: str = PROTOTYPE, reviewer: Optional[str] = None) -> None:
+    ASSUMPTIONS[key] = {"value": value, "unit": unit, "source": source, "reviewer": reviewer, "validation_status": UNREVIEWED}
 
 
 def value(key: str) -> Any:
@@ -24,7 +26,15 @@ def value(key: str) -> Any:
 
 
 def table() -> List[dict]:
+    """Every entry with its source, reviewer (None until one signs it) and validation_status."""
     return [{"key": k, **v} for k, v in sorted(ASSUMPTIONS.items())]
+
+
+def review_summary() -> dict:
+    """What the interface shows about the rule set as a whole: how many entries exist and how many have no reviewer yet."""
+    rows = table()
+    return {"total": len(rows), "reviewed": sum(1 for r in rows if r["reviewer"]), "unreviewed": sum(1 for r in rows if not r["reviewer"]),
+            "validation_status": UNREVIEWED}
 
 
 # ---------------------------------------------------------------- alert levels (statistics)
@@ -36,12 +46,24 @@ _a("baseline.min_points", 5, "readings", PROTOTYPE + ": readings needed before a
 _a("baseline.confidence_moderate", 10, "readings", PROTOTYPE + ": below this many baseline readings the confidence is low")
 _a("baseline.confidence_high", 20, "readings", PROTOTYPE + ": from this many baseline readings the confidence is high")
 _a("baseline.early_flight_days", 14, "days", PROTOTYPE + ": a person who starts in flight learns their normal from their first days of measurements")
+_a("baseline.policy_version", "baseline-1", "version", PROTOTYPE + ": written with every personal baseline; bump it when the method changes")
+_a("baseline.freeze", "launch", "event", PROTOTYPE + ": the pre-flight normal is frozen at launch; only the in-flight re-baseline (flight days 8 to 14) can add to it")
 _a("adaptation.first_day", 1, "flight day", PROTOTYPE + ": first flight day of the microgravity adaptation window")
 _a("adaptation.last_day", 14, "flight day", PROTOTYPE + ": last flight day of the adaptation window; indicators flagged adapts_in_flight raise no level-1 alert inside it")
 _a("adaptation.rebaseline_first", 8, "flight day", PROTOTYPE + ": first flight day of the in-flight re-baseline window")
 _a("adaptation.rebaseline_last", 14, "flight day", PROTOTYPE + ": last flight day of the in-flight re-baseline window")
 _a("adaptation.min_points", 4, "readings", PROTOTYPE + ": readings the in-flight re-baseline needs")
 _a("history.window_points", 30, "days", PROTOTYPE + ": how far back the level history (hysteresis, persistence) looks, at least")
+# Windows of the check-ins and the duration words (RULE-05, RULE-13). Boundaries are inclusive: a value exactly at a cut counts as past it.
+_a("window.wellbeing_days", 14, "days", PROTOTYPE + ": PHQ-2 / GAD-2 answers are read over this many days")
+_a("window.missing_mood_days", 3, "days", PROTOTYPE + ": no mood check-in for this many days counts as a missing signal")
+_a("window.sleepy_days", 1, "days", PROTOTYPE + ": the Karolinska self-rating is read on the day itself")
+_a("window.symptoms_days", 2, "days", PROTOTYPE + ": a symptom report is read over this many days")
+_a("score.round_dp", 2, "decimals", PROTOTYPE + ": risk scores are rounded to this many decimals; readiness is rounded to a whole point")
+_a("panel.recent_days", 60, "days", PROTOTYPE + ": an out-of-range exam is compared with the person's own readings over this many days before it (RULE-06)")
+_a("panel.worsening_pct", 10.0, "% of the recent own level", PROTOTYPE + ": an exam already out of range that moves this much further out counts as a new worsening (RULE-06)")
+_a("cardio.regravity_pattern", {"bp_direction": "low", "hr_direction": "high", "position": "standing"}, "text",
+   PROTOTYPE + ": the re-adaptation pattern is pressure below and pulse above the normal, on a standing reading (RULE-04)")
 
 # personal day-to-day spread floor per indicator (the baseline spread never goes below it)
 _a("indicator.sd", {"sleep": 0.5, "react": 18, "mood": 0.35, "stress": 0.4, "social": 15, "dsst": 4, "span": 0.5, "kss": 0.5, "tlx": 6,
